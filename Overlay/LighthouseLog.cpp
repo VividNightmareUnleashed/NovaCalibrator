@@ -174,6 +174,25 @@ bool ParseTimestamp(const std::string &line, double &unixTime)
 bool ParseLine(const std::string &line, Event &out)
 {
 	out = Event{};
+
+	// "Device LHR-x powering off ...": the only line that puts a word before
+	// the serial.
+	static const char device[] = "lighthouse: Device LHR-";
+	size_t off = line.find(device);
+	if (off != std::string::npos)
+	{
+		size_t serialStart = off + std::strlen("lighthouse: Device ");
+		size_t serialEnd = line.find(' ', serialStart);
+		if (serialEnd == std::string::npos ||
+			line.compare(serialEnd, std::strlen(" powering off"), " powering off") != 0)
+			return false;
+		out.serial = line.substr(serialStart, serialEnd - serialStart);
+		out.kind = Event::Kind::PoweredOff;
+		out.standby = line.find("standby", serialEnd) != std::string::npos;
+		out.timeKnown = ParseTimestamp(line, out.unixTime);
+		return true;
+	}
+
 	static const char marker[] = "lighthouse: LHR-";
 	size_t at = line.find(marker);
 	if (at == std::string::npos)
@@ -270,6 +289,16 @@ bool ParseLine(const std::string &line, Event &out)
 		out.kind = Event::Kind::BootstrapFailed;
 		std::string rest = body.substr(std::strlen("Trying to start tracking from base "));
 		out.stationId = ParseStationId(rest.substr(0, rest.find_first_of(": ")));
+		return true;
+	}
+	if (StartsWith(body, "Disconnected from receiver"))
+	{
+		out.kind = Event::Kind::Disconnected;
+		return true;
+	}
+	if (StartsWith(body, "Connected to receiver"))
+	{
+		out.kind = Event::Kind::Connected;
 		return true;
 	}
 	return false;

@@ -138,6 +138,31 @@ void ParserScenarios(Check check)
 	ok = lighthouselog::ParseLine("lighthouse: LHR-A3C36EA5 C: SOB: add S-5", e);
 	check("lighthouse log: a line without a stamp still parses",
 		ok && !e.timeKnown && e.channel == 5, "");
+
+	// The radio link, as the headset tracker's went on 2026-09-26: SteamVR
+	// switched it off after it sat still, the receiver let it go, and the
+	// player turned it back on two minutes later.
+	{
+		const std::string at = "Sat Sep 26 2026 23:47:20.560 [Info] - lighthouse: ";
+		Event off, gone, back, plainOff, receiver;
+		const bool offOk = lighthouselog::ParseLine(at + "Device LHR-D520226E powering off upon entering standby.", off);
+		const bool goneOk = lighthouselog::ParseLine(at + "LHR-D520226E: Disconnected from receiver 4BF089B604", gone);
+		const bool backOk = lighthouselog::ParseLine(at + "LHR-D520226E: Connected to receiver 4BF089B604", back);
+		const bool plainOk = lighthouselog::ParseLine(at + "Device LHR-D520226E powering off", plainOff);
+		const bool ignored =
+			!lighthouselog::ParseLine(at + "4BF089B604: Wireless controller LHR-D520226E disconnected", receiver) &&
+			!lighthouselog::ParseLine("Sat Sep 26 2026 23:47:20.560 [Info] - 9 - entering standby", receiver) &&
+			!lighthouselog::ParseLine(at + "Device LHR-D520226E is ready", receiver) &&
+			!lighthouselog::ParseLine(at + "LHR-D520226E C: Dropped 5 rejected updates, 122213 back-facing hits", receiver);
+		snprintf(detail, sizeof detail, "off %d (%s standby %d stamp %d) gone %d back %d plain %d (standby %d) ignored %d",
+			offOk, off.serial.c_str(), off.standby, off.timeKnown, goneOk, backOk, plainOk, plainOff.standby, ignored);
+		check("lighthouse log: power-off and receiver lines name the device",
+			offOk && off.kind == Event::Kind::PoweredOff && off.serial == "LHR-D520226E" && off.standby &&
+			off.timeKnown && !off.visibleKnown && off.channel < 0 &&
+			goneOk && gone.kind == Event::Kind::Disconnected && gone.serial == "LHR-D520226E" && !gone.standby &&
+			backOk && back.kind == Event::Kind::Connected && back.serial == "LHR-D520226E" &&
+			plainOk && plainOff.kind == Event::Kind::PoweredOff && !plainOff.standby && ignored, detail);
+	}
 }
 
 void TailerScenarios(Check check)
@@ -380,6 +405,75 @@ void VisibilityScenarios(Check check)
 		check("lighthouse state: a solution rebuilt from SECONDARY lines",
 			started.find("started a new solution from S-13") == 0 && oneHolds && twoClear && full &&
 			over && sobRules, detail);
+	}
+
+	// The radio link: a standby power-off is state and a note, never a
+	// disturbance or a restart (the device reports no pose to disturb), its
+	// reason survives the receiver's disconnect line, and the link coming
+	// back or any tracking line clears it. A replayed power-off sets the
+	// state but counts nothing.
+	{
+		LighthouseVisibility radio;
+		auto link = [&](K kind, bool standby, double t, bool historical = false)
+		{
+			Event e = Made(kind, "LHR-D520226E", -1, {}, historical);
+			e.standby = standby;
+			return radio.Apply(e, t);
+		};
+		radio.Apply(Made(K::StationAdded, "LHR-D520226E", 13, { 2, 13 }), 10.0);
+		const LighthouseVisibility::Device *t = radio.Find("LHR-D520226E");
+		const uint32_t disturbancesBefore = t->liveDisturbances;
+		const std::string off = link(K::PoweredOff, true, 100.0);
+		const std::string gone = link(K::Disconnected, false, 100.5);
+		const bool offState = t->off && t->standbyOff && t->standbyPowerOffs == 1 &&
+			t->liveDisturbances == disturbancesBefore && t->liveRestarts == 0 &&
+			t->lastPowerOff == 100.0 && gone.empty();
+		const std::string back = link(K::Connected, false, 243.0);
+		const bool backState = !t->off && !t->standbyOff && t->standbyPowerOffs == 1;
+
+		const std::string dropped = link(K::Disconnected, false, 300.0);
+		const bool droppedState = t->off && !t->standbyOff;
+		radio.Apply(Made(K::Bootstrapped, "LHR-D520226E", 13, {}), 305.0);   // no Connected line seen
+		const bool trackingClears = !t->off;
+
+		link(K::PoweredOff, true, 0.0, /*historical=*/true);
+		const bool replayed = t->off && t->standbyOff && t->standbyPowerOffs == 1;
+
+		snprintf(detail, sizeof detail, "off '%s' gone '%s' back '%s' dropped '%s', state %d %d %d %d %d",
+			off.c_str(), gone.c_str(), back.c_str(), dropped.c_str(), offState, backState, droppedState,
+			trackingClears, replayed);
+		check("lighthouse state: a standby power-off is the device's state, not a disturbance",
+			off == "switched off by SteamVR after sitting still" && back == "connected again" &&
+			dropped == "disconnected from its receiver" &&
+			offState && backState && droppedState && trackingClears && replayed, detail);
+	}
+
+	// A calibration waits for the lighthouse side to settle. The headset
+	// tracker's return on 2026-09-26, from 23:50:19 (0 s): tracking again,
+	// back to two stations, new solutions at 3 s and 7 s, three secondaries
+	// at 9 s. It was measured from 23:50:32 (13 s) and came out 1.2 deg off
+	// its mount; 15 s after the last new solution starts it at 22 s. A device
+	// down to one station waits however long ago it restarted.
+	{
+		LighthouseVisibility wait;
+		const char *tracker = "LHR-D520226E";
+		wait.Apply(Made(K::NoneSeen, tracker, 13, {}), -150.0);
+		wait.Apply(Made(K::StationAdded, tracker, 13, { 13 }), 0.0);
+		wait.Apply(Made(K::StationAdded, tracker, 2, { 2, 13 }), 2.0);
+		wait.Apply(Made(K::Bootstrapped, tracker, 11, {}), 3.0);
+		wait.Apply(Made(K::Bootstrapped, tracker, 13, {}), 7.0);
+		for (int station : { 3, 2, 11 })
+			wait.Apply(Made(K::SecondaryAdded, tracker, station, {}), 9.0);
+		const bool atSampling = wait.SettledFor(tracker, 13.0, 15.0);
+		const bool justBefore = wait.SettledFor(tracker, 21.9, 15.0);
+		const bool after = wait.SettledFor(tracker, 22.1, 15.0);
+		const bool unnamed = wait.SettledFor("LHR-00000000", 13.0, 15.0);
+		wait.Apply(Made(K::StationDropped, tracker, 3, { 13 }), 30.0);
+		const bool single = wait.SettledFor(tracker, 60.0, 15.0);
+		snprintf(detail, sizeof detail, "at 13 s %d, 21.9 s %d, 22.1 s %d; unnamed %d; one station %d",
+			atSampling, justBefore, after, unnamed, single);
+		check("lighthouse state: a calibration waits 15 s after the last new solution, and for two stations",
+			!atSampling && !justBefore && after && unnamed && !single, detail);
 	}
 
 	vis.Reset();

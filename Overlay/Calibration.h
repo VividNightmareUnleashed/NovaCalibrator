@@ -79,6 +79,17 @@ struct CalibrationProfileState
 	questcal::ContinuousAlignment::Deviation continuousDeviation;
 	double continuousScatterRotDeg = 0.0;
 	double continuousScatterPosM = 0.0;
+	// The headset tracker itself, apart from the loop's state: whether OpenVR
+	// has it connected at all (SteamVR switches a tracker off after it sits
+	// still for a while, as it does whenever the headset is off), whether it
+	// delivered a tracked pose within the last coast gap, and how often it went
+	// off this session. Refreshed by the continuous tick while armed. The
+	// headset's own stream the same way: the loop needs both, and a streamed
+	// headset pauses on its own (a Steam Link stream reset).
+	bool continuousTrackerConnected = true;
+	bool continuousTrackerSeen = true;
+	bool continuousHeadsetSeen = true;
+	uint32_t continuousTrackerOffEpisodes = 0;
 
 	uint32_t jumpsCompensated = 0;
 	uint32_t referenceGapEvents = 0;
@@ -253,6 +264,14 @@ struct CalibrationContext : CalibrationProfileState
 	// and the last one's log line, for the diagnostics export.
 	uint32_t lighthouseFrameMoves = 0;
 	std::string lastLighthouseFrameMove;
+	// Moves of the headset tracker's own frame the calibration followed at
+	// once (see RuntimeMonitorTick), and the last one's log line.
+	uint32_t trackerFrameCompensations = 0;
+	std::string lastTrackerFrameCompensation;
+	// Without the continuous loop, moves of the frame most calibrated trackers
+	// are in that the calibration followed, and the last one's log line.
+	uint32_t frameMovesFollowed = 0;
+	std::string lastFrameMoveFollowed;
 	// The optional modules the installer put in (Modules.h), read at startup.
 	questcal::Modules modules;
 	// Debounced persistence for runtime compensation updates: dirty records save

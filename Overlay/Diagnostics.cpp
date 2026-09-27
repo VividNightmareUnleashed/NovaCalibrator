@@ -282,6 +282,7 @@ std::string DescribeContinuousDiagnostics(const CalibrationContext &ctx, double 
 		<< ", universe jump " << resets(Reason::UniverseJump) << ", suspended " << resets(Reason::Suspended)
 		<< ", requested " << resets(Reason::Requested)
 		<< ", headset tracker lighthouse " << resets(Reason::TargetResolved)
+		<< ", headset tracker frame moved " << resets(Reason::TargetFrameMoved)
 		<< ", observation discontinuity " << engine.jumpGuardResets << "\n";
 	return out.str();
 }
@@ -447,6 +448,10 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 		for (uint32_t id : d.unmappedIds)
 			out << " " << LighthouseVisibility::IdName(id);
 		out << "; drops " << d.drops << ", losses " << d.losses << ", bootstraps " << d.bootstraps;
+		if (d.standbyPowerOffs > 0)
+			out << ", switched off by SteamVR's idle timeout " << d.standbyPowerOffs << " times";
+		if (d.off)
+			out << (d.standbyOff ? ", off (standby)" : ", off");
 		if (!d.lastDisturbanceText.empty())
 			out << "; last: " << d.lastDisturbanceText;
 		out << "\n";
@@ -455,6 +460,12 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 	out << "lighthouse frame moves: " << ctx.lighthouseFrameMoves;
 	if (!ctx.lastLighthouseFrameMove.empty())
 		out << " (last: " << ctx.lastLighthouseFrameMove << ")";
+	out << "\nheadset tracker frame moves compensated: " << ctx.trackerFrameCompensations;
+	if (!ctx.lastTrackerFrameCompensation.empty())
+		out << " (last: " << ctx.lastTrackerFrameCompensation << ")";
+	out << "\nframe moves followed for the calibrated trackers (no headset tracker): " << ctx.frameMovesFollowed;
+	if (!ctx.lastFrameMoveFollowed.empty())
+		out << " (last: " << ctx.lastFrameMoveFollowed << ")";
 	out << "\n\n";
 
 	out << "[driver synchronization]\n";
@@ -480,6 +491,10 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 	out << "\n";
 	out << "state: " << static_cast<int>(ctx.continuousState) << ", corrections applied: " << ctx.autoCorrectionsApplied
 		<< ", re-anchors: " << ctx.continuousReanchors << " (undone: " << ctx.continuousReanchorsUndone << ")\n";
+	out << "headset tracker: connected " << OnOff(ctx.continuousTrackerConnected)
+		<< ", seen " << OnOff(ctx.continuousTrackerSeen)
+		<< ", switched off " << ctx.continuousTrackerOffEpisodes << " times this session; headset seen "
+		<< OnOff(ctx.continuousHeadsetSeen) << "\n";
 	if (ctx.continuousDeviation.valid)
 		out << "deviation: yaw " << ctx.continuousDeviation.yawDeg << " deg, tilt " << ctx.continuousDeviation.tiltDeg
 			<< " deg, position " << ctx.continuousDeviation.posM * 100.0 << " cm; scatter "

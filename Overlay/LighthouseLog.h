@@ -22,10 +22,19 @@
 //   LHR-A3C36EA5 C: ----- BOOTSTRAPPED base F210FBA6 (best) distance 2.1m ... -----
 //   LHR-A3C36EA5 C: ----- SECONDARY base 4921060B distance 2.01m  -----
 //   LHR-A3C36EA5 C: Trying to start tracking from base D3D4E73B: Not enough ...
+//   Device LHR-A3C36EA5 powering off upon entering standby.
+//   LHR-A3C36EA5: Disconnected from receiver 4BF089B604
+//   LHR-A3C36EA5: Connected to receiver 4BF089B604
 //
 // Not every device prints the SOB lines. A VIVE Tracker 3.0 in a four-station
 // room (live 2026-09-25) printed none in six hours; after each bootstrap it
 // named the stations joining its new solution only in SECONDARY lines.
+//
+// The last three are the device's radio link. SteamVR switches a controller
+// or tracker off once it has not moved for its "Turn off controllers after"
+// time, 5 minutes unless changed; a headset tracker sits still whenever the
+// headset is off, and stays off when it goes back on (live 2026-09-26: 305 s
+// after the headset was set down).
 //
 // S-N is the station's channel; the hex in parentheses is the station id,
 // which equals the serial SteamVR stores for it (a leading zero is printed
@@ -49,6 +58,9 @@ struct Event
 		Bootstrapped,      // a fresh solution started from one station
 		BootstrapFailed,   // it tried to start one and could not
 		SecondaryAdded,    // a station joined a solution after its bootstrap (id only)
+		PoweredOff,        // SteamVR switched the device off (standby says why)
+		Disconnected,      // its radio link to the receiver dropped
+		Connected,         // its radio link came up
 	};
 	Kind kind = Kind::StationAdded;
 	std::string serial;              // "LHR-A3C36EA5"
@@ -60,6 +72,9 @@ struct Event
 	std::vector<int> visibleChannels;
 	std::vector<uint32_t> visibleIds;   // parallel to visibleChannels; 0 when unknown
 	bool generationChanged = false;
+	// PoweredOff: on entering standby, i.e. after sitting still, rather than
+	// for a reason the line does not give.
+	bool standby = false;
 	// Local wall-clock time printed on the line, as Unix seconds with the
 	// millisecond part; timeKnown is false when the prefix did not parse.
 	bool timeKnown = false;

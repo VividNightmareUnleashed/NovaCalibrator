@@ -33,6 +33,7 @@
 #include "../Overlay/UpdatePolicy.h"
 #include "../Overlay/DriverWorker.h"
 #include "../Overlay/JumpDetector.h"
+#include "../Overlay/LighthouseFrameWatch.h"
 #include "../Overlay/PersistenceState.h"
 #include "../Overlay/ProfileValidation.h"
 #include "../Overlay/ProfileRecordJson.h"
@@ -1490,6 +1491,102 @@ void RunPoseSampleScenarios()
 			!run.referenceUniverse.valid && !run.targetUniverse.valid &&
 			run.neutralizationSequence == 0 && run.referenceSamples.empty(),
 			"stable epochs accepted, changed epoch rejected, reset restores run defaults");
+	}
+	// The target's frame during a run: a tracker walking in station A's frame
+	// at 250 Hz; SteamVR re-solves A at 5 s (1.3 deg of tilt, 9 cm, as
+	// FD626122 moved), the pose is re-expressed in station B's frame at 6 s,
+	// and at 7 s the frame changes as the pose jumps 10 cm. Every sample put
+	// back in the start frame lies on the walk; the solve, carried, maps the
+	// ended frame as it mapped the start one; the jump stops the run.
+	{
+		using TargetFrame = CalibrationRun::TargetFrame;
+		const Eigen::Quaterniond stationA(Eigen::AngleAxisd(0.5, Eigen::Vector3d(0.2, 1.0, -0.1).normalized()));
+		const Eigen::Vector3d stationATrans(-2.6, 2.2, -0.3);
+		const Eigen::Quaterniond stationB(Eigen::AngleAxisd(-2.1, Eigen::Vector3d(0.1, 1.0, 0.3).normalized()));
+		const Eigen::Vector3d stationBTrans(1.4, 2.3, -3.9);
+		const Eigen::Quaterniond moveRot = (Eigen::AngleAxisd(0.5 * EIGEN_PI / 180.0, Eigen::Vector3d::UnitY()) *
+			Eigen::AngleAxisd(1.3 * EIGEN_PI / 180.0, Eigen::Vector3d::UnitX())).normalized();
+		const Eigen::Vector3d moveTrans(0.09, 0.01, -0.05);
+		const Eigen::Vector3d walk(0.2, 0.0, 0.1);
+		// World (start frame) pose along the walk.
+		auto startWorld = [&](double t, Eigen::Quaterniond &rot, Eigen::Vector3d &pos)
+		{
+			rot = (stationA * Eigen::Quaterniond(Eigen::AngleAxisd(0.3, Eigen::Vector3d::UnitY()))).normalized();
+			pos = stationA * (Eigen::Vector3d(0.5, -1.0, 2.5) + walk * t) + stationATrans;
+		};
+		TargetFrame frame;
+		int moved = 0, changed = 0;
+		double worst = 0.0;
+		bool carried = false;
+		for (int i = 0; i <= 8 * 250; ++i)
+		{
+			const double t = i / 250.0;
+			// The frame the tracker is reported in, and its local pose there.
+			Eigen::Quaterniond wfdRot = stationA;
+			Eigen::Vector3d wfdTrans = stationATrans;
+			if (t >= 5.0)
+			{
+				wfdRot = (moveRot * stationA).normalized();
+				wfdTrans = moveRot * stationATrans + moveTrans;
+			}
+			Eigen::Quaterniond startRot;
+			Eigen::Vector3d startPos;
+			startWorld(t, startRot, startPos);
+			// Where the moved frame puts it (the local pose never jumps).
+			Eigen::Quaterniond localRot = (stationA.conjugate() * startRot).normalized();
+			Eigen::Vector3d localPos = stationA.conjugate() * (startPos - stationATrans);
+			Eigen::Vector3d localVel = stationA.conjugate() * (stationA * walk);
+			if (t >= 6.0)
+			{
+				// The same world pose, re-expressed in station B's frame.
+				const Eigen::Quaterniond worldRot = (wfdRot * localRot).normalized();
+				const Eigen::Vector3d worldPos = wfdRot * localPos + wfdTrans;
+				const Eigen::Vector3d worldVel = wfdRot * localVel;
+				wfdRot = stationB;
+				wfdTrans = stationBTrans;
+				localRot = (stationB.conjugate() * worldRot).normalized();
+				localPos = stationB.conjugate() * (worldPos - stationBTrans);
+				localVel = stationB.conjugate() * worldVel;
+			}
+			if (t >= 7.0)
+			{
+				wfdTrans += Eigen::Vector3d(0.3, 0.0, 0.0);
+				localPos += Eigen::Vector3d(0.1, 0.0, 0.0);
+			}
+			const ringpose::DriverLocalPoseSample local{ t, localRot, localPos, localVel, Eigen::Vector3d::Zero() };
+			const TargetFrame::Verdict verdict = frame.Accept(local, wfdRot, wfdTrans);
+			if (verdict == TargetFrame::Verdict::Changed)
+			{
+				++changed;
+				break;
+			}
+			moved += verdict == TargetFrame::Verdict::Moved ? 1 : 0;
+			PoseSample s;
+			s.time = t;
+			s.rot = (wfdRot * localRot).normalized();
+			s.pos = wfdRot * localPos + wfdTrans;
+			frame.ToStart(s);
+			worst = std::max(worst, (s.pos - startPos).norm() + s.rot.angularDistance(startRot));
+
+			if (i == 1600)   // 6.4 s: after the move and the re-expression
+			{
+				Eigen::Quaterniond calRot(Eigen::AngleAxisd(-1.9, Eigen::Vector3d(0.02, 1.0, 0.01).normalized()));
+				Eigen::Vector3d calTrans(-0.98, 2.0, -1.98);
+				const double scale = 1.03;
+				const Eigen::Vector3d mapped = calRot * (scale * startPos) + calTrans;
+				Eigen::Quaterniond carriedRot = calRot;
+				Eigen::Vector3d carriedTrans = calTrans;
+				frame.CarryCalibration(carriedRot, carriedTrans, scale);
+				const Eigen::Vector3d now = wfdRot * localPos + wfdTrans;
+				carried = (carriedRot * (scale * now) + carriedTrans - mapped).norm() < 1e-9 &&
+					(carriedRot * (wfdRot * localRot)).angularDistance(calRot * startRot) < 1e-9;
+			}
+		}
+		char detail[128];
+		snprintf(detail, sizeof detail, "moves %d, stops %d, worst start-frame error %.2e, carried %d",
+			moved, changed, worst, carried ? 1 : 0);
+		Check("calibration run: a station re-solved mid-run is measured through; a jump still stops it",
+			moved == 1 && frame.moves == 1 && changed == 1 && worst < 1e-9 && carried, detail);
 	}
 	Check("profile identity: physical HMD ownership",
 		ProfileHmdIdentityMatches("quest-pro-A", "quest-pro-A") &&
@@ -5260,6 +5357,51 @@ void RunContinuousScenarios()
 			rotErr, posErr * 1000.0, e.pairs, eWobble.rotRmsDeg);
 		Check("continuous: extrinsic + rigidity gate",
 			ok && rotErr < 0.1 && posErr < 0.002 && !okWobble && !eWobble.valid, detail);
+
+		// A calibration that could not re-measure the mount, checked against
+		// the kept one on its own samples. A solve tilted 1.2 deg about the
+		// head (the 23:50 calibration of 2026-09-26 read 1.1 to 1.3 deg) gives
+		// way to the mount's reading, which is the truth; so does an exact
+		// one. One 3 deg off in yaw, or read with a mount the tracker has
+		// moved 3 deg away from, is left standing.
+		MountExtrinsic kept = e;
+		const Eigen::Vector3d head(0.0, 1.25, 0.0);
+		auto turnedAboutHead = [&](const Eigen::Quaterniond &turn, Eigen::Quaterniond &rot, Eigen::Vector3d &trans)
+		{
+			rot = (turn * baseTruth.rotation).normalized();
+			trans = turn * (baseTruth.translation - head) + head;
+		};
+		Eigen::Quaterniond tiltedRot, yawedRot;
+		Eigen::Vector3d tiltedTrans, yawedTrans;
+		turnedAboutHead(Eigen::Quaterniond(Eigen::AngleAxisd(1.2 * EIGEN_PI / 180.0, Eigen::Vector3d(0.8, 0.0, 0.6))),
+			tiltedRot, tiltedTrans);
+		turnedAboutHead(Eigen::Quaterniond(Eigen::AngleAxisd(3.0 * EIGEN_PI / 180.0, Eigen::Vector3d::UnitY())),
+			yawedRot, yawedTrans);
+		MountExtrinsic moved = kept;
+		moved.rot = (kept.rot * Eigen::Quaterniond(Eigen::AngleAxisd(3.0 * EIGEN_PI / 180.0,
+			Eigen::Vector3d(0.3, 0.9, 0.3).normalized()))).normalized();
+		const auto tilted = ContinuousAlignment::ReadWithMount(ref, tgt, kept, tiltedRot, tiltedTrans,
+			baseTruth.scale, baseTruth.latency);
+		const auto exact = ContinuousAlignment::ReadWithMount(ref, tgt, kept, baseTruth.rotation,
+			baseTruth.translation, baseTruth.scale, baseTruth.latency);
+		const auto yawed = ContinuousAlignment::ReadWithMount(ref, tgt, kept, yawedRot, yawedTrans,
+			baseTruth.scale, baseTruth.latency);
+		const auto remounted = ContinuousAlignment::ReadWithMount(ref, tgt, moved, baseTruth.rotation,
+			baseTruth.translation, baseTruth.scale, baseTruth.latency);
+		const double readingErr = tilted.rotation.angularDistance(baseTruth.rotation) * 180.0 / EIGEN_PI;
+		double headErr = (tilted.rotation * baseTruth.rotation.conjugate() * head +
+			tilted.translation - tilted.rotation * baseTruth.rotation.conjugate() * baseTruth.translation - head).norm();
+		snprintf(detail, sizeof detail,
+			"tilted: adopt %d, read %.2f deg tilt off the solve, %.3f deg / %.1f mm from truth, scatter %.2f deg, %zu readings; "
+			"exact: adopt %d; 3 deg yaw: adopt %d (%.2f deg); moved mount: adopt %d (%.2f deg, scatter %.2f deg)",
+			tilted.adopt, tilted.fromSolve.tiltDeg, readingErr, headErr * 1000.0, tilted.scatterRotDeg, tilted.observations,
+			exact.adopt, yawed.adopt, yawed.fromSolve.yawDeg, remounted.adopt,
+			remounted.fromSolve.yawDeg + remounted.fromSolve.tiltDeg, remounted.scatterRotDeg);
+		Check("calibration: a solve that disagrees with the kept mount gives way to its reading, within the freeze band",
+			tilted.valid && tilted.adopt && std::abs(tilted.fromSolve.tiltDeg - 1.2) < 0.15 &&
+			readingErr < 0.1 && headErr < 0.003 &&
+			exact.valid && exact.adopt && exact.fromSolve.tiltDeg < 0.1 &&
+			yawed.valid && !yawed.adopt && remounted.valid && !remounted.adopt, detail);
 	}
 
 	// 2. Frame-convention keystone: start the calibration a known small delta
@@ -6427,6 +6569,196 @@ void RunContinuousScenarios()
 				sim.reanchors == 1 && sim.lastReanchorTime < 70.0 && faultTilt > 3.0 &&
 				sim.undos == 1 && sim.lastUndoTime > 80.0 && sim.lastUndoTime < 100.0 &&
 				yawErr < 0.3 && tiltErr < 0.3 && posErr < 0.01 &&
+				sim.ca.GetState() == ContinuousAlignment::State::Tracking, detail);
+		}
+
+		// SteamVR moves the base station the headset tracker is reported
+		// against (LighthouseFrameWatch.h): every target pose moves by one
+		// exact delta F, so the truth becomes truth o F^-1. The overlay
+		// compensates the calibration by it at once and tells the loop.
+		auto frameMoved = [](const GroundTruth &g, const LighthouseFrameWatch::Move &f)
+		{
+			GroundTruth out = g;
+			const Eigen::Quaterniond fInv = f.rotation.conjugate();
+			out.rotation = (g.rotation * fInv).normalized();
+			out.translation = g.translation - g.scale * (g.rotation * (fInv * f.translation));
+			return out;
+		};
+		auto compensate = [](ContinuousSim &sim, const LighthouseFrameWatch::Move &f)
+		{
+			Eigen::Quaterniond dR;
+			Eigen::Vector3d dT;
+			LighthouseFrameWatch::CompensatingDelta(sim.calRot, sim.calTrans, sim.calScale, f, dR, dT);
+			sim.calRot = (dR * sim.calRot).normalized();
+			sim.calTrans = dR * sim.calTrans + dT;
+			sim.ca.NoteTargetFrameMoved(f.rotation, f.translation, sim.calScale);
+		};
+		// 00:42:09 on 2026-09-26: yaw 0.34 deg, tilt 1.25 deg, 6.6 cm.
+		LighthouseFrameWatch::Move stationMove;
+		stationMove.rotation = (Eigen::AngleAxisd(0.34 * EIGEN_PI / 180.0, Eigen::Vector3d::UnitY()) *
+			Eigen::AngleAxisd(1.25 * EIGEN_PI / 180.0, Eigen::Vector3d(0.8, 0.0, 0.6))).normalized();
+		stationMove.translation = Eigen::Vector3d(0.045, -0.02, 0.044);
+
+		// Alone, the loop freezes on the 6.7 cm the move put at the head and is
+		// still that far off 40 s later, waiting out the re-anchor's confirm;
+		// compensated, nothing is left to correct, tilt included.
+		{
+			auto movedAt30 = [&](double t) { return t >= 30.0 ? frameMoved(baseTruth, stationMove) : baseTruth; };
+			const GroundTruth after = frameMoved(baseTruth, stationMove);
+
+			std::mt19937 rngAlone(2511);
+			ContinuousSim alone;
+			makeSim(alone, baseTruth);
+			RunContinuousSegment(alone, scene, 0.0, 70.0, rngAlone, movedAt30, constMount, alwaysVisible);
+			double aloneYaw = 0.0, alonePos = 0.0;
+			CalError(alone, after, 70.0, aloneYaw, alonePos);
+			const double aloneTilt = CalTiltDeg(alone, after);
+
+			std::mt19937 rng(2511);
+			ContinuousSim sim;
+			makeSim(sim, baseTruth);
+			RunContinuousSegment(sim, scene, 0.0, 30.02, rng, movedAt30, constMount, alwaysVisible);
+			compensate(sim, stationMove);
+			sim.afterMark = 30.02;
+			sim.maxCorrPosM = 0.0;
+			sim.maxCorrRotDeg = 0.0;
+			double worstTilt = 0.0;
+			RunContinuousSegment(sim, scene, 30.02, 70.0, rng, movedAt30, constMount, alwaysVisible,
+				nullptr, false,
+				[&](double t)
+				{
+					if (t >= 31.0)
+						worstTilt = std::max(worstTilt, CalTiltDeg(sim, after));
+				});
+			double yawErr = 0.0, posErr = 0.0;
+			CalError(sim, after, 70.0, yawErr, posErr);
+			snprintf(detail, sizeof detail,
+				"alone: freezes %d, at 70 s %.3f deg tilt, %.3f deg / %.1f mm; compensated: worst tilt %.3f deg, "
+				"end %.3f deg / %.1f mm, %d corrections after, largest %.1f mm, freezes %d, state %d",
+				alone.freezes, aloneTilt, aloneYaw, alonePos * 1000.0, worstTilt, yawErr, posErr * 1000.0,
+				sim.correctionsAfter, sim.maxCorrPosM * 1000.0, sim.freezes, static_cast<int>(sim.ca.GetState()));
+			Check("continuous: a move of the headset tracker's frame is followed at once, tilt included",
+				alone.freezes == 1 && aloneTilt > 1.1 && alonePos > 0.05 &&
+				worstTilt < 0.1 && yawErr < 0.12 && posErr < 0.005 &&
+				sim.maxCorrPosM < 0.005 && sim.freezes == 0 &&
+				sim.ca.GetState() == ContinuousAlignment::State::Tracking, detail);
+		}
+
+		// The same kind of move twice around the fault above (from 20 s to
+		// 100 s this time): during its freeze at 40 s, which stands and still
+		// re-anchors, and after the re-anchor at 85 s, which the calibration it
+		// replaced moves with, so the undo once the fault clears lands on the
+		// moved frame's truth rather than the old one.
+		{
+			auto truthAt = [&](double t)
+			{
+				GroundTruth g = t >= 20.0 && t < 100.0 ? faulted : baseTruth;
+				if (t >= 40.0)
+					g = frameMoved(g, stationMove);
+				if (t >= 85.0)
+					g = frameMoved(g, stationMove);
+				return g;
+			};
+			const GroundTruth end = truthAt(160.0);
+			std::mt19937 rng(2512);
+			ContinuousSim sim;
+			makeSim(sim, baseTruth);
+			RunContinuousSegment(sim, scene, 0.0, 40.02, rng, truthAt, constMount, alwaysVisible);
+			const bool frozenBefore = sim.ca.GetState() == ContinuousAlignment::State::Frozen;
+			compensate(sim, stationMove);
+			const bool frozenKept = sim.ca.GetState() == ContinuousAlignment::State::Frozen;
+			RunContinuousSegment(sim, scene, 40.02, 85.02, rng, truthAt, constMount, alwaysVisible);
+			const int reanchorsBefore = sim.reanchors;
+			const double reanchorTime = sim.lastReanchorTime;
+			compensate(sim, stationMove);
+			bool noted = false;
+			RunContinuousSegment(sim, scene, 85.02, 160.0, rng, truthAt, constMount, alwaysVisible,
+				nullptr, false,
+				[&](double t)
+				{
+					if (!noted && t >= 100.3)
+					{
+						noted = true;
+						sim.ca.NoteTargetResolved(t);
+					}
+					sim.ca.SetTargetSettling(t >= 100.3 && t < 110.3);
+				});
+			double yawErr = 0.0, posErr = 0.0;
+			CalError(sim, end, 160.0, yawErr, posErr);
+			const double tiltErr = CalTiltDeg(sim, end);
+			snprintf(detail, sizeof detail,
+				"frozen before %d, kept %d; re-anchors %d at %.1f s; undone %d at %.1f s; after: %.3f deg yaw, "
+				"%.3f deg tilt, %.1f mm, state %d",
+				frozenBefore, frozenKept, reanchorsBefore, reanchorTime, sim.undos, sim.lastUndoTime,
+				yawErr, tiltErr, posErr * 1000.0, static_cast<int>(sim.ca.GetState()));
+			Check("continuous: a frame move keeps a freeze and moves the calibration a re-anchor replaced",
+				frozenBefore && frozenKept && reanchorsBefore == 1 && reanchorTime > 44.0 && reanchorTime < 85.0 &&
+				sim.reanchors == 1 && sim.undos == 1 && sim.lastUndoTime > 110.0 && sim.lastUndoTime < 130.0 &&
+				yawErr < 0.3 && tiltErr < 0.3 && posErr < 0.01 &&
+				sim.ca.GetState() == ContinuousAlignment::State::Tracking, detail);
+		}
+
+		// SteamVR switches the headset tracker off at 20 s and re-solves the
+		// station it is reported against twice before it is back at 200 s (a
+		// restart, settling until 210.3 s), as on 2026-09-26 when eight moves
+		// and a universe tilt reset came in its 2.5 minutes off. Alone, the loop
+		// freezes on the two moves, puts them down to the restart and holds the
+		// freeze to the end; with the moves read off the station and followed
+		// as the tracker comes back, there is nothing to freeze on.
+		{
+			LighthouseFrameWatch::Move both = stationMove;
+			both.rotation = (stationMove.rotation * stationMove.rotation).normalized();
+			both.translation = stationMove.rotation * stationMove.translation + stationMove.translation;
+			auto truthAt = [&](double t)
+			{
+				GroundTruth g = baseTruth;
+				if (t >= 60.0)
+					g = frameMoved(g, stationMove);
+				if (t >= 120.0)
+					g = frameMoved(g, stationMove);
+				return g;
+			};
+			const GroundTruth end = truthAt(500.0);
+			auto offFrom20To200 = [](double t) { return t < 20.0 || t >= 200.0; };
+			auto restartAt200 = [](ContinuousSim &s)
+			{
+				return [&s](double t)
+				{
+					if (t >= 200.3 && t < 200.32)
+						s.ca.NoteTargetResolved(t);
+					s.ca.SetTargetSettling(t >= 200.3 && t < 210.3);
+				};
+			};
+
+			std::mt19937 rngAlone(2513);
+			ContinuousSim alone;
+			makeSim(alone, baseTruth);
+			RunContinuousSegment(alone, scene, 0.0, 500.0, rngAlone, truthAt, constMount, offFrom20To200,
+				nullptr, false, restartAt200(alone));
+			double aloneYaw = 0.0, alonePos = 0.0;
+			CalError(alone, end, 500.0, aloneYaw, alonePos);
+
+			std::mt19937 rng(2513);
+			ContinuousSim sim;
+			makeSim(sim, baseTruth);
+			RunContinuousSegment(sim, scene, 0.0, 200.0, rng, truthAt, constMount, offFrom20To200,
+				nullptr, false, restartAt200(sim));
+			compensate(sim, both);
+			RunContinuousSegment(sim, scene, 200.0, 500.0, rng, truthAt, constMount, offFrom20To200,
+				nullptr, false, restartAt200(sim));
+			double yawErr = 0.0, posErr = 0.0;
+			CalError(sim, end, 500.0, yawErr, posErr);
+			const double tiltErr = CalTiltDeg(sim, end);
+			snprintf(detail, sizeof detail,
+				"alone: freezes %d (put down to the restart %d), re-anchors %d, state %d, at 500 s %.1f mm off; "
+				"followed: freezes %d, re-anchors %d, %.3f deg / %.3f deg tilt / %.1f mm, state %d",
+				alone.freezes, alone.resolveFreezes, alone.reanchors, static_cast<int>(alone.ca.GetState()),
+				alonePos * 1000.0, sim.freezes, sim.reanchors, yawErr, tiltErr, posErr * 1000.0,
+				static_cast<int>(sim.ca.GetState()));
+			Check("continuous: station moves while the headset tracker was off are followed when it is back",
+				alone.freezes == 1 && alone.resolveFreezes == 1 && alone.reanchors == 0 &&
+				alone.ca.GetState() == ContinuousAlignment::State::Frozen && alonePos > 0.08 &&
+				sim.freezes == 0 && sim.reanchors == 0 && yawErr < 0.12 && tiltErr < 0.1 && posErr < 0.005 &&
 				sim.ca.GetState() == ContinuousAlignment::State::Tracking, detail);
 		}
 

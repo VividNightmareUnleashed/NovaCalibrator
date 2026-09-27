@@ -573,6 +573,23 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 		check("detailed log: the digest waits a minute between lines", digest.Flush(90.0).empty(), "next line at 121 s");
 	}
 
+	// The continuous loop's loss message names the stream that stopped. At
+	// 22:04:24 on 2026-09-26 the headset's (a Steam Link stream reset) had
+	// been gone 2.3 s while the tracker's kept coming.
+	{
+		using ringpose::StoppedStream;
+		const double now = 1000.0;
+		const bool named =
+			ringpose::WhichStreamStopped(now, now - 2.3, now - 0.002) == StoppedStream::Headset &&
+			ringpose::WhichStreamStopped(now, now - 0.003, now - 2.1) == StoppedStream::Tracker &&
+			ringpose::WhichStreamStopped(now, now - 2.3, now - 2.1) == StoppedStream::Both &&
+			ringpose::WhichStreamStopped(now, now - 0.003, now - 0.002) == StoppedStream::Neither &&
+			// A stream never accepted this session has stopped.
+			ringpose::WhichStreamStopped(now, 0.0, now - 0.002) == StoppedStream::Headset &&
+			ringpose::WhichStreamStopped(now, std::nan(""), now - 0.002) == StoppedStream::Headset;
+		check("continuous loss: the stream that stopped is the one named", named, "");
+	}
+
 	// The lighthouse frame watch. Three base stations publish every 0.5 s
 	// (identity local pose, worldFromDriver = their pose); the headset
 	// tracker (9) walks and a second tracker (10) stands still, both in
@@ -621,6 +638,7 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 		{
 			std::vector<LighthouseFrameWatch::Report> reports;
 			std::string line;
+			std::vector<LighthouseFrameWatch::Move> moves;
 		};
 		// `moves`: universe moves; `reexpressAt`: tracker 10 changes to station
 		// 2's frame without moving; `jumpAt`: tracker 9's local pose jumps 30 cm.
@@ -664,6 +682,8 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 					out.reports.push_back(r);
 					out.line = LighthouseFrameWatch::Describe(r, 9);
 				}
+				for (const auto &m : watch.TakeMoves())
+					out.moves.push_back(m);
 			}
 			return out;
 		};
@@ -716,5 +736,219 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 		check("lighthouse frame: a station refined by millimetres stays in the detailed log",
 			!LighthouseFrameWatch::Notable(refined) &&
 			!moved.reports.empty() && LighthouseFrameWatch::Notable(moved.reports[0]), "");
+
+		// Each tracker whose frame moved is handed out at once with its own
+		// exact delta; base stations are not, and neither is a pose that was
+		// only re-expressed. One whose own pose jumped with the move is handed
+		// out with the frame's delta once another device shows the frame moved
+		// (its own jump stays with the loop).
+		{
+			auto movesOf = [](const Result &r, uint32_t id)
+			{
+				std::vector<LighthouseFrameWatch::Move> out;
+				for (const auto &m : r.moves)
+					if (m.id == id)
+						out.push_back(m);
+				return out;
+			};
+			auto exact = [&](const LighthouseFrameWatch::Move &m)
+			{
+				return m.rotation.angularDistance(delta.first) < 1e-9 &&
+					(m.translation - delta.second).norm() < 1e-9 && m.time >= 5.0 && m.time < 5.01;
+			};
+			const auto tracker = movesOf(moved, 9);
+			const auto still = movesOf(moved, 10);
+			const bool universe = moved.moves.size() == 2 && tracker.size() == 1 && still.size() == 1 &&
+				exact(tracker[0]) && exact(still[0]) && tracker[0].shiftM > 1.0;
+			const bool twoApart = twice.moves.size() == 4 && movesOf(twice, 9).size() == 2;
+			const bool none = reexpressed.moves.empty() && jumped.moves.empty();
+			const auto jumpedWith = movesOf(both, 9);
+			const bool apart = jumpedWith.size() == 1 && jumpedWith[0].ownJump && !jumpedWith[0].returned &&
+				exact(jumpedWith[0]) && movesOf(both, 10).size() == 1 && !tracker.empty() && !tracker[0].ownJump;
+			char buf[160];
+			snprintf(buf, sizeof buf, "moves %zu (tracker %zu, still %zu), twice %zu, re-expressed %zu, jumped %zu, both %zu",
+				moved.moves.size(), tracker.size(), still.size(), twice.moves.size(),
+				reexpressed.moves.size(), jumped.moves.size(), both.moves.size());
+			check("lighthouse frame: a moved tracker's own delta is handed out at once",
+				universe && twoApart && none && apart, buf);
+		}
+
+		// The delta the calibration takes for a move keeps every device in the
+		// moved frame where the calibration put it, scale included, and turns
+		// the calibration by the move's own tilt.
+		{
+			Pose cal(rot(-112, 1.5), Eigen::Vector3d(-0.98, 2.0, -1.98));
+			const double scale = 1.03;
+			LighthouseFrameWatch::Move move;
+			move.rotation = Eigen::Quaterniond(Eigen::AngleAxisd(1.66 * deg,
+				Eigen::Vector3d(0.3, 0.2, 0.9).normalized()));
+			move.translation = Eigen::Vector3d(0.07, -0.02, 0.09);
+			Eigen::Quaterniond dR;
+			Eigen::Vector3d dT;
+			LighthouseFrameWatch::CompensatingDelta(cal.first, cal.second, scale, move, dR, dT);
+			const Pose next((dR * cal.first).normalized(), dR * cal.second + dT);
+			double worst = 0.0;
+			const Eigen::Vector3d points[] = { { 0.25, 1001.6, 0.08 }, { -0.5, 0.65, -2.0 },
+				{ 2.0, -1.0, 3.0 }, { 0.0, 0.0, 0.0 } };
+			for (const auto &x : points)
+			{
+				const Eigen::Vector3d before = cal.first * (scale * x) + cal.second;
+				const Eigen::Vector3d moved2 = move.rotation * x + move.translation;
+				const Eigen::Vector3d after = next.first * (scale * moved2) + next.second;
+				worst = std::max(worst, (after - before).norm());
+			}
+			const Eigen::Quaterniond orientation(Eigen::AngleAxisd(0.4, Eigen::Vector3d::UnitZ()));
+			const double orientationError =
+				((next.first * move.rotation * orientation).normalized()).angularDistance(
+					(cal.first * orientation).normalized());
+			char buf[128];
+			snprintf(buf, sizeof buf, "worst %.2e m, orientation %.2e rad", worst, orientationError);
+			check("lighthouse frame: the compensating delta keeps the moved frame's devices in place",
+				worst < 1e-9 && orientationError < 1e-9, buf);
+		}
+
+		// SteamVR switches the headset tracker (9) off at 3 s and re-solves a
+		// station while it is off; the tracker is back at `backAt`, in station
+		// 1's frame or in station 2's. Only the stations publish meanwhile, or
+		// a second tracker (10) in station 1's frame as well. A station re-solve
+		// moves that station alone (1.3 deg, 10 cm, as FD626122's did).
+		{
+			const Pose resolve(rot(0.5, 1.3), Eigen::Vector3d(0.09, 0.01, -0.05));
+			const Pose local9(rot(20, 0), Eigen::Vector3d(0.5, -1.0, 2.5));
+			auto away = [&](int movedStation, const std::vector<double> &movesAt, int backIn, bool companion,
+				double backAt)
+			{
+				LighthouseFrameWatch watch;
+				Result out;
+				double nextStation = 1.0;
+				for (int i = 0; i <= 12 * 250; ++i)
+				{
+					const double time = 1.0 + i / 250.0;
+					Pose s[3];
+					for (int k = 0; k < 3; ++k)
+					{
+						s[k] = stations[k];
+						for (double at : movesAt)
+							if (k == movedStation && time >= at)
+								s[k] = compose(resolve, s[k]);
+					}
+					if (time < 3.0)
+					{
+						watch.Note(sample(9, time, s[0], local9, Eigen::Vector3d::Zero()), QpcSeconds, false);
+					}
+					else if (time < backAt)
+					{
+						// Switched off: disconnected, and no pose.
+						auto off = sample(9, time, s[0], local9, Eigen::Vector3d::Zero());
+						off.deviceIsConnected = false;
+						off.poseIsValid = false;
+						off.trackingResult = static_cast<uint32_t>(vr::TrackingResult_Uninitialized);
+						watch.Note(off, QpcSeconds, false);
+					}
+					else
+					{
+						// Where station 1's frame now puts it, or the same pose
+						// expressed in station 2's frame as it stood.
+						const Pose local = backIn == 0 ? local9 :
+							compose(inverse(s[1]), compose(stations[0], local9));
+						watch.Note(sample(9, time, s[backIn], local, Eigen::Vector3d::Zero()), QpcSeconds, false);
+					}
+					if (companion)
+						watch.Note(sample(10, time, s[0], Pose(Eigen::Quaterniond::Identity(),
+							Eigen::Vector3d(-0.4, -1.8, 2.2)), Eigen::Vector3d::Zero()), QpcSeconds, false);
+					if (time >= nextStation)
+					{
+						for (int k = 0; k < 3; ++k)
+							watch.Note(sample(1 + k, time, s[k], identity, Eigen::Vector3d::Zero()), QpcSeconds, true);
+						nextStation += 0.5;
+					}
+					watch.Flush();
+					for (const auto &m : watch.TakeMoves())
+						if (m.id == 9)
+							out.moves.push_back(m);
+				}
+				return out;
+			};
+			auto exactly = [&](const Result &r, const Pose &f, double at)
+			{
+				return r.moves.size() == 1 && r.moves[0].returned && !r.moves[0].ownJump &&
+					r.moves[0].rotation.angularDistance(f.first) < 1e-9 &&
+					(r.moves[0].translation - f.second).norm() < 1e-9 &&
+					std::abs(r.moves[0].time - at) < 0.01 && r.moves[0].shiftM > 0.05;
+			};
+
+			const Result once = away(0, { 6.0 }, 0, false, 9.0);
+			const Result twice = away(0, { 5.0, 7.0 }, 0, true, 9.0);
+			const Result late = away(0, { 8.99 }, 0, false, 9.0);
+			const Result elsewhere = away(0, { 6.0 }, 1, true, 9.0);
+			const Result otherStation = away(1, { 6.0 }, 0, true, 9.0);
+			const Result nothing = away(0, {}, 0, true, 9.0);
+			char buf[200];
+			snprintf(buf, sizeof buf, "once %zu, twice %zu, station published after it %zu, "
+				"back in another frame %zu, another station moved %zu, nothing moved %zu",
+				once.moves.size(), twice.moves.size(), late.moves.size(), elsewhere.moves.size(),
+				otherStation.moves.size(), nothing.moves.size());
+			check("lighthouse frame: a station re-solved while the tracker was off is handed out when it is back in that frame",
+				exactly(once, resolve, 9.0) && exactly(twice, compose(resolve, resolve), 9.0) &&
+				exactly(late, resolve, 9.0) && elsewhere.moves.empty() && otherStation.moves.empty() &&
+				nothing.moves.empty(), buf);
+		}
+
+		// Without a headset tracker the calibration follows a frame that holds
+		// more of the calibrated trackers than it leaves out. Trackers 10 and
+		// 11 are in station 1's frame, reported not connected while they track
+		// (as Standable passes on the body trackers it hides), 12 is in it
+		// normally and 13 is in station 2's. Station 1 is re-solved at 4 s and
+		// station 2 at 7 s. 12 and 13 publish at 125 Hz on alternate ticks, so
+		// 12 reports station 1's move a tick after 10 and 11 do.
+		{
+			const Pose resolve(rot(0.5, 1.3), Eigen::Vector3d(0.09, 0.01, -0.05));
+			LighthouseFrameWatch watch;
+			const Pose local(Eigen::Quaterniond::Identity(), Eigen::Vector3d(-0.4, -1.8, 2.2));
+			std::vector<LighthouseFrameWatch::Move> moves;
+			std::vector<LighthouseFrameWatch::Census> followed, left;
+			int firsts = 0, hiddenMoves = 0;
+			for (int i = 0; i <= 9 * 250; ++i)
+			{
+				const double time = 1.0 + i / 250.0;
+				const Pose s1 = time >= 4.0 ? compose(resolve, stations[0]) : stations[0];
+				const Pose s2 = time >= 7.0 ? compose(resolve, stations[1]) : stations[1];
+				for (uint32_t id : { 10u, 11u })
+				{
+					auto hidden = sample(id, time, s1, local, Eigen::Vector3d::Zero());
+					hidden.deviceIsConnected = false;
+					watch.Note(hidden, QpcSeconds, false);
+				}
+				if (i % 2 == 1)
+					watch.Note(sample(12, time, s1, local, Eigen::Vector3d::Zero()), QpcSeconds, false);
+				if (i % 2 == 0)
+				{
+					watch.Note(sample(13, time, s2, local, Eigen::Vector3d::Zero()), QpcSeconds, false);
+					watch.Note(sample(2, time, s2, identity, Eigen::Vector3d::Zero()), QpcSeconds, true);
+				}
+				watch.Note(sample(1, time, s1, identity, Eigen::Vector3d::Zero()), QpcSeconds, true);
+				for (const auto &m : watch.TakeMoves())
+				{
+					moves.push_back(m);
+					if (m.id == 10 || m.id == 11)
+						++hiddenMoves;
+					if (!watch.FirstOfFrameMove(m))
+						continue;
+					++firsts;
+					const auto census = watch.FrameCensus(m, [](uint32_t id) { return id >= 10 && id <= 13; });
+					(census.members > census.others ? followed : left).push_back(census);
+				}
+				watch.Flush();
+			}
+			char buf[200];
+			snprintf(buf, sizeof buf, "moves %zu (hidden %d), frame moves %d; followed %zu (%d in / %d out), left %zu (%d in / %d out)",
+				moves.size(), hiddenMoves, firsts, followed.size(),
+				followed.empty() ? -1 : followed[0].members, followed.empty() ? -1 : followed[0].others,
+				left.size(), left.empty() ? -1 : left[0].members, left.empty() ? -1 : left[0].others);
+			check("lighthouse frame: a move is followed without a headset tracker when most calibrated trackers are in its frame",
+				moves.size() == 4 && hiddenMoves == 2 && firsts == 2 &&
+				followed.size() == 1 && followed[0].members == 3 && followed[0].others == 1 &&
+				left.size() == 1 && left[0].members == 1 && left[0].others == 3, buf);
+		}
 	}
 }

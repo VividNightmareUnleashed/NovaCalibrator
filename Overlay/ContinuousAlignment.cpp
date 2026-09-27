@@ -977,8 +977,10 @@ ContinuousAlignment::Diagnostics ContinuousAlignment::GetDiagnostics() const
 void ContinuousAlignment::Reset(ResetReason reason)
 {
 	// A break in the target's own tracking is a gap too: the fault a freeze
-	// recorded is not cleared by it, only by fresh evidence afterwards.
-	const bool gap = reason == ResetReason::StreamGap || reason == ResetReason::TargetResolved;
+	// recorded is not cleared by it, only by fresh evidence afterwards. So is a
+	// compensated move of its frame, which leaves the deviation as it was.
+	const bool gap = reason == ResetReason::StreamGap || reason == ResetReason::TargetResolved ||
+		reason == ResetReason::TargetFrameMoved;
 	const bool keepFrozen = gap && state == State::Frozen;
 	const bool keepCoasting = gap && state == State::Coasting;
 	++diagnostics.resets[static_cast<size_t>(reason)];
@@ -1008,6 +1010,21 @@ void ContinuousAlignment::NoteTargetResolved(double time)
 {
 	Reset(ResetReason::TargetResolved);
 	lastTargetResolveTime = time;
+}
+
+void ContinuousAlignment::NoteTargetFrameMoved(const Eigen::Quaterniond &rotation,
+                                               const Eigen::Vector3d &translation, double calScale)
+{
+	Reset(ResetReason::TargetFrameMoved);
+	// C o F^-1, as the caller did to the calibration (see
+	// LighthouseFrameWatch::CompensatingDelta): the replaced calibration maps
+	// the moved frame as it mapped the old one.
+	if (replaced)
+	{
+		const Eigen::Quaterniond fInv = rotation.conjugate().normalized();
+		replaced->trans -= calScale * (replaced->rot * (fInv * translation));
+		replaced->rot = (replaced->rot * fInv).normalized();
+	}
 }
 
 bool ContinuousAlignment::DeriveMountExtrinsic(const std::vector<PoseSample> &refStream,
@@ -1067,6 +1084,70 @@ bool ContinuousAlignment::DeriveMountExtrinsic(const std::vector<PoseSample> &re
 
 	out = derived;
 	return true;
+}
+
+ContinuousAlignment::MountReading ContinuousAlignment::ReadWithMount(
+	const std::vector<PoseSample> &refStream, const std::vector<PoseSample> &targetStream,
+	const MountExtrinsic &mount, const Eigen::Quaterniond &solvedRotation,
+	const Eigen::Vector3d &solvedTranslation, double scale, double timeOffset)
+{
+	const Config config;
+	MountReading out;
+	if (!mount.valid || refStream.empty() || targetStream.empty())
+		return out;
+
+	// C_obs = H o E o T_s^-1 per time-aligned pair, the loop's observation
+	// (FormObservations), over the pairs DeriveMountExtrinsic would use.
+	std::vector<Eigen::Quaterniond> quats;
+	std::vector<Eigen::Vector3d> vecs;
+	size_t stride = std::max<size_t>(1, targetStream.size() / 600);
+	for (size_t i = 0; i < targetStream.size(); i += stride)
+	{
+		const PoseSample &t = targetStream[i];
+		if (t.angVel.norm() > config.maxAngularSpeed || t.vel.norm() > config.maxLinearSpeed)
+			continue;
+		PoseSample h;
+		if (!CalibrationEngine::InterpolateAt(refStream, t.time - timeOffset, config.maxInterpolationGap, h))
+			continue;
+		if (h.angVel.norm() > config.maxAngularSpeed || h.vel.norm() > config.maxLinearSpeed)
+			continue;
+		const Eigen::Quaterniond qObs = (h.rot * mount.rot * t.rot.conjugate()).normalized();
+		quats.push_back(qObs);
+		vecs.push_back((h.rot * mount.pos + h.pos) - qObs * (scale * t.pos));
+	}
+	out.observations = quats.size();
+	RobustStats stats;
+	if (quats.size() < config.minObsForEstimate || !RobustAverage(quats, vecs, 0.3, 0.01, stats))
+		return out;
+
+	out.valid = true;
+	out.rotation = stats.rot;
+	out.translation = stats.trans;
+	out.scatterRotDeg = stats.rotRmsDeg;
+	out.scatterPosM = stats.posRmsM;
+
+	// Against the solve as MeasureDeviation measures a window against the
+	// calibration, at the head's mean position over the run.
+	Eigen::Vector3d head = Eigen::Vector3d::Zero();
+	for (const auto &s : refStream)
+		head += s.pos;
+	head /= static_cast<double>(refStream.size());
+	Eigen::Quaterniond rD = (out.rotation * solvedRotation.conjugate()).normalized();
+	if (rD.w() < 0.0)
+		rD.coeffs() = -rD.coeffs();
+	const double yaw = 2.0 * std::atan2(rD.y(), rD.w());
+	const Eigen::Quaterniond rYaw(Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitY()));
+	const Eigen::Vector3d tD = out.translation - rD * solvedTranslation;
+	out.fromSolve.valid = true;
+	out.fromSolve.yawDeg = std::abs(yaw) * RadToDeg;
+	out.fromSolve.tiltDeg = rYaw.angularDistance(rD) * RadToDeg;
+	out.fromSolve.posM = (rD * head + tD - head).norm();
+
+	out.adopt = out.scatterRotDeg <= config.extrinsicMaxRotRmsDeg &&
+		out.scatterPosM <= config.maxScatterPosM &&
+		out.fromSolve.yawDeg < config.freezeYawDeg && out.fromSolve.tiltDeg < config.freezeYawDeg &&
+		out.fromSolve.posM < config.freezePosM;
+	return out;
 }
 
 } // namespace questcal
