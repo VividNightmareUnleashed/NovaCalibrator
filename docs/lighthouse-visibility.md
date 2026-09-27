@@ -32,6 +32,9 @@ LHR-A3C36EA5 C: SOB: drop S-8 seeing S-5 S-9 S-16
 LHR-A3C36EA5 C: No base stations seen...
 LHR-A3C36EA5 C: ----- BOOTSTRAPPED base F210FBA6 (best) distance 2.1m velocity 0.3m/s ... -----
 LHR-A3C36EA5 C: Trying to start tracking from base D3D4E73B: Not enough contiguous samples for a bootstrap pose
+Device LHR-A3C36EA5 powering off upon entering standby.
+LHR-A3C36EA5: Disconnected from receiver 4BF089B604
+LHR-A3C36EA5: Connected to receiver 4BF089B604
 ```
 
 - `LHR-…` is the device's serial, the same string OpenVR returns as its
@@ -45,6 +48,14 @@ LHR-A3C36EA5 C: Trying to start tracking from base D3D4E73B: Not enough contiguo
 - `add` and `drop` list the stations the device still sees after the change,
   so every line carries the full set. `No base stations seen` and
   `BOOTSTRAPPED` mark a full loss and a solution started from scratch.
+- The last three are the device's radio link. `powering off upon entering
+  standby` is SteamVR switching the device off after it sat still for its
+  **Turn off controllers after** time (Startup / Shutdown settings, 5 minutes
+  unless changed). A headset tracker sits still whenever the headset is off,
+  and stays off until someone turns it back on. These set the device's state
+  and add a session-log line (`LHR-A3C36EA5 switched off by SteamVR after
+  sitting still`, `... connected again`); they are not disturbances, since an
+  off device reports no pose to disturb.
 
 The file is re-opened on every poll (four times a second) and never held, so
 SteamVR can rename it at its next start. The first poll replays up to the
@@ -100,6 +111,13 @@ drift`) and summed in the diagnostics.
 Cost: a genuine slide that happens to fall inside such a window is missed
 once. In the session below, disturbances covered a few percent of any one
 device's time.
+
+A calibration uses the same state before it measures: it waits until a
+lighthouse device in the pair is neither degraded nor within ten seconds of a
+disturbance, and until fifteen seconds after its last new solution (a solution
+still settling was measured 1.2 deg off on 2026-09-26). It starts on its own
+once that holds, and after 30 s measures a device that tracks but never
+settled.
 
 Lighthouse devices are target-side devices, so none of this touches the
 universe-jump detector, which only reads the reference system's stream.

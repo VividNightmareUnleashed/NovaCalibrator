@@ -1,4 +1,4 @@
-# QuestCalibrator
+# <img src="Overlay/icon.png" alt="" width="40" align="top"> QuestCalibrator
 
 [![Latest release](https://img.shields.io/github/v/release/VividNightmareUnleashed/QuestCalibrator?label=stable&sort=semver&display_name=release)](https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/latest)
 [![Latest prerelease](https://img.shields.io/github/v/release/VividNightmareUnleashed/QuestCalibrator?include_prereleases&label=prerelease&sort=semver&display_name=release&color=orange)](https://github.com/VividNightmareUnleashed/QuestCalibrator/releases)
@@ -82,6 +82,13 @@ Continuous calibration has two methods:
   won't drag your body trackers with it.
 - **Legacy** never pauses. Like OpenVR-SpaceCalibrator, it follows every change the
   headset tracker reports.
+
+SteamVR switches a tracker off once it has sat still for a while (5 minutes unless
+you changed it), and a tracker on your headset sits still whenever the headset is
+off. If you take the headset off for longer than that, turn the tracker back on when
+you put it back on; QuestCalibrator tells you when this happens. To stop it, set
+**Turn off controllers after** to **Never** in SteamVR's **Startup / Shutdown**
+settings.
 
 Without a headset tracker, QuestCalibrator still corrects the jumps it can detect and
 warns you when the alignment drifts.

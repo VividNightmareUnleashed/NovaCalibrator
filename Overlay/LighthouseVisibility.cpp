@@ -52,6 +52,45 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 	d.serial = e.serial;
 	d.events++;
 
+	// The radio link: state and a note, never a disturbance (Device::off).
+	if (e.kind == Event::Kind::PoweredOff || e.kind == Event::Kind::Disconnected ||
+		e.kind == Event::Kind::Connected)
+	{
+		std::string what;
+		if (e.kind == Event::Kind::PoweredOff)
+		{
+			d.off = true;
+			d.standbyOff = e.standby;
+			what = e.standby ? "switched off by SteamVR after sitting still" : "switched off by SteamVR";
+			if (!e.historical)
+			{
+				d.lastPowerOff = ringTime;
+				if (e.standby)
+					d.standbyPowerOffs++;
+			}
+		}
+		else if (e.kind == Event::Kind::Disconnected)
+		{
+			// A power-off line comes first when SteamVR switched it off, and
+			// its reason stands.
+			if (!d.off)
+				what = "disconnected from its receiver";
+			d.off = true;
+		}
+		else
+		{
+			if (d.off)
+				what = "connected again";
+			d.off = false;
+			d.standbyOff = false;
+		}
+		return e.historical ? std::string() : what;
+	}
+	// Any line about its tracking says the device is on, whatever the link
+	// lines said before (the replay may have started between them).
+	d.off = false;
+	d.standbyOff = false;
+
 	auto note = [&](int channel, uint32_t id)
 	{
 		if (channel < 0)
@@ -195,6 +234,12 @@ bool LighthouseVisibility::RestartedWithin(const std::string &serial, double rin
 {
 	const Device *d = Find(serial);
 	return d && Within(d->lastRestart, ringTime, seconds);
+}
+
+bool LighthouseVisibility::SettledFor(const std::string &serial, double ringTime,
+	double restartSeconds) const
+{
+	return !RestartedWithin(serial, ringTime, restartSeconds) && !Settling(serial, ringTime);
 }
 
 bool LighthouseVisibility::Disturbed(const std::string &serial, double ringTime) const

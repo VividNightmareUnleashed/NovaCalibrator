@@ -39,10 +39,26 @@ ContinuousStatus ContinuousStatusNow()
 	if (!running)
 		return ContinuousStatus::NotRunning;
 
+	// The tracker itself before the loop's window: a loop refilling after a
+	// tracking loss would say it is warming up for as long as the tracker
+	// stays away, and one whose tracker SteamVR switched off would say it
+	// forever. Off comes first even over a freeze, whose recalibration needs
+	// the tracker on; a freeze with the tracker merely unseen keeps its screen.
+	if (!CalCtx.continuousTrackerConnected)
+		return ContinuousStatus::TrackerOff;
+	if (!CalCtx.continuousTrackerSeen && CalCtx.continuousState != CA::State::Frozen)
+		return ContinuousStatus::Coasting;
+	// The loop needs the headset's stream as much as the tracker's, and a
+	// streamed headset pauses on its own; the tracker is not to blame then.
+	if (!CalCtx.continuousHeadsetSeen && CalCtx.continuousState != CA::State::Frozen)
+		return ContinuousStatus::HeadsetUnseen;
+
 	switch (CalCtx.continuousState)
 	{
 	case CA::State::Tracking: return ContinuousStatus::Tracking;
-	case CA::State::Coasting: return ContinuousStatus::Coasting;
+	// Both streams arrive (the checks above), yet no reading formed: the
+	// pairs failed the speed gates or the alignment. Nobody is missing.
+	case CA::State::Coasting: return ContinuousStatus::Gathering;
 	case CA::State::Frozen:   return ContinuousStatus::Frozen;
 	case CA::State::Holding:  return ContinuousStatus::Holding;
 	default:                  return ContinuousStatus::Gathering;
@@ -59,8 +75,10 @@ const char *ContinuousStateWord(ContinuousStatus status)
 	case ContinuousStatus::NoTracker:  return "Needs a tracker";
 	case ContinuousStatus::NeedsMount: return "Needs setup";
 	case ContinuousStatus::NotRunning: return "Waiting";
+	case ContinuousStatus::TrackerOff: return "Tracker off";
 	case ContinuousStatus::Tracking:   return "Active";
 	case ContinuousStatus::Coasting:   return "Waiting";
+	case ContinuousStatus::HeadsetUnseen: return "Waiting";
 	case ContinuousStatus::Frozen:     return "Paused";
 	case ContinuousStatus::Holding:    return "Waiting";
 	default:                           return "Warming up";
@@ -80,8 +98,10 @@ const char *ContinuousStatusLine(ContinuousStatus status)
 	case ContinuousStatus::NoTracker:  return "Continuous calibration needs a headset tracker. Pick one in Settings.";
 	case ContinuousStatus::NeedsMount: return "Continuous calibration needs the headset tracker set up. Do it in Settings.";
 	case ContinuousStatus::NotRunning: return "Continuous calibration is waiting. It resumes when tracking is available.";
+	case ContinuousStatus::TrackerOff: return "Continuous calibration is waiting. The headset tracker is off; turn it back on.";
 	case ContinuousStatus::Tracking:   return "Continuous calibration is active.";
 	case ContinuousStatus::Coasting:   return "Continuous calibration is waiting. The headset tracker isn't being seen.";
+	case ContinuousStatus::HeadsetUnseen: return "Continuous calibration is waiting. The headset isn't tracking.";
 	case ContinuousStatus::Frozen:     return "Continuous calibration is paused. Readings drifted too far to correct.";
 	case ContinuousStatus::Holding:    return "Continuous calibration is waiting. It resumes when tracking settles.";
 	default:                           return "Continuous calibration is warming up.";
@@ -363,7 +383,8 @@ void BuildStatusBand(const VRState &state)
 		// changes.
 		const bool loopRunning = continuous == ContinuousStatus::Tracking ||
 			continuous == ContinuousStatus::Coasting || continuous == ContinuousStatus::Frozen ||
-			continuous == ContinuousStatus::Holding;
+			continuous == ContinuousStatus::Holding || continuous == ContinuousStatus::TrackerOff ||
+			continuous == ContinuousStatus::HeadsetUnseen;
 		if (loopRunning)
 		{
 			if (continuous == ContinuousStatus::Tracking && CalCtx.continuousDeviation.valid)

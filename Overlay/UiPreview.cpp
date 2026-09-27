@@ -229,12 +229,23 @@ void SetupPreviewState()
 	switch (g_uiPreviewScenario)
 	{
 	case PreviewScenario::Guide:
+	case PreviewScenario::GuideWait:
 	case PreviewScenario::Result:
 		CalCtx.referenceID = 3 + kPreviewManyTrackerCount;
 		CalCtx.targetID = 3;
 		CalCtx.pendingReferenceTrackingSystem = "oculus";
 		CalCtx.pendingTargetTrackingSystem = "lighthouse";
 		OpenGuide(false, false);
+		if (g_uiPreviewScenario == PreviewScenario::GuideWait)
+		{
+			// Started the moment the tracker woke: the run waits for its new
+			// solution to settle before it measures.
+			CalCtx.state = CalibrationState::Begin;
+			CalCtx.run.waitInstruction = "VIVE Tracker 3.0's tracking is settling.";
+			CalCtx.run.waitNote =
+				"The calibration starts on its own in a few seconds. Keep it in view of its base stations.";
+			s_guide.stage = GuideStage::Running;
+		}
 		if (g_uiPreviewScenario == PreviewScenario::Result)
 		{
 			CalCtx.lastRunHint = CalibrationContext::GuideHint::Success;
@@ -252,6 +263,17 @@ void SetupPreviewState()
 		CalCtx.continuousDeviation.posM = 0.11;
 		CalCtx.Tell("Continuous calibration paused: readings drifted too far from the calibration to correct safely.",
 			CalibrationContext::Tone::Warn);
+		break;
+	case PreviewScenario::TrackerOff:
+		// The headset came off for a while and SteamVR switched its tracker
+		// off for sitting still: the loop waits, the feed says why and how to
+		// keep it from happening.
+		CalCtx.continuousTrackerConnected = false;
+		CalCtx.continuousState = questcal::ContinuousAlignment::State::Inactive;
+		CalCtx.continuousDeviation.valid = false;
+		CalCtx.Tell("SteamVR switched the headset tracker off after it sat still for 5 minutes. Turn it back on to resume continuous calibration.",
+			CalibrationContext::Tone::Warn);
+		CalCtx.Tell("To keep SteamVR from doing this, set \"Turn off controllers after\" to Never in SteamVR's Startup / Shutdown settings.");
 		break;
 	case PreviewScenario::Empty:
 		// First launch: no profile, no chaperone, nothing measured.

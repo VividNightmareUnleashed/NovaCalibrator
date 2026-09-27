@@ -178,9 +178,11 @@ enum class ContinuousStatus
 	NoTracker,   // enabled, but no mounted tracker picked
 	NeedsMount,  // picked, but no mount offset learned for it yet
 	NotRunning,  // armed, yet the loop's runtime preconditions do not hold
+	TrackerOff,  // running, but the headset tracker is not connected (SteamVR switched it off)
 	Gathering,   // running, not enough observations yet (State::Inactive)
 	Tracking,
-	Coasting,
+	Coasting,    // also: running, but the tracker has delivered no tracked pose lately
+	HeadsetUnseen, // running, but the headset's own stream stopped (a streamed headset pausing)
 	Frozen,
 	Holding,
 };

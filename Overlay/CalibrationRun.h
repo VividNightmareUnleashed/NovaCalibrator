@@ -2,6 +2,7 @@
 
 #include "CalibrationEngine.h"
 #include "ChaperoneMath.h"
+#include "LocalPoseContinuity.h"
 
 #include <cstdint>
 #include <string>
@@ -33,6 +34,92 @@ struct CalibrationRun
 		}
 	};
 
+	// The target's lighthouse frame while collecting. SteamVR re-solving the
+	// base station a tracker is reported against moves every pose in that
+	// frame by one exact delta while the local pose stays on its trajectory
+	// (LighthouseFrameWatch.h); on 2026-09-26 it did so every minute or two
+	// for half an hour (6 to 12 cm each), and each such move stopped a run as
+	// a tracking reset. Now the samples after a move are put back in the frame
+	// the run began in (ToStart), and the finished solve is carried to the
+	// frame the tracker ends in (CarryCalibration). A frame change the pose
+	// jumped with still stops the run; one that left the pose where it was
+	// (the same pose in another station's frame) changes nothing.
+	struct TargetFrame
+	{
+		enum class Verdict { Same, Moved, Changed };
+
+		bool valid = false;
+		ringpose::DriverLocalPoseSample local;   // the last sample's driver-local pose
+		Eigen::Quaterniond wfdRot{ 1, 0, 0, 0 };
+		Eigen::Vector3d wfdTrans{ 0, 0, 0 };
+		// From the current frame to the one the run began in.
+		Eigen::Quaterniond toStartRot{ 1, 0, 0, 0 };
+		Eigen::Vector3d toStartTrans{ 0, 0, 0 };
+		int moves = 0;
+
+		Verdict Accept(const ringpose::DriverLocalPoseSample &sample,
+			const Eigen::Quaterniond &sampleWfdRot, const Eigen::Vector3d &sampleWfdTrans)
+		{
+			Verdict verdict = Verdict::Same;
+			if (valid && WorldFromDriverChanged(wfdRot, wfdTrans, sampleWfdRot, sampleWfdTrans))
+			{
+				const bool worldKept = Kept(World(wfdRot, wfdTrans, local),
+					World(sampleWfdRot, sampleWfdTrans, sample));
+				if (!worldKept)
+				{
+					if (!Kept(local, sample))
+						return Verdict::Changed;
+					// F = new o old^-1, and toStart becomes toStart o F^-1.
+					const Eigen::Quaterniond fRot = (sampleWfdRot * wfdRot.conjugate()).normalized();
+					const Eigen::Vector3d fTrans = sampleWfdTrans - fRot * wfdTrans;
+					const Eigen::Quaterniond fInv = fRot.conjugate();
+					toStartTrans -= toStartRot * (fInv * fTrans);
+					toStartRot = (toStartRot * fInv).normalized();
+					++moves;
+					verdict = Verdict::Moved;
+				}
+			}
+			valid = true;
+			local = sample;
+			wfdRot = sampleWfdRot;
+			wfdTrans = sampleWfdTrans;
+			return verdict;
+		}
+
+		// A composed (world) pose, put back in the frame the run began in.
+		void ToStart(PoseSample &s) const
+		{
+			s.rot = (toStartRot * s.rot).normalized();
+			s.pos = toStartRot * s.pos + toStartTrans;
+			s.vel = toStartRot * s.vel;
+			s.angVel = toStartRot * s.angVel;
+		}
+
+		// A calibration C(x) = R (s x) + t solved in the start frame, as it
+		// maps the current one: C o toStart.
+		void CarryCalibration(Eigen::Quaterniond &rotation, Eigen::Vector3d &translation, double scale) const
+		{
+			translation += scale * (rotation * toStartTrans);
+			rotation = (rotation * toStartRot).normalized();
+		}
+
+	private:
+		static ringpose::DriverLocalPoseSample World(const Eigen::Quaterniond &r, const Eigen::Vector3d &t,
+			const ringpose::DriverLocalPoseSample &l)
+		{
+			return { l.time, (r * l.rotation).normalized(), r * l.position + t, r * l.velocity, r * l.angularVelocity };
+		}
+
+		// On its trajectory, or unchanged for a device at rest (1 mm,
+		// 0.05 deg, as LighthouseFrameWatch holds it).
+		static bool Kept(const ringpose::DriverLocalPoseSample &was, const ringpose::DriverLocalPoseSample &is)
+		{
+			return ringpose::IsDriverLocalPoseContinuous(was, is) ||
+				((is.position - was.position).norm() <= 0.001 &&
+					is.rotation.angularDistance(was.rotation) <= 0.05 * 3.14159265358979323846 / 180.0);
+		}
+	};
+
 	uint32_t referenceId = UINT32_MAX;
 	uint32_t targetId = UINT32_MAX;
 	std::string referenceSystem;
@@ -58,6 +145,12 @@ struct CalibrationRun
 	uint32_t targetRestartsAtStart = 0;
 	Universe referenceUniverse;
 	Universe targetUniverse;
+	TargetFrame targetFrame;
+	// Begin waits for the pair to be measurable (see CalibrationTick): since
+	// when, and what the guide shows meanwhile. Empty while not waiting.
+	double waitStart = -1.0;
+	std::string waitInstruction;
+	std::string waitNote;
 	std::vector<PoseSample> referenceSamples;
 	std::vector<PoseSample> targetSamples;
 	double collectionStart = 0.0;

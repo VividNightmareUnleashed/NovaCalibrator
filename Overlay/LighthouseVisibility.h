@@ -81,6 +81,15 @@ public:
 		uint32_t liveRestarts = 0;
 		double lastRestart = -1e9;
 
+		// The radio link (LighthouseLog.h). Off from a power-off or a dropped
+		// link until the link comes back or the device reports tracking;
+		// standbyOff says SteamVR switched it off for sitting still. Neither is
+		// a disturbance: an off device reports no pose to disturb.
+		bool off = false;
+		bool standbyOff = false;
+		uint32_t standbyPowerOffs = 0;   // live lines only
+		double lastPowerOff = -1e9;      // ring seconds; live lines only
+
 		// Stations in the device's solution; meaningful when visibleKnown.
 		int InView() const { return static_cast<int>(visible.size() + unmappedIds.size()); }
 	};
@@ -109,6 +118,10 @@ public:
 
 	// A live restart (see Device::liveRestarts) within `seconds` of ringTime.
 	bool RestartedWithin(const std::string &serial, double ringTime, double seconds) const;
+
+	// Fit to be calibrated against: no live restart within `restartSeconds`
+	// and not Settling. A device the log never named is settled.
+	bool SettledFor(const std::string &serial, double ringTime, double restartSeconds) const;
 
 	const Device *Find(const std::string &serial) const;
 	const std::map<std::string, Device> &Devices() const { return devices; }
