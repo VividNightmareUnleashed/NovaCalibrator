@@ -425,7 +425,12 @@ void BuildMenu(const VRState &state, bool runningInOverlay)
 		}
 		case GuideStage::Running:
 		{
-			if (g_uiPreviewMode)
+			// The run waits in Begin until its devices track and settle
+			// (CalibrationTick): it says what it waits for, and nothing counts
+			// down until it measures.
+			const bool waiting = CalCtx.state == CalibrationState::Begin &&
+				!CalCtx.run.waitInstruction.empty();
+			if (g_uiPreviewMode && !waiting)
 				CalCtx.Progress(static_cast<int>((now - s_guide.countdownStart - kCountdownSeconds) * 100.0),
 					static_cast<int>(CalCtx.CollectionSeconds() * 100.0));
 			ImGui::TextColored(Pal::Dim, "%s", Tr("Step 2 of 3"));
@@ -438,26 +443,38 @@ void BuildMenu(const VRState &state, bool runningInOverlay)
 				s_guide.metrics = questcal::ComputeGuideMetrics(
 					CalCtx.run.referenceSamples, CalCtx.run.targetSamples);
 			}
-			for (auto &message : CalCtx.messages)
+			if (waiting)
 			{
-				if (message.kind == Msg::Instruction)
+				ImGui::PushFont(g_fontTitle);
+				ImGui::TextWrapped("%s", Tr(CalCtx.run.waitInstruction.c_str()));
+				ImGui::PopFont();
+				ImGui::TextWrapped("%s", Tr(CalCtx.run.waitNote.c_str()));
+			}
+			else
+			{
+				for (auto &message : CalCtx.messages)
 				{
-					ImGui::PushFont(g_fontTitle);
-					ImGui::TextWrapped("%s", Tr(message.str.c_str()));
-					ImGui::PopFont();
+					if (message.kind == Msg::Instruction)
+					{
+						ImGui::PushFont(g_fontTitle);
+						ImGui::TextWrapped("%s", Tr(message.str.c_str()));
+						ImGui::PopFont();
+					}
+					else if (message.kind == Msg::Info)
+						ImGui::TextWrapped("%s", Tr(message.str.c_str()));
 				}
-				else if (message.kind == Msg::Info)
-					ImGui::TextWrapped("%s", Tr(message.str.c_str()));
 			}
 			ImGui::Spacing();
 			ImVec2 row = ImGui::GetCursorScreenPos();
 			DrawGuideAnimation(mdl, row, artSize, s_guide.animationTime, s_guide.demo);
-			DrawGuideIndicators(mdl, ImVec2(row.x, row.y + artSize.y + 12.0f), mw, s_guide.metrics, s_guide.mountRun);
+			// Nothing is measured yet while the run waits.
+			if (!waiting)
+				DrawGuideIndicators(mdl, ImVec2(row.x, row.y + artSize.y + 12.0f), mw, s_guide.metrics, s_guide.mountRun);
 			ImGui::SetCursorScreenPos(ImVec2(row.x, row.y + artSize.y + 80.0f));
 			ImGui::Dummy(ImVec2(0, 0));
 			for (auto &message : CalCtx.messages)
 			{
-				if (message.kind != Msg::Progress)
+				if (waiting || message.kind != Msg::Progress)
 					continue;
 				float fraction = (float)message.progress / (float)message.target;
 				ImGui::Spacing();

@@ -30,7 +30,14 @@ Solver (new `CalibrationEngine`, covered by synthetic tests in `Tests/`):
   held at neutral 1.0 if gross motion is attenuated too; a contaminated free-scale
   fit is never applied.
 - Calibration collects both streams for a fixed duration, solves once, and publishes
-  the complete transform.
+  the complete transform. It starts measuring only once both devices track and a
+  lighthouse device's tracking has settled (15 s after it restarted, two base
+  stations in view), and waits for that on its own rather than refusing. A base
+  station SteamVR re-solves during the measurement is followed: the samples are
+  kept in the frame the run began in and the result is carried to the new one.
+  When a headset tracker's mount can't be re-measured and the previous one is
+  kept, the calibration takes what that mount reads from the same samples, as
+  long as it fits them and lies close to the solve.
 
 Driver and IPC:
 
@@ -91,7 +98,15 @@ Runtime alignment maintenance uses the timestamped pose ring and calibration sol
   becomes the new calibration when SteamVR's log shows no restart of the
   headset tracker to explain it. The **Legacy** method in Settings never
   pauses: it follows every such deviation at once, the headset tracker's own
-  faults included, as OpenVR-SpaceCalibrator does. The
+  faults included, as OpenVR-SpaceCalibrator does. When SteamVR re-solves
+  where a base station stands, every device reported in that station's frame
+  jumps with it; if the headset tracker is one of them, the calibration
+  follows the jump at once and exactly, tilt included, whichever method is
+  chosen. A re-solve made while the headset tracker was switched off is
+  followed the same way once it is back in that station's frame. Without a
+  headset tracker (or with continuous calibration off), the calibration follows
+  a re-solved station when most of the calibrated trackers are in its frame,
+  counting trackers another driver hides from games (Standable does). The
   mounted tracker can be hidden from games so full-body setups never mistake it for
   a body tracker. Optional (off by default): online re-estimation of the
   inter-system time offset from the same rigid pair.
@@ -135,7 +150,9 @@ then use **Save diagnostics file** once while alignment looks correct and again
 after the problem appears, before recalibrating or restarting. Keep the devices
 still while exporting. The report includes per-device input counts and freshness,
 stream gaps, window resets, Quest observation gates, re-anchors, lighthouse frame
-moves, and a snapshot of connected devices relative to SteamVR's floor. Counters
+moves and the ones the calibration followed, how often SteamVR switched each
+lighthouse device off for sitting still, and a snapshot of connected devices
+relative to SteamVR's floor. Counters
 survive recalibration for the session. Exports also include raw driver
 poses for every device, scale and timing confidence, mount and field transforms,
 driver synchronization status, and executable hashes to identify the build. The

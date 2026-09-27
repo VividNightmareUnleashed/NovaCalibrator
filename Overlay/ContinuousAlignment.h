@@ -223,7 +223,7 @@ public:
 		Eigen::Quaterniond &rotationOut,
 		Eigen::Vector3d &translationOut)>;
 
-	enum class ResetReason { Requested, StreamGap, UniverseJump, Suspended, TargetResolved, Count };
+	enum class ResetReason { Requested, StreamGap, UniverseJump, Suspended, TargetResolved, TargetFrameMoved, Count };
 
 	// Counters last for this engine's lifetime, including across Reset(). Window
 	// sizes and timestamps in GetDiagnostics() describe the current window only.
@@ -292,7 +292,8 @@ public:
 
 	// Drop all windows and pending output (ring gap, accepted universe jump,
 	// suspension). Keeps the extrinsic; a persisting deviation re-freezes
-	// after fresh evidence. StreamGap preserves Frozen and Coasting states.
+	// after fresh evidence. StreamGap, TargetResolved and TargetFrameMoved
+	// preserve Frozen and Coasting states.
 	void Reset(ResetReason reason = ResetReason::Requested);
 
 	// The target's own tracking restarted at `time` (a lighthouse device began
@@ -301,6 +302,16 @@ public:
 	// A Reset that keeps Frozen and Coasting like a stream gap, plus the time
 	// for the freeze attribution.
 	void NoteTargetResolved(double time);
+
+	// The frame the target is reported in moved by (rotation, translation)
+	// (LighthouseFrameWatch::Move: SteamVR moved the base station under it),
+	// and the caller compensated the calibration by exactly that. Every target
+	// pose moved by it, so the window straddling the move is dropped, but the
+	// deviation it measured is unchanged: a freeze and its episode stand, as
+	// through a gap, and the calibration a re-anchor replaced moves with the
+	// frame so an undo still lands where it should.
+	void NoteTargetFrameMoved(const Eigen::Quaterniond &rotation,
+	                          const Eigen::Vector3d &translation, double calScale);
 
 	// True while the target's tracking says its pose is not settled (fewer
 	// than two base stations in view, or moments after a restart). No verdict
@@ -329,6 +340,35 @@ public:
 	                                 const std::vector<PoseSample> &targetStream,
 	                                 const EngineResult &calibration,
 	                                 MountExtrinsic &out);
+
+	// What a mount reads from a manual calibration's own streams, as one
+	// window of the loop would, and whether that reading should stand in for
+	// the solve. A calibration that could not re-measure the mount keeps the
+	// old one, and the loop then holds the calibration to this reading in
+	// yaw and position but never in tilt, so a solve that disagrees with it
+	// keeps its tilt for good (live 2026-09-26: 1.1 to 1.3 deg for half an
+	// hour after a calibration 6 s into the tracker's new solution). `adopt`
+	// when the reading has enough observations, its rotations scatter no more
+	// than the mount gate lets a measurement's (so the kept mount fits these
+	// samples), and it sits inside the freeze band of the solve at the head
+	// (further off, the tracker may have moved on the headset).
+	struct MountReading
+	{
+		bool valid = false;
+		Eigen::Quaterniond rotation{ 1, 0, 0, 0 };
+		Eigen::Vector3d translation{ 0, 0, 0 };
+		size_t observations = 0;
+		double scatterRotDeg = 0.0;
+		double scatterPosM = 0.0;
+		Deviation fromSolve;   // the reading against the solve, at the mean head position
+		bool adopt = false;
+	};
+	static MountReading ReadWithMount(const std::vector<PoseSample> &refStream,
+	                                  const std::vector<PoseSample> &targetStream,
+	                                  const MountExtrinsic &mount,
+	                                  const Eigen::Quaterniond &solvedRotation,
+	                                  const Eigen::Vector3d &solvedTranslation,
+	                                  double scale, double timeOffset);
 
 private:
 	struct Observation

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CalibrationEngine.h"
+#include "LocalPoseContinuity.h"
 #include "ProfileValidation.h"
 #include "RingSampleGate.h"
 
@@ -29,53 +30,6 @@ struct RingSampleParts
 
 namespace ringpose
 {
-
-constexpr double MaxAdjacentFrameSeconds = 0.1;
-constexpr double MaxLocalPositionErrorMeters = 0.005;
-constexpr double MaxLocalRotationErrorRadians =
-	1.0 * 3.14159265358979323846 / 180.0;
-
-struct DriverLocalPoseSample
-{
-	double time = 0.0;
-	Eigen::Quaterniond rotation{ 1, 0, 0, 0 };
-	Eigen::Vector3d position{ 0, 0, 0 };
-	Eigen::Vector3d velocity{ 0, 0, 0 };
-	Eigen::Vector3d angularVelocity{ 0, 0, 0 };
-};
-
-// A worldFromDriver transition describes a real raw-universe rebase only if
-// adjacent driver-local poses remain on their reported trajectory. An inverse
-// local-pose rewrite is bookkeeping that leaves the composed raw pose still.
-// Both samples come from trusted ring samples (IsUsableRingSample).
-inline bool IsDriverLocalPoseContinuous(
-	const DriverLocalPoseSample &previous,
-	const DriverLocalPoseSample &current,
-	double maxFrameSeconds = MaxAdjacentFrameSeconds,
-	double maxPositionErrorMeters = MaxLocalPositionErrorMeters,
-	double maxRotationErrorRadians = MaxLocalRotationErrorRadians)
-{
-	double dt = current.time - previous.time;
-	if (dt <= 0.0 || dt > maxFrameSeconds)
-		return false;
-
-	Eigen::Vector3d predictedPosition = previous.position +
-		0.5 * (previous.velocity + current.velocity) * dt;
-	Eigen::Quaterniond predictedRotation = previous.rotation.normalized();
-	Eigen::Vector3d meanAngularVelocity =
-		0.5 * (previous.angularVelocity + current.angularVelocity);
-	double predictedAngle = meanAngularVelocity.norm() * dt;
-	if (predictedAngle > 1e-12)
-	{
-		predictedRotation = Eigen::Quaterniond(Eigen::AngleAxisd(
-			predictedAngle, meanAngularVelocity.normalized())) * predictedRotation;
-	}
-
-	return (current.position - predictedPosition).norm() <=
-			maxPositionErrorMeters &&
-		current.rotation.normalized().angularDistance(predictedRotation) <=
-			maxRotationErrorRadians;
-}
 
 // Freshness must be measured from the producer's raw capture QPC. UI
 // observation time makes an arbitrarily old backlog look new when it is
@@ -187,6 +141,31 @@ inline bool TryComposeRingSample(const protocol::DevicePoseSample &s,
 	out = composed;
 	return true;
 }
+
+namespace ringpose
+{
+
+// Which of the continuous loop's two streams stopped when it runs out of
+// fresh observations. Both run at hundreds of hertz, so one whose last
+// accepted pose is staleSeconds old has stopped; neither, when both still
+// arrive and only their pairing fails. The loss is not always the tracker's:
+// a streamed headset pauses on its own (live 2026-09-26 22:04: a Steam Link
+// stream reset left the headset without poses for 2.3 s, and the feed blamed
+// the headset tracker).
+enum class StoppedStream { Neither, Headset, Tracker, Both };
+
+inline StoppedStream WhichStreamStopped(double now, double headsetLastAccepted,
+	double trackerLastAccepted, double staleSeconds = 0.5)
+{
+	const bool headset = !(now - headsetLastAccepted <= staleSeconds);
+	const bool tracker = !(now - trackerLastAccepted <= staleSeconds);
+	return headset && tracker ? StoppedStream::Both
+		: headset ? StoppedStream::Headset
+		: tracker ? StoppedStream::Tracker
+		: StoppedStream::Neither;
+}
+
+} // namespace ringpose
 
 struct RingInputDiagnostics
 {

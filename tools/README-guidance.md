@@ -55,7 +55,9 @@ with an illustrative still. Visible animation uses display sync for pacing;
 idle and minimized windows retain their event wait.
 
 `-uipreview-guide` opens the primary wrist demonstration without SteamVR;
-`-uipreview-result` opens its success screen. Both disable profile saves.
+`-uipreview-guide-wait` shows the same run waiting for a tracker's tracking to
+settle before it measures; `-uipreview-result` opens its success screen. All
+three disable profile saves.
 
 Inspect the extreme poses and the animation in the overlay after regenerating.
 The wrist illustration uses a wrist strap; the Index illustration has no hand.

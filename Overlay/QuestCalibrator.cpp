@@ -1016,17 +1016,20 @@ static void HandleCommandLine(LPWSTR lpCmdLine, bool appDirResolved)
 		g_uiPreviewMode = true;
 		g_uiPreviewMany = true;
 	}
-	else if (cmd == L"-uipreview-guide" || cmd == L"-uipreview-result")
+	else if (cmd == L"-uipreview-guide" || cmd == L"-uipreview-guide-wait" || cmd == L"-uipreview-result")
 	{
 		g_uiPreviewMode = true;
 		g_uiPreviewMany = true;
-		g_uiPreviewScenario = cmd == L"-uipreview-guide" ? PreviewScenario::Guide : PreviewScenario::Result;
+		g_uiPreviewScenario = cmd == L"-uipreview-guide" ? PreviewScenario::Guide
+			: cmd == L"-uipreview-guide-wait" ? PreviewScenario::GuideWait : PreviewScenario::Result;
 	}
-	else if (cmd == L"-uipreview-frozen" || cmd == L"-uipreview-failed" || cmd == L"-uipreview-empty")
+	else if (cmd == L"-uipreview-frozen" || cmd == L"-uipreview-trackeroff" ||
+		cmd == L"-uipreview-failed" || cmd == L"-uipreview-empty")
 	{
 		g_uiPreviewMode = true;
 		g_uiPreviewMany = true;
 		g_uiPreviewScenario = cmd == L"-uipreview-frozen" ? PreviewScenario::Frozen
+			: cmd == L"-uipreview-trackeroff" ? PreviewScenario::TrackerOff
 			: cmd == L"-uipreview-failed" ? PreviewScenario::Failed : PreviewScenario::Empty;
 	}
 	else if (cmd == L"-uipreview-lighthouse")

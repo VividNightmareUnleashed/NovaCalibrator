@@ -147,6 +147,9 @@
     <ClInclude Include="PersistenceState.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="LocalPoseContinuity.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="RingPoseMath.h">
       <Filter>Header Files</Filter>
     </ClInclude>

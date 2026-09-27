@@ -270,6 +270,14 @@ inline std::string CheckLighthouseLine(const uint8_t *data, size_t size)
 		if (e.stationId == 0 || e.channel >= 0 || e.visibleKnown)
 			return "a secondary line names no station, or claims a channel or a visible set";
 		break;
+	case Event::Kind::PoweredOff:
+	case Event::Kind::Disconnected:
+	case Event::Kind::Connected:
+		if (e.visibleKnown || e.channel >= 0 || e.stationId != 0)
+			return "a power or radio line claims a station or a visible set";
+		if (e.standby && e.kind != Event::Kind::PoweredOff)
+			return "a radio line claims a standby power-off";
+		break;
 	default:
 		if (e.visibleKnown)
 			return "a bootstrap line claims a visible set";
@@ -521,6 +529,9 @@ inline std::vector<std::string> LighthouseSeeds()
 		prefix + "LHR-D520226E C: ----- SECONDARY base 4921060B distance 2.01m  -----",
 		prefix + "LHR-D520226E C: ----- SECONDARY base  4D47FB4 distance 3.03m   -----",
 		prefix + "LHR-3E61E6B7 C: Trying to start tracking from base D3D4E73B: Not enough samples",
+		prefix + "Device LHR-D520226E powering off upon entering standby.",
+		prefix + "LHR-D520226E: Disconnected from receiver 4BF089B604",
+		prefix + "LHR-D520226E: Connected to receiver 4BF089B604",
 	};
 }
 
