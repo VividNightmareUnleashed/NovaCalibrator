@@ -25,6 +25,18 @@
 //   Device LHR-A3C36EA5 powering off upon entering standby.
 //   LHR-A3C36EA5: Disconnected from receiver 4BF089B604
 //   LHR-A3C36EA5: Connected to receiver 4BF089B604
+//   Selected existing universe 1744988537 (170EE067 is primary)
+//   Creating new universe 1744988537 because there were no existing universes
+//   Stopped tracking with universe 1744988537
+//
+// and, outside the lighthouse driver, the server's own first line
+// ("Sun Sep 27 2026 21:43:33.604 [Info] - vrserver 2.17.10 startup with
+// PID=5976, ..."). The universe lines name no device: the universe is the set
+// of base station poses every lighthouse pose is reported in, which the
+// driver chooses once the first devices have started tracking after SteamVR
+// starts, and again after it stopped tracking with one because no device
+// was left tracking. vrserver.txt is not always rotated at a start: one file
+// held five days of sessions on 2026-09-27.
 //
 // Not every device prints the SOB lines. A VIVE Tracker 3.0 in a four-station
 // room (live 2026-09-25) printed none in six hours; after each bootstrap it
@@ -61,9 +73,13 @@ struct Event
 		PoweredOff,        // SteamVR switched the device off (standby says why)
 		Disconnected,      // its radio link to the receiver dropped
 		Connected,         // its radio link came up
+		// No device (serial empty):
+		ServerStarted,     // vrserver started: no universe yet
+		UniverseChosen,    // the driver selected or created its universe
+		UniverseStopped,   // it stopped tracking with it
 	};
 	Kind kind = Kind::StationAdded;
-	std::string serial;              // "LHR-A3C36EA5"
+	std::string serial;              // "LHR-A3C36EA5"; empty for the no-device kinds
 	int channel = -1;                // S-N of the station the line is about; -1 when absent
 	uint32_t stationId = 0;          // its id when the line carried one, else 0
 	// The device's visible channels after this line, when the line lists
@@ -75,6 +91,10 @@ struct Event
 	// PoweredOff: on entering standby, i.e. after sitting still, rather than
 	// for a reason the line does not give.
 	bool standby = false;
+	// UniverseChosen and UniverseStopped: the universe's id; UniverseChosen
+	// also says whether the driver created it rather than selected a known one.
+	uint64_t universeId = 0;
+	bool universeCreated = false;
 	// Local wall-clock time printed on the line, as Unix seconds with the
 	// millisecond part; timeKnown is false when the prefix did not parse.
 	bool timeKnown = false;

@@ -20,6 +20,18 @@
 // from the wall-clock stamp on each log line. Lines replayed from the log at
 // startup carry their state but no usable time; they set the visible sets
 // and the counters and never count as a disturbance.
+//
+// It also follows the universe, the base station poses every lighthouse
+// pose is reported in. SteamVR has none when it starts: the first devices
+// track in the frame of the station each started from, placed where the
+// driver guesses, until it chooses a universe, and then moves that station
+// to where it stands in the universe (live 2026-09-27, 4.6 s after the first
+// solution: "Selected existing universe 1744988537 (170EE067 is primary)",
+// then "Moving base F210FBA6 1205mm and 42.7 deg because of relationship
+// with 170EE067", four trackers carried 120 cm and 30.5 deg of yaw, and two
+// more stations moved 0.5 and 1.3 m in the next 2.5 s). A saved calibration
+// belongs to the universe, not to the guess, so nothing that measures or
+// follows the lighthouse frame should act while it is being set up.
 
 #include "LighthouseLog.h"
 
@@ -39,6 +51,21 @@ public:
 		double disturbedSeconds = 10.0;
 		// Fewer visible stations than this is a single-baseline solution.
 		int cleanStations = 2;
+		// How long after the universe is chosen its stations are still
+		// being placed (2026-09-27: the last large move 2.5 s after it, the
+		// last of the settling ones 5 s after).
+		double universeSetupSeconds = 10.0;
+		// The driver chooses one seconds after the first device tracks
+		// (1.1 and 4.6 s after the first new solution on 2026-09-26 and
+		// -27). With none this long after, the log is not saying so.
+		double universeWaitSeconds = 60.0;
+	};
+
+	enum class UniverseSetup
+	{
+		Unknown,     // the log has said nothing either way
+		SettingUp,   // no universe yet, or its stations are still being placed
+		Settled,
 	};
 
 	struct Station
@@ -119,9 +146,18 @@ public:
 	// A live restart (see Device::liveRestarts) within `seconds` of ringTime.
 	bool RestartedWithin(const std::string &serial, double ringTime, double seconds) const;
 
-	// Fit to be calibrated against: no live restart within `restartSeconds`
-	// and not Settling. A device the log never named is settled.
+	// Fit to be calibrated against: no live restart within `restartSeconds`,
+	// not Settling, and the universe not being set up. A device the log never
+	// named is settled.
 	bool SettledFor(const std::string &serial, double ringTime, double restartSeconds) const;
+
+	// Where the universe stands at ringTime: being set up from SteamVR's
+	// start or from its stopping tracking with one until
+	// config.universeSetupSeconds after it chose one (or at any time before
+	// that line's stamp), settled after. Unlike the per-device state, these
+	// lines count from their stamps when replayed too.
+	UniverseSetup Universe(double ringTime) const;
+	uint64_t UniverseId() const { return universeId; }   // 0 until a line names it
 
 	const Device *Find(const std::string &serial) const;
 	const std::map<std::string, Device> &Devices() const { return devices; }
@@ -134,9 +170,22 @@ public:
 	void Reset();
 
 private:
+	// The no-device lines (LighthouseLog.h): a new server session forgets
+	// the last one's devices, and the universe comes and goes.
+	void ApplyUniverse(const lighthouselog::Event &e, double ringTime);
+
+	enum class UniverseStage { Unknown, Down, Chosen };
+
 	Config config;
 	std::map<std::string, Device> devices;
 	std::map<int, Station> stations;
+	UniverseStage universe = UniverseStage::Unknown;
+	uint64_t universeId = 0;
+	double universeChosenAt = -1e9;        // ring seconds
+	// The first device line since the universe went down, which starts the
+	// wait for the driver to choose one.
+	bool trackedWhileDown = false;
+	double trackedWhileDownAt = -1e9;
 };
 
 // The detailed log's account of how many stations each device sees. A body

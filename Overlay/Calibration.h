@@ -272,6 +272,10 @@ struct CalibrationContext : CalibrationProfileState
 	// are in that the calibration followed, and the last one's log line.
 	uint32_t frameMovesFollowed = 0;
 	std::string lastFrameMoveFollowed;
+	// Moves either of those would have acted on, left alone because SteamVR
+	// was setting up its universe (LighthouseVisibility.h).
+	uint32_t frameMovesInSetup = 0;
+	std::string lastFrameMoveInSetup;
 	// The optional modules the installer put in (Modules.h), read at startup.
 	questcal::Modules modules;
 	// Debounced persistence for runtime compensation updates: dirty records save

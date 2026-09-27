@@ -940,15 +940,26 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 				}
 				watch.Flush();
 			}
-			char buf[200];
-			snprintf(buf, sizeof buf, "moves %zu (hidden %d), frame moves %d; followed %zu (%d in / %d out), left %zu (%d in / %d out)",
+			// When the trackers started, for the case the log cannot say when
+			// SteamVR set up its universe: the first tracking device, hidden
+			// ones included and base stations aside, until a reset.
+			const double since = watch.TrackingSince();
+			watch.Reset();
+			const bool clearedByReset = watch.TrackingSince() > 1e299;
+			watch.Note(sample(1, 20.0, stations[0], identity, Eigen::Vector3d::Zero()), QpcSeconds, true);
+			const bool stationAside = watch.TrackingSince() > 1e299;
+			char buf[240];
+			snprintf(buf, sizeof buf, "moves %zu (hidden %d), frame moves %d; followed %zu (%d in / %d out), left %zu (%d in / %d out); "
+				"tracking since %.3f, reset %d, station aside %d",
 				moves.size(), hiddenMoves, firsts, followed.size(),
 				followed.empty() ? -1 : followed[0].members, followed.empty() ? -1 : followed[0].others,
-				left.size(), left.empty() ? -1 : left[0].members, left.empty() ? -1 : left[0].others);
+				left.size(), left.empty() ? -1 : left[0].members, left.empty() ? -1 : left[0].others,
+				since, clearedByReset, stationAside);
 			check("lighthouse frame: a move is followed without a headset tracker when most calibrated trackers are in its frame",
 				moves.size() == 4 && hiddenMoves == 2 && firsts == 2 &&
 				followed.size() == 1 && followed[0].members == 3 && followed[0].others == 1 &&
-				left.size() == 1 && left[0].members == 1 && left[0].others == 3, buf);
+				left.size() == 1 && left[0].members == 1 && left[0].others == 3 &&
+				std::abs(since - 1.0) < 1e-6 && clearedByReset && stationAside, buf);
 		}
 	}
 }

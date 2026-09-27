@@ -32,7 +32,8 @@ Solver (new `CalibrationEngine`, covered by synthetic tests in `Tests/`):
 - Calibration collects both streams for a fixed duration, solves once, and publishes
   the complete transform. It starts measuring only once both devices track and a
   lighthouse device's tracking has settled (15 s after it restarted, two base
-  stations in view), and waits for that on its own rather than refusing. A base
+  stations in view, 10 s after SteamVR chose where its base stations stand),
+  and waits for that on its own rather than refusing. A base
   station SteamVR re-solves during the measurement is followed: the samples are
   kept in the frame the run began in and the result is carried to the new one.
   When a headset tracker's mount can't be re-measured and the previous one is
@@ -106,7 +107,10 @@ Runtime alignment maintenance uses the timestamped pose ring and calibration sol
   followed the same way once it is back in that station's frame. Without a
   headset tracker (or with continuous calibration off), the calibration follows
   a re-solved station when most of the calibrated trackers are in its frame,
-  counting trackers another driver hides from games (Standable does). The
+  counting trackers another driver hides from games (Standable does). Neither
+  follows the moves SteamVR makes while it sets up its universe, at startup or
+  after every lighthouse device was off: those place a station it guessed, and
+  a saved calibration already belongs where the station is placed. The
   mounted tracker can be hidden from games so full-body setups never mistake it for
   a body tracker. Optional (off by default): online re-estimation of the
   inter-system time offset from the same rigid pair.
@@ -150,7 +154,8 @@ then use **Save diagnostics file** once while alignment looks correct and again
 after the problem appears, before recalibrating or restarting. Keep the devices
 still while exporting. The report includes per-device input counts and freshness,
 stream gaps, window resets, Quest observation gates, re-anchors, lighthouse frame
-moves and the ones the calibration followed, how often SteamVR switched each
+moves, the ones the calibration followed and the ones it left alone while SteamVR
+set up its base stations, SteamVR's lighthouse universe, how often SteamVR switched each
 lighthouse device off for sitting still, and a snapshot of connected devices
 relative to SteamVR's floor. Counters
 survive recalibration for the session. Exports also include raw driver

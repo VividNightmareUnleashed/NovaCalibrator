@@ -163,6 +163,41 @@ void ParserScenarios(Check check)
 			backOk && back.kind == Event::Kind::Connected && back.serial == "LHR-D520226E" &&
 			plainOk && plainOff.kind == Event::Kind::PoweredOff && !plainOff.standby && ignored, detail);
 	}
+
+	// The universe, which no device owns, and the server's first line, as
+	// SteamVR 2.17.10 wrote them on 2026-09-27. The driver's other universe
+	// lines are not these.
+	{
+		const std::string at = "Sun Sep 27 2026 21:43:52.456 [Info] - lighthouse: ";
+		Event chosen, created, stopped, server, other;
+		const bool chosenOk = lighthouselog::ParseLine(at +
+			"Selected existing universe 1744988537 (170EE067 is primary)", chosen);
+		const bool createdOk = lighthouselog::ParseLine(at +
+			"Creating new universe 1744988537 because there were no existing universes", created);
+		const bool stoppedOk = lighthouselog::ParseLine(
+			"Sun Sep 27 2026 22:30:01.060 [Info] - lighthouse: Stopped tracking with universe 1744988537", stopped);
+		const bool serverOk = lighthouselog::ParseLine(
+			"Sun Sep 27 2026 21:43:33.604 [Info] - vrserver 2.17.10 startup with PID=5976, "
+			"config=C:\\Program Files (x86)\\Steam\\config, arch=win64", server);
+		const bool othersIgnored =
+			!lighthouselog::ParseLine(at + "BootstrapFinished setting tilt base to 170EE067", other) &&
+			!lighthouselog::ParseLine(at + "Setting universe tilt from 170EE067 via transform to global: pitch -26.26 deg roll 1.89 deg", other) &&
+			!lighthouselog::ParseLine(at + "Moving base F210FBA6 1205mm and 42.7 deg because of relationship with 170EE067, which is closer to the origin", other) &&
+			!lighthouselog::ParseLine(at + "Selected existing universe (170EE067 is primary)", other) &&
+			!lighthouselog::ParseLine("Sun Sep 27 2026 21:43:34.881 [Info] - Found universe 1 in chaperone file", other) &&
+			!lighthouselog::ParseLine("Sun Sep 27 2026 21:43:33.604 [Info] - vrserver 2.17.10 watchdogs enabled", other);
+		snprintf(detail, sizeof detail, "chosen %d (%llu, created %d, '%s') created %d (%d) stopped %d (%llu) server %d (%d) ignored %d",
+			chosenOk, static_cast<unsigned long long>(chosen.universeId), chosen.universeCreated, chosen.serial.c_str(),
+			createdOk, created.universeCreated, stoppedOk, static_cast<unsigned long long>(stopped.universeId),
+			serverOk, server.timeKnown, othersIgnored);
+		check("lighthouse log: the universe and the server's start name no device",
+			chosenOk && chosen.kind == Event::Kind::UniverseChosen && chosen.universeId == 1744988537ull &&
+			!chosen.universeCreated && chosen.serial.empty() && chosen.timeKnown && chosen.channel < 0 &&
+			createdOk && created.kind == Event::Kind::UniverseChosen && created.universeCreated &&
+			stoppedOk && stopped.kind == Event::Kind::UniverseStopped && stopped.universeId == 1744988537ull &&
+			serverOk && server.kind == Event::Kind::ServerStarted && server.serial.empty() && server.timeKnown &&
+			othersIgnored, detail);
+	}
 }
 
 void TailerScenarios(Check check)
@@ -476,9 +511,112 @@ void VisibilityScenarios(Check check)
 			!atSampling && !justBefore && after && unnamed && !single, detail);
 	}
 
+	// SteamVR's startup on 2026-09-27 through the parser, as the overlay read
+	// it: when it started the file held an earlier session and this one's
+	// first line, and the rest came live. Seconds from the server's start.
+	// The census followed the station placed 26 ms after the universe was
+	// chosen; a station SteamVR moved 20 s later is one to follow.
+	{
+		using U = LighthouseVisibility::UniverseSetup;
+		LighthouseVisibility setup;
+		double start = 0.0;
+		lighthouselog::ParseTimestamp("Sun Sep 27 2026 21:43:33.604 [Info] - x", start);
+		auto feed = [&](const char *text, bool historical)
+		{
+			Event e;
+			if (!lighthouselog::ParseLine(text, e))
+				return -1e9;
+			e.historical = historical;
+			setup.Apply(e, e.unixTime - start);
+			return e.unixTime - start;
+		};
+		const U before = setup.Universe(0.0);
+		feed("Sun Sep 27 2026 18:17:55.130 [Info] - vrserver 2.17.10 startup with PID=416, arch=win64", true);
+		// Made up: a device an earlier session named.
+		feed("Sun Sep 27 2026 18:17:56.000 [Info] - lighthouse: LHR-A3C36EA5 C: SOB: add S-5 also seeing S-8", true);
+		const bool earlierNamed = setup.Find("LHR-A3C36EA5") != nullptr;
+		feed("Sun Sep 27 2026 21:43:33.604 [Info] - vrserver 2.17.10 startup with PID=5976, arch=win64", true);
+		const bool forgotten = setup.Find("LHR-A3C36EA5") == nullptr && setup.StationCount() == 0;
+		const U waiting = setup.Universe(5.0);
+		const double sob = feed("Sun Sep 27 2026 21:43:43.887 [Info] - lighthouse: LHR-3E61E6B7 C: SOB: add S-8", false);
+		setup.Apply(Made(K::StationAdded, "LHR-C48117DF", 5, { 5, 8 }), sob);   // two stations, no restart
+		const double boot = feed("Sun Sep 27 2026 21:43:47.830 [Info] - lighthouse: LHR-3E61E6B7 C: ----- BOOTSTRAPPED "
+			"base F210FBA6 (best) distance 1.23m velocity 0.85m/s base pitch ~21.1 deg roll ~-1.7 deg -----", false);
+		const U tracking = setup.Universe(boot + 0.1);
+		const double chosen = feed("Sun Sep 27 2026 21:43:52.456 [Info] - lighthouse: "
+			"Selected existing universe 1744988537 (170EE067 is primary)", false);
+		const U placing = setup.Universe(chosen + 0.026);       // Moving base F210FBA6 1205mm and 42.7 deg
+		const U stampedBefore = setup.Universe(chosen - 0.2);
+		const U lastPlacing = setup.Universe(chosen + 9.9);
+		const U settled = setup.Universe(chosen + 10.1);
+		const U later = setup.Universe(chosen + 19.821);        // Moving base D3D4E73B 94mm ... for tracking too
+		const bool heldForUniverse = !setup.SettledFor("LHR-C48117DF", chosen + 5.0, 15.0) &&
+			setup.SettledFor("LHR-C48117DF", chosen + 10.5, 15.0) &&
+			setup.SettledFor("LHR-00000000", chosen + 5.0, 15.0);
+		const uint64_t id = setup.UniverseId();
+		const double stop = feed("Sun Sep 27 2026 22:30:01.060 [Info] - lighthouse: Stopped tracking with universe 1744988537", false);
+		const U down = setup.Universe(stop + 1.0);
+		// Tracking again and no universe chosen a minute on: the log stopped
+		// saying so, and says nothing either way.
+		setup.Apply(Made(K::StationAdded, "LHR-3E61E6B7", 8, { 5, 8 }), stop + 10.0);
+		const U stillWaiting = setup.Universe(stop + 69.0);
+		const U silent = setup.Universe(stop + 71.0);
+
+		// Replayed at the overlay's start, the choice counts from its stamp:
+		// an overlay started 4 s after it still leaves the placing alone.
+		LighthouseVisibility replayed;
+		Event pick;
+		lighthouselog::ParseLine("Sun Sep 27 2026 21:43:52.456 [Info] - lighthouse: "
+			"Selected existing universe 1744988537 (170EE067 is primary)", pick);
+		pick.historical = true;
+		replayed.Apply(pick, 100.0);
+		const U replayedRecent = replayed.Universe(104.0);
+		const U replayedOld = replayed.Universe(200.0);
+
+		snprintf(detail, sizeof detail, "before %d, earlier %d forgotten %d, waiting %d tracking %d, chosen at %.3f s: "
+			"placing %d before %d last %d settled %d later %d, held %d, id %llu, down %d, still %d silent %d, replayed %d %d",
+			static_cast<int>(before), earlierNamed, forgotten, static_cast<int>(waiting), static_cast<int>(tracking), chosen,
+			static_cast<int>(placing), static_cast<int>(stampedBefore), static_cast<int>(lastPlacing),
+			static_cast<int>(settled), static_cast<int>(later), heldForUniverse, static_cast<unsigned long long>(id),
+			static_cast<int>(down), static_cast<int>(stillWaiting), static_cast<int>(silent),
+			static_cast<int>(replayedRecent), static_cast<int>(replayedOld));
+		check("lighthouse state: frame moves and calibrations wait while SteamVR sets up its universe",
+			before == U::Unknown && earlierNamed && forgotten && waiting == U::SettingUp && tracking == U::SettingUp &&
+			std::abs(chosen - 18.852) < 0.002 && placing == U::SettingUp && stampedBefore == U::SettingUp &&
+			lastPlacing == U::SettingUp && settled == U::Settled && later == U::Settled && heldForUniverse &&
+			id == 1744988537ull && down == U::SettingUp && stillWaiting == U::SettingUp && silent == U::Unknown &&
+			replayedRecent == U::SettingUp && replayedOld == U::Settled, detail);
+	}
+
+	// A tracker whose SOB lines carry no ids (LHR-BFF71BF1 on 2026-09-27)
+	// rebuilds its set from bootstrap and SECONDARY lines by id; once another
+	// device's line gives a station's channel, the set holds it by channel.
+	{
+		LighthouseVisibility ids;
+		Event boot = Made(K::Bootstrapped, "LHR-BFF71BF1", -1, {});
+		boot.stationId = 0xF210FBA6u;
+		ids.Apply(boot, 48.5);
+		Event secondary = Made(K::SecondaryAdded, "LHR-BFF71BF1", -1, {});
+		secondary.stationId = 0x170EE067u;
+		ids.Apply(secondary, 50.7);
+		const LighthouseVisibility::Device *t = ids.Find("LHR-BFF71BF1");
+		const bool byId = t->visible.empty() && t->unmappedIds.size() == 2 && t->InView() == 2 && !t->degraded;
+		Event named = Made(K::StationAdded, "LHR-841C98C3", 9, { 5, 9 });
+		named.stationId = 0xF210FBA6u;
+		named.visibleIds = { 0, 0xF210FBA6u };
+		ids.Apply(named, 60.0);
+		const bool byChannel = Same(t->visible, { 9 }) && t->unmappedIds.size() == 1 &&
+			t->unmappedIds[0] == 0x170EE067u && t->InView() == 2 && !t->degraded;
+		snprintf(detail, sizeof detail, "by id %d, by channel %d (visible %s, unmapped %zu)",
+			byId, byChannel, Channels(t->visible).c_str(), t->unmappedIds.size());
+		check("lighthouse state: a station named by id alone joins by channel once a line gives it",
+			byId && byChannel, detail);
+	}
+
 	vis.Reset();
 	check("lighthouse state: reset forgets everything",
-		vis.Devices().empty() && vis.StationCount() == 0, "");
+		vis.Devices().empty() && vis.StationCount() == 0 &&
+		vis.Universe(0.0) == LighthouseVisibility::UniverseSetup::Unknown, "");
 }
 
 // Runs the simulated tracker through the drift monitor with the log lines

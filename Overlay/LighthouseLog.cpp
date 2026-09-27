@@ -102,6 +102,19 @@ bool StartsWith(const std::string &text, const char *prefix)
 	return text.size() >= n && text.compare(0, n, prefix) == 0;
 }
 
+// The decimal id at the start of "1744988537 (170EE067 is primary)"; false
+// when there is none.
+bool LeadingUniverseId(const std::string &text, uint64_t &id)
+{
+	size_t end = 0;
+	while (end < text.size() && end <= 20 && std::isdigit(static_cast<unsigned char>(text[end])))
+		++end;
+	if (end == 0 || end > 20)
+		return false;
+	id = std::strtoull(text.substr(0, end).c_str(), nullptr, 10);
+	return true;
+}
+
 } // namespace
 
 bool ParseTimestamp(const std::string &line, double &unixTime)
@@ -189,6 +202,40 @@ bool ParseLine(const std::string &line, Event &out)
 		out.serial = line.substr(serialStart, serialEnd - serialStart);
 		out.kind = Event::Kind::PoweredOff;
 		out.standby = line.find("standby", serialEnd) != std::string::npos;
+		out.timeKnown = ParseTimestamp(line, out.unixTime);
+		return true;
+	}
+
+	// The universe, which no device owns.
+	struct UniverseLine
+	{
+		const char *text;
+		Event::Kind kind;
+		bool created;
+	};
+	static const UniverseLine universes[] = {
+		{ "lighthouse: Selected existing universe ", Event::Kind::UniverseChosen, false },
+		{ "lighthouse: Creating new universe ", Event::Kind::UniverseChosen, true },
+		{ "lighthouse: Stopped tracking with universe ", Event::Kind::UniverseStopped, false },
+	};
+	for (const auto &u : universes)
+	{
+		size_t found = line.find(u.text);
+		if (found == std::string::npos)
+			continue;
+		if (!LeadingUniverseId(line.substr(found + std::strlen(u.text)), out.universeId))
+			return false;
+		out.kind = u.kind;
+		out.universeCreated = u.created;
+		out.timeKnown = ParseTimestamp(line, out.unixTime);
+		return true;
+	}
+
+	// The server's first line: a new SteamVR session, no universe yet.
+	size_t server = line.find("] - vrserver ");
+	if (server != std::string::npos && line.find(" startup with PID=", server) != std::string::npos)
+	{
+		out.kind = Event::Kind::ServerStarted;
 		out.timeKnown = ParseTimestamp(line, out.unixTime);
 		return true;
 	}
