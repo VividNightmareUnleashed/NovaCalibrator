@@ -21,7 +21,9 @@ name: Validation
 # questcal-esbmc image) against this tree's headers. VirtualQuest's own
 # formal.yml skips them, since it has no QuestCalibrator sources, and nothing
 # else here catches a loosened bound in them, so the job fails on a skipped
-# check as well as a wrong outcome. The release workflow does not run it. The
+# check as well as a wrong outcome. The release workflow does not run it. It
+# runs on four runners at once (check.ps1 -Shard): each of the three longest
+# checks has one to itself, and the fourth runs the rest, three at a time. The
 # image is cached by its Dockerfile's hash. A pull request only reads caches
 # saved on its own or its base branch, so the image a push to alpha saves lets
 # pull requests into alpha skip the build.
@@ -125,8 +127,14 @@ jobs:
     secrets: inherit
 
   input-validation:
+    name: input-validation (${{ matrix.shard }}/4)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      # Every share reports, so one failure does not hide another.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     env:
       HAS_VIRTUALQUEST: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY != '' }}
 
@@ -191,15 +199,16 @@ jobs:
           path: ${{ runner.temp }}/questcal-esbmc.tar
           key: questcal-esbmc-${{ hashFiles('VirtualQuest/formal/input-validation/Dockerfile') }}
 
-      # check.ps1 runs the checks one per core, the longest first, so the job
-      # takes about as long as its longest check (about 4.5 minutes) rather
-      # than their sum (about 19). -Strict fails when Docker or the image is
-      # missing; the SKIP test also catches sources check.ps1 cannot find.
+      # About 4.5 minutes for the longest check alone, rather than 19 for all
+      # of them in turn. -Strict fails when Docker or the image is missing; the
+      # SKIP test also catches sources check.ps1 cannot find, and a share that
+      # ran nothing fails too.
       - name: Check the input validation (ESBMC and Gappa)
         if: env.HAS_VIRTUALQUEST == 'true'
         timeout-minutes: 30
         shell: pwsh
         run: |
-          pwsh -NoProfile -File VirtualQuest/formal/check.ps1 -Only input-validation -Strict | Tee-Object -Variable lines
+          pwsh -NoProfile -File VirtualQuest/formal/check.ps1 -Only input-validation -Strict -Shard ${{ matrix.shard }}/4 | Tee-Object -Variable lines
           if ($LASTEXITCODE -ne 0) { throw 'An input-validation check did not come out as expected.' }
           if ($lines | Where-Object { "$_" -match '^SKIP ' }) { throw 'An input-validation check was skipped.' }
+          if (-not ($lines | Where-Object { "$_" -match '^ok ' })) { throw 'This share ran no input-validation check.' }
