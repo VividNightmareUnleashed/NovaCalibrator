@@ -1,10 +1,11 @@
 name: Fuzz
 
 # The coverage-guided fuzzers in Tests/Fuzz (libFuzzer and AddressSanitizer,
-# tools/fuzz.ps1) for a minute per target, once a week and on demand. The
-# corpus is kept between runs, so each run continues from the coverage the
-# last one reached. The harness already replays the same properties over
-# seeded mutations on every push and pull request; this is the longer search.
+# tools/fuzz.ps1), once a week and on demand: each target on its own runner at
+# the same time, for five minutes. Each target's corpus is kept between runs,
+# so each run continues from the coverage the last one reached. The harness
+# already replays the same properties over seeded mutations on every push and
+# pull request; this is the longer search.
 on:
   schedule:
     - cron: '0 3 * * 0'
@@ -13,7 +14,7 @@ on:
       seconds:
         description: Seconds per target
         required: false
-        default: '60'
+        default: '300'
 
 permissions:
   contents: read
@@ -22,6 +23,11 @@ jobs:
   fuzz:
     runs-on: windows-2022
     timeout-minutes: 45
+    strategy:
+      # One target's failure leaves the others to finish their search.
+      fail-fast: false
+      matrix:
+        target: [profile, feed, lighthouse, request]
 
     steps:
       - name: Check out the source
@@ -32,23 +38,23 @@ jobs:
       - name: Restore the corpus
         uses: actions/cache@v4
         with:
-          path: x64/fuzz/*/corpus
-          key: fuzz-corpus-${{ github.run_id }}
-          restore-keys: fuzz-corpus-
+          path: x64/fuzz/${{ matrix.target }}/corpus
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
 
-      - name: Fuzz every target
+      - name: Fuzz ${{ matrix.target }}
         shell: pwsh
         run: |
-          $seconds = if ('${{ inputs.seconds }}') { [int]'${{ inputs.seconds }}' } else { 60 }
-          powershell -NoProfile -ExecutionPolicy Bypass -File tools\fuzz.ps1 -Seconds $seconds
-          if ($LASTEXITCODE -ne 0) { throw 'A fuzz target failed; its input and log are attached to this run.' }
+          $seconds = if ('${{ inputs.seconds }}') { [int]'${{ inputs.seconds }}' } else { 300 }
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools\fuzz.ps1 -Seconds $seconds -Targets ${{ matrix.target }}
+          if ($LASTEXITCODE -ne 0) { throw 'The fuzz target failed; its input and log are attached to this run.' }
 
-      - name: Keep the failing inputs
+      - name: Keep the failing input
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-failures
+          name: fuzz-failures-${{ matrix.target }}
           path: |
-            x64/fuzz/*/crash-*
-            x64/fuzz/*/last-run.txt
+            x64/fuzz/${{ matrix.target }}/crash-*
+            x64/fuzz/${{ matrix.target }}/last-run.txt
           retention-days: 30
