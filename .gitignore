@@ -10,3 +10,9 @@ install/test-out/
 
 # Local secrets (VirusTotal key for install/release.ps1)
 .env
+
+# Guidance atlas authoring tools. They need the Blender authoring file, which is not
+# in the repository, and nothing in the build or CI runs them.
+tools/render-guidance.py
+tools/pack-guidance.py
+tools/README-guidance.md
