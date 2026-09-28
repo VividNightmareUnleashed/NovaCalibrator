@@ -165,11 +165,30 @@ function Invoke-MSBuildValidation {
         # logs; console formatting varies between PowerShell/MSBuild versions.
         # Third-party sources remain outside the policy boundary.
         $rootPattern = [regex]::Escape($Root.TrimEnd('\', '/'))
+        $projectDirectories = @('Driver', 'Overlay', 'Tests') | ForEach-Object { Join-Path $Root $_ }
         $logs = @(
-            Get-ChildItem -LiteralPath (Join-Path $Root 'Driver'), (Join-Path $Root 'Overlay'), (Join-Path $Root 'Tests') `
+            Get-ChildItem -LiteralPath $projectDirectories `
                 -Recurse -Filter '*.ClangTidy.log' -File -ErrorAction SilentlyContinue |
                 Where-Object { $_.LastWriteTime -ge $analysisStarted.AddSeconds(-5) }
         )
+        # A build that analyzed nothing writes no logs, and would otherwise pass
+        # with no findings. Each project writes one, naming every file processed.
+        $unanalyzed = @($projectDirectories | Where-Object {
+            $directory = $_ + [System.IO.Path]::DirectorySeparatorChar
+            -not ($logs | Where-Object { $_.FullName.StartsWith($directory, [StringComparison]::OrdinalIgnoreCase) })
+        })
+        $analyzed = @(
+            $logs |
+                ForEach-Object { Get-Content -LiteralPath $_.FullName } |
+                Where-Object { $_ -match '^\[\d+/\d+\] Processing file ' }
+        ).Count
+        if ($unanalyzed.Count -gt 0 -or $analyzed -eq 0) {
+            Write-Output ('Clang-Tidy did not analyze every project (no log from: ' +
+                (($unanalyzed | ForEach-Object { Split-Path -Leaf $_ }) -join ', ') +
+                "; $analyzed file(s) processed in all).")
+            exit 2
+        }
+        Write-Output "Clang-Tidy analyzed $analyzed translation unit(s) in $($logs.Count) project(s)."
         $findings = @(
             $logs |
                 ForEach-Object { Get-Content -LiteralPath $_.FullName } |

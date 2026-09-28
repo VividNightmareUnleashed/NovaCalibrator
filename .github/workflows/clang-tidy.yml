@@ -46,7 +46,9 @@ jobs:
         run: tools\ci\checkout-virtualquest.ps1
 
       # Exit 3 is the script's "first-party findings" (listed above the error);
-      # anything else non-zero is a failed build or harness, or missing tools.
+      # anything else non-zero is a failed build or harness, missing tools, or
+      # a project Clang-Tidy wrote no analysis for. On success it prints how
+      # many translation units were analyzed.
       - name: Analyze every translation unit
         timeout-minutes: 140
         shell: pwsh
@@ -57,4 +59,4 @@ jobs:
             Write-Host '::error::Clang-Tidy reported first-party findings, listed above. The tree had none, so each one is new.'
             exit 1
           }
-          if ($code -ne 0) { throw "The analysis build, the solver harness or the tools failed (exit $code)." }
+          if ($code -ne 0) { throw "The analysis build, the analysis itself, the solver harness or the tools failed (exit $code)." }
