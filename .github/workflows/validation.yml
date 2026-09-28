@@ -126,7 +126,7 @@ jobs:
 
   input-validation:
     runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    timeout-minutes: 45
     env:
       HAS_VIRTUALQUEST: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY != '' }}
 
@@ -191,11 +191,13 @@ jobs:
           path: ${{ runner.temp }}/questcal-esbmc.tar
           key: questcal-esbmc-${{ hashFiles('VirtualQuest/formal/input-validation/Dockerfile') }}
 
-      # About 15 minutes locally. -Strict fails when Docker or the image is
+      # check.ps1 runs the checks one per core, the longest first, so the job
+      # takes about as long as its longest check (about 4.5 minutes) rather
+      # than their sum (about 19). -Strict fails when Docker or the image is
       # missing; the SKIP test also catches sources check.ps1 cannot find.
       - name: Check the input validation (ESBMC and Gappa)
         if: env.HAS_VIRTUALQUEST == 'true'
-        timeout-minutes: 60
+        timeout-minutes: 30
         shell: pwsh
         run: |
           pwsh -NoProfile -File VirtualQuest/formal/check.ps1 -Only input-validation -Strict | Tee-Object -Variable lines

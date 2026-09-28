@@ -14,10 +14,10 @@ Pushing a `questcalibrator-v*` tag runs `.github/workflows/release.yml`. It stop
 once in any other repository (a fork, or this one under another name). Otherwise, on
 a clean Windows runner, it checks out the tag and the VirtualQuest commit it pins,
 builds with the full solver suite (including the VirtualQuest scenarios and the
-formal-model links), replays the pose hub traces through their TLA+ model, runs the
-duplicate scan as an advisory gate and, in a parallel job, Clang-Tidy over every
-translation unit (`clang-tidy.yml`, where any first-party finding stops the release),
-checks the version against the tag, packages with `install\build-package.ps1`, scans
+formal-model links), and in parallel jobs replays the pose hub traces through their
+TLA+ model, runs the duplicate scan as an advisory gate, and runs Clang-Tidy over every
+translation unit (`clang-tidy.yml`, where any first-party finding stops the release).
+It checks the version against the tag, packages with `install\build-package.ps1`, scans
 with `install\virustotal-scan.ps1`, creates a **draft** release with the zip, its
 `.sha256` and notes carrying the hash and the VirusTotal table, and then runs the
 install test on that draft. It refuses to run if the tag already has a release. The
