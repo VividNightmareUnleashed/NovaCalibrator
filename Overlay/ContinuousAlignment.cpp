@@ -671,12 +671,14 @@ void ContinuousAlignment::TryReanchor(double now, const WindowEstimate &est,
 
 	// A restart of the target shortly before the episode, or during it, says
 	// the target moved rather than the universes: freeze on it (live
-	// 2026-09-25, every remaining freeze came within two minutes of one).
+	// 2026-09-25, every remaining freeze came within two minutes of one),
+	// unless a solution the target started since reads the same deviation.
 	// Where no restart could be seen, none can clear the episode either, so
 	// it stays frozen as it did before re-anchoring existed.
-	const bool attributed = episodeSince >= 0.0 &&
+	const bool restarted = episodeSince >= 0.0 &&
 		lastTargetResolveTime >= episodeSince - config.resolveAttributionSeconds;
-	if (attributed || !restartsVisible)
+	const bool acrossSolutions = restarted && ReadByLaterSolution(est);
+	if ((restarted && !acrossSolutions) || !restartsVisible)
 	{
 		reanchorSince = -1.0;
 		return;
@@ -713,10 +715,27 @@ void ContinuousAlignment::TryReanchor(double now, const WindowEstimate &est,
 	Event e;
 	e.type = Event::Reanchored;
 	e.deviation = deviation;
+	e.acrossSolutions = acrossSolutions;
 	events.push_back(e);
 	episodeSince = -1.0;
 	reanchorSince = -1.0;
 	EnterState(State::Tracking);
+}
+
+bool ContinuousAlignment::ReadByLaterSolution(const WindowEstimate &est)
+{
+	if (blamed && blamed->episode == episodeSince && blamed->solution != targetSolutions)
+	{
+		double apartYaw = 0.0;
+		Eigen::Vector3d apartStep, apartHead;
+		const Deviation apart = MeasureDeviation(est, blamed->est.rot, blamed->est.trans,
+			apartYaw, apartStep, apartHead);
+		if (apart.yawDeg < config.reanchorSteadyDeg && apart.tiltDeg < config.reanchorSteadyDeg &&
+			apart.posM < config.reanchorSteadyPosM)
+			return true;
+	}
+	blamed = Blamed{ est, targetSolutions, episodeSince };
+	return false;
 }
 
 // A tilt this large is the lighthouse frame's own and goes in whole; below
@@ -757,6 +776,7 @@ void ContinuousAlignment::SetFollowMode(bool follow)
 	reanchorSince = -1.0;
 	undoSince = -1.0;
 	replaced.reset();
+	blamed.reset();
 	if (state == State::Frozen)
 		EnterState(State::Holding);
 }
@@ -1001,15 +1021,20 @@ void ContinuousAlignment::Reset(ResetReason reason)
 	pendingObs.reset();
 	pendingReanchor.reset();
 	if (!gap)
+	{
 		replaced.reset();
+		blamed.reset();
+	}
 	events.clear();
 	EnterState(keepFrozen ? State::Frozen : keepCoasting ? State::Coasting : State::Inactive);
 }
 
-void ContinuousAlignment::NoteTargetResolved(double time)
+void ContinuousAlignment::NoteTargetResolved(double time, bool newSolution)
 {
 	Reset(ResetReason::TargetResolved);
 	lastTargetResolveTime = time;
+	if (newSolution)
+		++targetSolutions;
 }
 
 void ContinuousAlignment::NoteTargetFrameMoved(const Eigen::Quaterniond &rotation,
@@ -1018,12 +1043,18 @@ void ContinuousAlignment::NoteTargetFrameMoved(const Eigen::Quaterniond &rotatio
 	Reset(ResetReason::TargetFrameMoved);
 	// C o F^-1, as the caller did to the calibration (see
 	// LighthouseFrameWatch::CompensatingDelta): the replaced calibration maps
-	// the moved frame as it mapped the old one.
+	// the moved frame as it mapped the old one, and so does the reading an
+	// episode was blamed on.
+	const Eigen::Quaterniond fInv = rotation.conjugate().normalized();
 	if (replaced)
 	{
-		const Eigen::Quaterniond fInv = rotation.conjugate().normalized();
 		replaced->trans -= calScale * (replaced->rot * (fInv * translation));
 		replaced->rot = (replaced->rot * fInv).normalized();
+	}
+	if (blamed)
+	{
+		blamed->est.trans -= calScale * (blamed->est.rot * (fInv * translation));
+		blamed->est.rot = (blamed->est.rot * fInv).normalized();
 	}
 }
 

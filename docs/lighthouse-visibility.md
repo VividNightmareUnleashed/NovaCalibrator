@@ -57,6 +57,24 @@ LHR-A3C36EA5: Connected to receiver 4BF089B604
   sitting still`, `... connected again`); they are not disturbances, since an
   off device reports no pose to disturb.
 
+Four more lines name no device:
+
+```
+Selected existing universe 1744988537 (170EE067 is primary)
+Creating new universe 1744988537 because there were no existing universes
+Stopped tracking with universe 1744988537
+vrserver 2.17.10 startup with PID=5976, ...   (the server's own first line)
+```
+
+The universe is the set of base station poses every lighthouse pose is
+reported in. SteamVR has none when it starts, and none again after it stopped
+tracking with one because no device was left tracking. The first devices to
+track are reported in the frame of the station each started from, placed
+where the driver guesses, until it chooses a universe a few seconds later; it
+then moves those stations to where they stand in it. The server's start also
+forgets the devices of the session before: `vrserver.txt` is not always
+rotated when SteamVR starts, and one file held five days of sessions.
+
 The file is re-opened on every poll (four times a second) and never held, so
 SteamVR can rename it at its next start. The first poll replays up to the
 last 4 MB of the existing file to learn the current sets; those lines are
@@ -114,10 +132,31 @@ device's time.
 
 A calibration uses the same state before it measures: it waits until a
 lighthouse device in the pair is neither degraded nor within ten seconds of a
-disturbance, and until fifteen seconds after its last new solution (a solution
-still settling was measured 1.2 deg off on 2026-09-26). It starts on its own
-once that holds, and after 30 s measures a device that tracks but never
-settled.
+disturbance, until fifteen seconds after its last new solution (a solution
+still settling was measured 1.2 deg off on 2026-09-26), and until ten seconds
+after SteamVR chose its universe. It starts on its own once that holds, and
+after 30 s measures a device that tracks but never settled.
+
+Continuous calibration reads the headset tracker's lines the same way: no
+verdict while it settles, and a pause within two minutes of one of its
+disturbances is put down to that. Only a `BOOTSTRAPPED` line starts a
+solution from scratch; when the solution it starts reads the same deviation
+as the one blamed, the blame is lifted (see [how it works](how-it-works.md)).
+A station coming or going, even the first back after none was in view,
+leaves the solution and its bias in place.
+
+The universe decides one more thing. A station SteamVR re-solves carries
+every device in its frame, and the calibration follows such a move (see
+[how it works](how-it-works.md)). While the universe is set up it does not:
+the move places a station SteamVR guessed at startup, and a saved calibration
+belongs to the universe, not to the guess. On 2026-09-27 the first station
+was placed 26 ms after the universe was chosen (`Moving base F210FBA6 1205mm
+and 42.7 deg`), carrying four trackers 120 cm and 30.5 deg of yaw, and two
+more stations moved 0.5 and 1.3 m in the next 2.5 s. So no frame move is
+followed from SteamVR's start until ten seconds after it chose a universe.
+When the log names no universe (it is unreadable, or the part replayed at
+startup holds none), the first fifteen seconds after the lighthouse devices
+start tracking stand in for it.
 
 Lighthouse devices are target-side devices, so none of this touches the
 universe-jump detector, which only reads the reference system's stream.
@@ -169,7 +208,13 @@ Scenarios (`RunLighthouseScenarios`):
   after a live return is attributed;
 - the parser accepts every line shape above and rejects the driver's other
   lines; the tailer replays history, follows appends, completes a half-written
-  line once and survives a rotation.
+  line once and survives a rotation;
+- the 2026-09-27 startup, read as the overlay read it: the universe is being
+  set up from the server's start until ten seconds after it was chosen (the
+  station placed 26 ms after it included), settled after, down again when
+  SteamVR stopped tracking with it, and unnamed when a minute passes with
+  devices tracking and no universe chosen; a choice replayed when the overlay
+  starts counts from its stamp, unlike the per-device lines.
 
 ## Limits
 

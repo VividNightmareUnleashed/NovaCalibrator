@@ -74,6 +74,9 @@ struct CalibrationProfileState
 	uint32_t autoCorrectionsApplied = 0;
 	uint32_t continuousReanchors = 0;
 	uint32_t continuousReanchorsUndone = 0;
+	// Re-anchors of a freeze put down to a restart, once the next solution
+	// read the same (ContinuousAlignment::Event::acrossSolutions).
+	uint32_t continuousReanchorsAcrossSolutions = 0;
 	questcal::ContinuousAlignment::State continuousState =
 		questcal::ContinuousAlignment::State::Inactive;
 	questcal::ContinuousAlignment::Deviation continuousDeviation;
@@ -272,6 +275,10 @@ struct CalibrationContext : CalibrationProfileState
 	// are in that the calibration followed, and the last one's log line.
 	uint32_t frameMovesFollowed = 0;
 	std::string lastFrameMoveFollowed;
+	// Moves either of those would have acted on, left alone because SteamVR
+	// was setting up its universe (LighthouseVisibility.h).
+	uint32_t frameMovesInSetup = 0;
+	std::string lastFrameMoveInSetup;
 	// The optional modules the installer put in (Modules.h), read at startup.
 	questcal::Modules modules;
 	// Debounced persistence for runtime compensation updates: dirty records save

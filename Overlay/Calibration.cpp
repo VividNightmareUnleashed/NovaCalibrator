@@ -110,9 +110,11 @@ static int ContinuousConsumer = -1;
 static std::vector<protocol::DevicePoseSample> ContinuousScratch;
 static bool ContinuousActive = false;
 // The headset tracker's live lighthouse disturbance count last acted on, so
-// each new one restarts the window exactly once.
+// each new one restarts the window exactly once, and its bootstrap count, so
+// the loop hears which of them began a solution of its own.
 static std::string ContinuousLighthouseSerial;
 static uint32_t ContinuousLighthouseDisturbances = 0;
+static uint32_t ContinuousLighthouseBootstraps = 0;
 // The stream the last TrackerLost named, for the TrackerRecovered after it.
 static ringpose::StoppedStream ContinuousLostStream = ringpose::StoppedStream::Tracker;
 
@@ -651,6 +653,15 @@ static void LighthouseTick(CalibrationContext &ctx, double time)
 				ringTime = ringNow - age;
 		}
 		std::string note = ctx.lighthouse.Apply(e, ringTime);
+		if (e.kind == lighthouselog::Event::Kind::ServerStarted)
+			LighthouseDigest.Reset();
+		if (!e.historical && (e.kind == lighthouselog::Event::Kind::UniverseChosen ||
+			e.kind == lighthouselog::Event::Kind::UniverseStopped))
+		{
+			const char *what = e.kind == lighthouselog::Event::Kind::UniverseStopped ? "stopped tracking with"
+				: e.universeCreated ? "created" : "chose";
+			ctx.Log("SteamVR " + std::string(what) + " lighthouse universe " + std::to_string(e.universeId) + "\n");
+		}
 		if (!note.empty())
 			ctx.Log(e.serial + " " + note + "\n");
 		else if (!e.historical)
@@ -678,6 +689,29 @@ static bool DescribeFrameMove(const LighthouseFrameWatch::Move &move, double &ya
 	return move.shiftM >= 0.01 || yawDeg >= 0.1 || tiltDeg >= 0.1;
 }
 
+// While SteamVR sets up its universe (LighthouseVisibility.h) a frame move
+// places a station it guessed at startup: the calibration belongs to the
+// universe, not to the guess, and is left where it is (live 2026-09-27: the
+// census followed one such move 30.5 deg and 63 cm off). With no word from
+// the log, the first seconds after the lighthouse devices start tracking
+// stand in for it: the universe was chosen 1.1 and 4.6 s after the first
+// new solution on 2026-09-26 and -27, and its stations placed within 5 s.
+static constexpr double UniverseSetupFallbackSeconds = 15.0;
+
+static bool DuringUniverseSetup(const CalibrationContext &ctx, double moveTime)
+{
+	switch (ctx.lighthouse.Universe(moveTime))
+	{
+	case LighthouseVisibility::UniverseSetup::SettingUp:
+		return true;
+	case LighthouseVisibility::UniverseSetup::Settled:
+		return false;
+	case LighthouseVisibility::UniverseSetup::Unknown:
+		break;
+	}
+	return moveTime - FrameWatch.TrackingSince() < UniverseSetupFallbackSeconds;
+}
+
 // Without the loop (no headset tracker, or continuous calibration off) no
 // device says which frame the calibration belongs to. A move left alone
 // displaces every calibrated tracker in the moved frame; one followed
@@ -698,6 +732,21 @@ static void FollowFrameMovesForTrackers(CalibrationContext &ctx,
 		double yawDeg = 0.0, tiltDeg = 0.0;
 		const bool notable = DescribeFrameMove(move, yawDeg, tiltDeg);
 		char line[256];
+		if (DuringUniverseSetup(ctx, move.time))
+		{
+			snprintf(line, sizeof line,
+				"lighthouse frame moved under %d of %d calibrated tracker(s) while SteamVR set up its base stations "
+				"(yaw %.2f deg, tilt %.2f deg, %.1f cm); calibration left where it was",
+				census.members, census.members + census.others, yawDeg, tiltDeg, move.shiftM * 100.0);
+			ctx.frameMovesInSetup++;
+			ctx.lastFrameMoveInSetup = line;
+			// Worth the session log when it would have been followed.
+			if (notable && census.members > census.others)
+				ctx.Log(std::string(line) + "\n");
+			else
+				ctx.Diag(line);
+			continue;
+		}
 		if (census.members <= census.others)
 		{
 			snprintf(line, sizeof line,
@@ -758,6 +807,26 @@ static void CompensateTrackerFrameMoves(CalibrationContext &ctx, double now)
 	{
 		if (move.id != ctx.continuousTrackerId)
 			continue;
+		double yawDeg = 0.0, tiltDeg = 0.0;
+		const bool notable = DescribeFrameMove(move, yawDeg, tiltDeg);
+		char line[256];
+		if (DuringUniverseSetup(ctx, move.time))
+		{
+			// Left alone (see DuringUniverseSetup); the loop's window must not
+			// hold readings from both sides of it.
+			ResetContinuousObservations(ctx, questcal::ContinuousAlignment::ResetReason::TargetFrameMoved);
+			snprintf(line, sizeof line,
+				"headset tracker's lighthouse frame moved while SteamVR set up its base stations: yaw %.2f deg, "
+				"tilt %.2f deg, %.1f cm at the tracker; calibration left where it was",
+				yawDeg, tiltDeg, move.shiftM * 100.0);
+			ctx.frameMovesInSetup++;
+			ctx.lastFrameMoveInSetup = line;
+			if (notable)
+				ctx.Log(std::string("Continuous calibration: ") + line + "\n");
+			else
+				ctx.Diag(std::string("continuous: ") + line);
+			continue;
+		}
 		Eigen::Quaterniond rotation;
 		Eigen::Vector3d translation;
 		LighthouseFrameWatch::CompensatingDelta(ctx.transform.rotation,
@@ -774,11 +843,8 @@ static void CompensateTrackerFrameMoves(CalibrationContext &ctx, double now)
 		ctx.continuousCorrectionGate.Clear();
 		ctx.trackerFrameCompensations++;
 
-		double yawDeg = 0.0, tiltDeg = 0.0;
-		const bool notable = DescribeFrameMove(move, yawDeg, tiltDeg);
 		const char *when = move.returned ? " while it was off"
 			: move.ownJump ? " as its own pose jumped" : "";
-		char line[256];
 		snprintf(line, sizeof line,
 			"headset tracker's lighthouse frame moved%s: yaw %.2f deg, tilt %.2f deg, %.1f cm at the tracker; calibration followed it",
 			when, yawDeg, tiltDeg, move.shiftM * 100.0);
@@ -1247,12 +1313,16 @@ static void ContinuousTick(CalibrationContext &ctx, double now)
 		if (trackerSeen->serial == ContinuousLighthouseSerial &&
 			trackerSeen->liveDisturbances != ContinuousLighthouseDisturbances)
 		{
-			Continuous->NoteTargetResolved(trackerSeen->lastDisturbance);
+			// A new server session starts the counts over, and its first line
+			// for the tracker need not be a bootstrap.
+			Continuous->NoteTargetResolved(trackerSeen->lastDisturbance,
+				trackerSeen->liveBootstraps != ContinuousLighthouseBootstraps && trackerSeen->liveBootstraps > 0);
 			ctx.continuousCorrectionGate.Clear();
 			ctx.Diag("continuous: window restarted, headset tracker " + trackerSeen->lastDisturbanceText);
 		}
 		ContinuousLighthouseSerial = trackerSeen->serial;
 		ContinuousLighthouseDisturbances = trackerSeen->liveDisturbances;
+		ContinuousLighthouseBootstraps = trackerSeen->liveBootstraps;
 	}
 	Continuous->SetTargetSettling(trackerSeen &&
 		ctx.lighthouse.Settling(ctx.continuousTrackerSerial, ringNow));
@@ -1419,9 +1489,13 @@ static void ContinuousTick(CalibrationContext &ctx, double now)
 				ctx.continuousNoPause ? "followed" : "re-anchored",
 				ev.deviation.yawDeg, ev.deviation.tiltDeg, ev.deviation.posM * 100.0,
 				ev.deviation.tiltDeg >= Continuous->GetConfig().holdTiltDeg ? ", tilt included" : "",
-				ev.afterTargetResolve ? " -- after the headset tracker's base station tracking restarted" : "");
+				ev.afterTargetResolve ? " -- after the headset tracker's base station tracking restarted"
+				: ev.acrossSolutions ? " -- the headset tracker's next solution read it too, so its restart did not explain it"
+				: "");
 			ctx.Log(buf);
 			ctx.continuousReanchors++;
+			if (ev.acrossSolutions)
+				ctx.continuousReanchorsAcrossSolutions++;
 			Monitors.freezeNotified = false;
 			if (!ctx.continuousNoPause)
 				ctx.Tell("Continuous calibration re-aligned your trackers after the tracking spaces moved apart.\n",
@@ -1993,6 +2067,7 @@ static void FinishCalibration(CalibrationContext &ctx)
 	ctx.autoCorrectionsApplied = 0;
 	ctx.continuousReanchors = 0;
 	ctx.continuousReanchorsUndone = 0;
+	ctx.continuousReanchorsAcrossSolutions = 0;
 	Drift->Reset();
 
 	bool priorUniverseUnsafe = ctx.profileUniverseUnsafe;

@@ -432,6 +432,19 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 	out << "[base stations]\n";
 	out << "lighthouse log " << (ctx.lighthouseLogAvailable ? "read from " : "not readable at ")
 		<< ctx.lighthouseLogPath << "\n";
+	switch (ctx.lighthouse.Universe(capture.sampleClock))
+	{
+	case LighthouseVisibility::UniverseSetup::Settled:
+		out << "universe: " << ctx.lighthouse.UniverseId() << "\n";
+		break;
+	case LighthouseVisibility::UniverseSetup::SettingUp:
+		out << "universe: being set up" << (ctx.lighthouse.UniverseId() != 0
+			? " (" + std::to_string(ctx.lighthouse.UniverseId()) + ")" : std::string()) << "\n";
+		break;
+	case LighthouseVisibility::UniverseSetup::Unknown:
+		out << "universe: not named in the log\n";
+		break;
+	}
 	for (const auto &s : ctx.lighthouse.Stations())
 		out << "station " << ctx.lighthouse.StationName(s.channel) << ": dropped " << s.drops
 			<< " times, was the last station lost " << s.losses << " times\n";
@@ -441,7 +454,7 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 		out << "device " << d.serial << ": sees";
 		if (!d.visibleKnown)
 			out << " (unknown)";
-		else if (d.visible.empty())
+		else if (d.InView() == 0)
 			out << " none";
 		for (int c : d.visible)
 			out << " " << ctx.lighthouse.StationName(c);
@@ -466,6 +479,9 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 	out << "\nframe moves followed for the calibrated trackers (no headset tracker): " << ctx.frameMovesFollowed;
 	if (!ctx.lastFrameMoveFollowed.empty())
 		out << " (last: " << ctx.lastFrameMoveFollowed << ")";
+	out << "\nframe moves left alone while SteamVR set up its base stations: " << ctx.frameMovesInSetup;
+	if (!ctx.lastFrameMoveInSetup.empty())
+		out << " (last: " << ctx.lastFrameMoveInSetup << ")";
 	out << "\n\n";
 
 	out << "[driver synchronization]\n";
@@ -490,7 +506,8 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 	}
 	out << "\n";
 	out << "state: " << static_cast<int>(ctx.continuousState) << ", corrections applied: " << ctx.autoCorrectionsApplied
-		<< ", re-anchors: " << ctx.continuousReanchors << " (undone: " << ctx.continuousReanchorsUndone << ")\n";
+		<< ", re-anchors: " << ctx.continuousReanchors << " (undone: " << ctx.continuousReanchorsUndone
+		<< ", past a restart once the tracker's next solution agreed: " << ctx.continuousReanchorsAcrossSolutions << ")\n";
 	out << "headset tracker: connected " << OnOff(ctx.continuousTrackerConnected)
 		<< ", seen " << OnOff(ctx.continuousTrackerSeen)
 		<< ", switched off " << ctx.continuousTrackerOffEpisodes << " times this session; headset seen "
