@@ -63,6 +63,8 @@ $dictionaries = @{
         'https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/', 'tag/', 'download/', 'true', 'false')
     lighthouse = $numbers + @('lighthouse: LHR-', ' C: ', 'SOB: add ', 'SOB: drop ', 'S-', '(generation changed)',
         'also seeing ', 'seeing ', 'No base stations seen', 'BOOTSTRAPPED base ', 'Trying to start tracking from base ',
+        'lighthouse: Selected existing universe ', 'lighthouse: Creating new universe ',
+        'lighthouse: Stopped tracking with universe ', '] - vrserver ', ' startup with PID=',
         'Fri ', 'Sep ', 'Feb ', ' 2026 ', '23:59:', '60.999', ' [Info] - ')
     request    = @()
 }

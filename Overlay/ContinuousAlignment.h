@@ -20,11 +20,12 @@
 // driver slews them); large sustained deviations at the head freeze auto-apply
 // instead. Noisy or tilted windows only hold corrections until tracking
 // settles; neither freezes. A freeze or tilt hold whose estimate then stays
-// put, with no restart of the tracker's own tracking to explain it, is the
-// universes having moved apart, and the estimate is re-anchored as the
-// calibration (Config: re-anchor). Follow mode (the Legacy method) never
-// freezes: such a deviation becomes the calibration at the next evaluation,
-// as OpenVR-SpaceCalibrator's continuous mode does. Corrections never apply tilt: both
+// put, with no restart of the tracker's own tracking to explain it (or read
+// the same by the tracker's next solution), is the universes having moved
+// apart, and the estimate is re-anchored as the calibration (Config:
+// re-anchor). Follow mode (the Legacy method) never freezes: such a
+// deviation becomes the calibration at the next evaluation, as
+// OpenVR-SpaceCalibrator's continuous mode does. Corrections never apply tilt: both
 // runtimes are gravity-aligned, so a small tilt deviation is tracker
 // orientation bias or noise, not universe drift. The yaw-only correction pivots at the
 // head, so the position there is still corrected in full: dropping the tilt
@@ -126,21 +127,29 @@ public:
 		// headset tracker restarted, had all four stations 8 s later, and read
 		// 6 deg of tilt 71 s after the restart until SteamVR reset it as out of
 		// bounds. It restarted about every 90 s while the player lay down.
+		// A new solution that reads the same deviation as the one blamed lifts
+		// the blame (the steadiness bound below): a fault of one solution does
+		// not survive the next (live 2026-09-25: 4.4 deg / 33 cm, gone at the
+		// next restart; 2026-09-27: six freezes, each gone at the next), while
+		// a calibration the headset's space moved away from between sessions
+		// reads the same in every one (2026-09-26 and -27: 15.4 deg / 30 cm and
+		// 4.0 deg / 30 cm at the session's first reading, which only a
+		// recalibration ended).
 		double resolveAttributionSeconds = 120.0;
 
 		// --- re-anchor: a freeze or a tilt hold whose estimate holds still for
 		// reanchorConfirmSeconds, from a settled target that did not restart
 		// within resolveAttributionSeconds before the episode began (or since),
-		// is the universes having moved apart, and the estimate becomes the
-		// calibration. A glued mount does not move; a tracker whose own
-		// lighthouse solution went bad does, and that restart is in the log, so
-		// nothing re-anchors while the caller cannot see the target's restarts
-		// (SetTargetRestartsVisible). Live 2026-09-24: the lighthouse side moved
-		// 62 deg / 78.6 deg of tilt with no restart of the headset tracker, rigid
-		// for an hour, and the body trackers stayed 5 m off until a recalibration
-		// nobody ran. The tilt is applied too when it is at least holdTiltDeg;
-		// below that the re-anchor turns about the head like a correction,
-		// uncapped ---
+		// or whose next solution read the same, is the universes having moved
+		// apart, and the estimate becomes the calibration. A glued mount does
+		// not move; a tracker whose own lighthouse solution went bad does, and
+		// that restart is in the log, so nothing re-anchors while the caller
+		// cannot see the target's restarts (SetTargetRestartsVisible). Live
+		// 2026-09-24: the lighthouse side moved 62 deg / 78.6 deg of tilt with
+		// no restart of the headset tracker, rigid for an hour, and the body
+		// trackers stayed 5 m off until a recalibration nobody ran. The tilt is
+		// applied too when it is at least holdTiltDeg; below that the re-anchor
+		// turns about the head like a correction, uncapped ---
 		double reanchorConfirmSeconds = 30.0;
 		double reanchorSteadyDeg = 1.0;    // yaw or tilt the estimate may wander by during the confirm
 		double reanchorSteadyPosM = 0.05;  // at the head
@@ -216,6 +225,9 @@ public:
 		// cause and the next restart the likely cure. Reanchored: follow mode
 		// followed a deviation that came that soon after a restart.
 		bool afterTargetResolve = false;
+		// Reanchored: a freeze put down to a restart, re-anchored once the
+		// target's next solution read the same deviation.
+		bool acrossSolutions = false;
 	};
 
 	using ExpectedCalibrationAt = std::function<void(
@@ -300,8 +312,11 @@ public:
 	// a new solution, or regained or lost a base station): its pose before and
 	// after can differ by centimeters, so no window may straddle the restart.
 	// A Reset that keeps Frozen and Coasting like a stream gap, plus the time
-	// for the freeze attribution.
-	void NoteTargetResolved(double time);
+	// for the freeze attribution. `newSolution` when the tracking started from
+	// scratch (a bootstrap): only a solution of its own is a second opinion on
+	// a deviation the last one was blamed for; a station coming or going
+	// leaves the same solution, and its bias, in place.
+	void NoteTargetResolved(double time, bool newSolution = false);
 
 	// The frame the target is reported in moved by (rotation, translation)
 	// (LighthouseFrameWatch::Move: SteamVR moved the base station under it),
@@ -406,6 +421,10 @@ private:
 	                           const Eigen::Vector3d &calTranslationMeters,
 	                           double &yawAngleOut, Eigen::Vector3d &headStepOut,
 	                           Eigen::Vector3d &headPosOut) const;
+	// Whether a solution the target started after the reading the episode is
+	// blamed on reads the same deviation, within the re-anchor's steadiness
+	// bound. Otherwise this window becomes the reading a later one must match.
+	bool ReadByLaterSolution(const WindowEstimate &est);
 	// A stuck episode (Frozen, or held on tilt) that may re-anchor.
 	void TryReanchor(double now, const WindowEstimate &est,
 	                 const Eigen::Quaterniond &calRotation,
@@ -475,6 +494,19 @@ private:
 	};
 	std::optional<Replaced> replaced;
 	double undoSince = -1.0;
+
+	// The target's new solutions so far (NoteTargetResolved), and the reading
+	// the stuck episode was blamed on: the latest estimate of the solution
+	// current at the time. Only the episode it was taken in may use it; a
+	// frame move carries it along like the replaced calibration.
+	uint32_t targetSolutions = 0;
+	struct Blamed
+	{
+		WindowEstimate est;
+		uint32_t solution = 0;
+		double episode = -1.0;
+	};
+	std::optional<Blamed> blamed;
 
 	// How long the degraded episode has been running. It survives a coast:
 	// the degraded tracking it reports is exactly what produces the gaps.

@@ -48,6 +48,13 @@ std::string LighthouseVisibility::StationName(int channel) const
 
 std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 {
+	if (e.kind == Event::Kind::ServerStarted || e.kind == Event::Kind::UniverseChosen ||
+		e.kind == Event::Kind::UniverseStopped)
+	{
+		ApplyUniverse(e, ringTime);
+		return std::string();
+	}
+
 	Device &d = devices[e.serial];
 	d.serial = e.serial;
 	d.events++;
@@ -90,6 +97,11 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 	// lines said before (the replay may have started between them).
 	d.off = false;
 	d.standbyOff = false;
+	if (universe == UniverseStage::Down && !trackedWhileDown)
+	{
+		trackedWhileDown = true;
+		trackedWhileDownAt = ringTime;
+	}
 
 	auto note = [&](int channel, uint32_t id)
 	{
@@ -97,8 +109,24 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 			return;
 		Station &s = stations[channel];
 		s.channel = channel;
-		if (id != 0)
-			s.id = id;
+		if (id == 0 || s.id == id)
+			return;
+		s.id = id;
+		// A set rebuilt from bootstrap and SECONDARY lines names stations by
+		// id only; one whose channel a line names later joins it by channel
+		// (live 2026-09-27: a tracker that printed its SOB lines without ids
+		// listed all four stations by id for the whole session).
+		for (auto &kv : devices)
+		{
+			std::vector<uint32_t> &unmapped = kv.second.unmappedIds;
+			auto found = std::find(unmapped.begin(), unmapped.end(), id);
+			if (found == unmapped.end())
+				continue;
+			unmapped.erase(found);
+			kv.second.visible.push_back(channel);
+			kv.second.visible = Sorted(kv.second.visible);
+			kv.second.degraded = !kv.second.visibleKnown || kv.second.InView() < config.cleanStations;
+		}
 	};
 	note(e.channel, e.stationId);
 	for (size_t i = 0; i < e.visibleChannels.size(); ++i)
@@ -215,6 +243,8 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 	{
 		d.liveRestarts++;
 		d.lastRestart = ringTime;
+		if (e.kind == Event::Kind::Bootstrapped)
+			d.liveBootstraps++;
 	}
 	return what;
 }
@@ -239,7 +269,56 @@ bool LighthouseVisibility::RestartedWithin(const std::string &serial, double rin
 bool LighthouseVisibility::SettledFor(const std::string &serial, double ringTime,
 	double restartSeconds) const
 {
-	return !RestartedWithin(serial, ringTime, restartSeconds) && !Settling(serial, ringTime);
+	if (!Find(serial))
+		return true;
+	return !RestartedWithin(serial, ringTime, restartSeconds) && !Settling(serial, ringTime) &&
+		Universe(ringTime) != UniverseSetup::SettingUp;
+}
+
+void LighthouseVisibility::ApplyUniverse(const Event &e, double ringTime)
+{
+	switch (e.kind)
+	{
+	case Event::Kind::ServerStarted:
+		// The devices and stations of the last session were restarted since
+		// (the file is not always rotated at a start).
+		devices.clear();
+		stations.clear();
+		universe = UniverseStage::Down;
+		universeId = 0;
+		break;
+	case Event::Kind::UniverseStopped:
+		universe = UniverseStage::Down;
+		break;
+	case Event::Kind::UniverseChosen:
+		// From its stamp even when replayed: the overlay can start while the
+		// stations are still being placed.
+		universe = UniverseStage::Chosen;
+		universeId = e.universeId;
+		universeChosenAt = ringTime;
+		return;
+	default:
+		return;
+	}
+	trackedWhileDown = false;
+	trackedWhileDownAt = -1e9;
+}
+
+LighthouseVisibility::UniverseSetup LighthouseVisibility::Universe(double ringTime) const
+{
+	switch (universe)
+	{
+	case UniverseStage::Chosen:
+		// A move stamped before the line was made before the choice.
+		return ringTime - universeChosenAt <= config.universeSetupSeconds
+			? UniverseSetup::SettingUp : UniverseSetup::Settled;
+	case UniverseStage::Down:
+		if (trackedWhileDown && ringTime - trackedWhileDownAt > config.universeWaitSeconds)
+			return UniverseSetup::Unknown;
+		return UniverseSetup::SettingUp;
+	default:
+		return UniverseSetup::Unknown;
+	}
 }
 
 bool LighthouseVisibility::Disturbed(const std::string &serial, double ringTime) const
@@ -273,4 +352,9 @@ void LighthouseVisibility::Reset()
 {
 	devices.clear();
 	stations.clear();
+	universe = UniverseStage::Unknown;
+	universeId = 0;
+	universeChosenAt = -1e9;
+	trackedWhileDown = false;
+	trackedWhileDownAt = -1e9;
 }

@@ -63,6 +63,10 @@
 // of the station SteamVR kept moving). A pose that says it tracks counts here
 // whatever the connection flag says; only one that does not is a device gone.
 // FrameCensus then says how many of the calibrated devices a move carried.
+//
+// Every move is reported, the ones SteamVR makes while it sets up its
+// universe included (LighthouseVisibility.h); those place a station guessed
+// at startup where it stands, and the caller leaves them alone.
 class LighthouseFrameWatch
 {
 public:
@@ -173,6 +177,8 @@ public:
 		now.mark = nextTransition;
 
 		latestTime = (std::max)(latestTime, now.time);
+		if (!baseStation && trackingSince > 1e299)
+			trackingSince = now.time;
 		const bool changed = (d.valid || d.away) &&
 			questcal::WorldFromDriverChanged(d.wfdRot, d.wfdTrans, now.wfdRot, now.wfdTrans);
 		if (changed && d.valid)
@@ -201,6 +207,10 @@ public:
 		d = now;
 		ExpireInferences();
 	}
+
+	// When the first device, base stations aside, tracked since the watch
+	// started or was reset; far in the future until one has.
+	double TrackingSince() const { return trackingSince; }
 
 	// The moved devices since the last call, in the order they moved. Bounded:
 	// once MaxPendingMoves wait untaken, later ones are dropped.
@@ -277,6 +287,7 @@ public:
 		inferences.clear();
 		frameMoves.clear();
 		latestTime = -1e300;
+		trackingSince = 1e300;
 	}
 
 	// A move large enough for the session log: a centimeter at a device or a
@@ -571,4 +582,5 @@ private:
 	std::vector<Move> frameMoves;
 	uint64_t nextTransition = 0;
 	double latestTime = -1e300;
+	double trackingSince = 1e300;
 };

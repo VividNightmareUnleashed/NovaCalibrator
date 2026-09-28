@@ -32,7 +32,8 @@ Solver (new `CalibrationEngine`, covered by synthetic tests in `Tests/`):
 - Calibration collects both streams for a fixed duration, solves once, and publishes
   the complete transform. It starts measuring only once both devices track and a
   lighthouse device's tracking has settled (15 s after it restarted, two base
-  stations in view), and waits for that on its own rather than refusing. A base
+  stations in view, 10 s after SteamVR chose where its base stations stand),
+  and waits for that on its own rather than refusing. A base
   station SteamVR re-solves during the measurement is followed: the samples are
   kept in the frame the run began in and the result is carried to the new one.
   When a headset tracker's mount can't be re-measured and the previous one is
@@ -96,7 +97,8 @@ Runtime alignment maintenance uses the timestamped pose ring and calibration sol
   auto-applied and smoothed by the driver. A large deviation (a tracking fault,
   the lighthouse side moving) pauses auto-apply, and one that then holds still
   becomes the new calibration when SteamVR's log shows no restart of the
-  headset tracker to explain it. The **Legacy** method in Settings never
+  headset tracker to explain it, or the tracker's next solution reads it the
+  same. The **Legacy** method in Settings never
   pauses: it follows every such deviation at once, the headset tracker's own
   faults included, as OpenVR-SpaceCalibrator does. When SteamVR re-solves
   where a base station stands, every device reported in that station's frame
@@ -106,7 +108,10 @@ Runtime alignment maintenance uses the timestamped pose ring and calibration sol
   followed the same way once it is back in that station's frame. Without a
   headset tracker (or with continuous calibration off), the calibration follows
   a re-solved station when most of the calibrated trackers are in its frame,
-  counting trackers another driver hides from games (Standable does). The
+  counting trackers another driver hides from games (Standable does). Neither
+  follows the moves SteamVR makes while it sets up its universe, at startup or
+  after every lighthouse device was off: those place a station it guessed, and
+  a saved calibration already belongs where the station is placed. The
   mounted tracker can be hidden from games so full-body setups never mistake it for
   a body tracker. Optional (off by default): online re-estimation of the
   inter-system time offset from the same rigid pair.
@@ -126,7 +131,13 @@ default configuration it resumes after five seconds of readings below 1° yaw an
 2.5 cm at the head, or thirty seconds below the 2° / 5 cm that paused it. Readings
 that stay off but hold still for thirty seconds become the calibration instead,
 unless the headset tracker restarted its lighthouse tracking in the two minutes
-before they moved, or since: that tracker's own fault waits for the resume. When
+before they moved, or since: that tracker's own fault waits for the resume. A
+restart stops explaining them once the tracker starts a new solution from
+scratch and that reads the same, within 1° and 5 cm: a fault of one solution
+has not survived the next in any session logged, while a calibration saved in
+an earlier session, which the headset's space has since moved away from,
+reads the same in every one. A base station coming or going is not a new
+solution. When
 SteamVR's log cannot be read, or does not name the headset tracker, no restart
 could show, so nothing becomes the calibration this way. If the
 readings later return to the calibration it replaced, that one comes back. Tilt of
@@ -150,7 +161,8 @@ then use **Save diagnostics file** once while alignment looks correct and again
 after the problem appears, before recalibrating or restarting. Keep the devices
 still while exporting. The report includes per-device input counts and freshness,
 stream gaps, window resets, Quest observation gates, re-anchors, lighthouse frame
-moves and the ones the calibration followed, how often SteamVR switched each
+moves, the ones the calibration followed and the ones it left alone while SteamVR
+set up its base stations, SteamVR's lighthouse universe, how often SteamVR switched each
 lighthouse device off for sitting still, and a snapshot of connected devices
 relative to SteamVR's floor. Counters
 survive recalibration for the session. Exports also include raw driver

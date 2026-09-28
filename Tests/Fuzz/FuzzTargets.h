@@ -242,10 +242,25 @@ inline std::string CheckLighthouseLine(const uint8_t *data, size_t size)
 		return "";
 	if (e.timeKnown && !std::isfinite(e.unixTime))
 		return "an event's known time is not finite";
-	if (e.serial.compare(0, 4, "LHR-") != 0)
-		return "an event's serial is not an LHR serial";
 	if (e.historical)
 		return "the parse left an earlier event's field behind";
+	const bool noDevice = e.kind == Event::Kind::ServerStarted || e.kind == Event::Kind::UniverseChosen ||
+		e.kind == Event::Kind::UniverseStopped;
+	if (noDevice)
+	{
+		if (!e.serial.empty() || e.visibleKnown || e.channel >= 0 || e.stationId != 0 ||
+			!e.visibleChannels.empty() || e.standby)
+			return "a universe or server line claims a device or a station";
+		if (e.kind == Event::Kind::ServerStarted && e.universeId != 0)
+			return "a server start names a universe";
+		if (e.universeCreated && e.kind != Event::Kind::UniverseChosen)
+			return "a line other than a choice creates a universe";
+		return "";
+	}
+	if (e.serial.compare(0, 4, "LHR-") != 0)
+		return "an event's serial is not an LHR serial";
+	if (e.universeId != 0 || e.universeCreated)
+		return "a device line names a universe";
 	if (e.visibleChannels.size() != e.visibleIds.size())
 		return "visible channels and ids differ in length";
 	for (int channel : e.visibleChannels)
@@ -532,6 +547,10 @@ inline std::vector<std::string> LighthouseSeeds()
 		prefix + "Device LHR-D520226E powering off upon entering standby.",
 		prefix + "LHR-D520226E: Disconnected from receiver 4BF089B604",
 		prefix + "LHR-D520226E: Connected to receiver 4BF089B604",
+		prefix + "Selected existing universe 1744988537 (170EE067 is primary)",
+		prefix + "Creating new universe 1744988537 because there were no existing universes",
+		prefix + "Stopped tracking with universe 1744988537",
+		"Sun Sep 27 2026 21:43:33.604 [Info] - vrserver 2.17.10 startup with PID=5976, arch=win64",
 	};
 }
 
