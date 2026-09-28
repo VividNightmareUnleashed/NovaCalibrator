@@ -3,7 +3,11 @@ param(
     [ValidateSet('Build', 'Compile', 'Analyze', 'Duplicates')]
     [string]$Mode = 'Build',
     [string]$Root = '',
-    [switch]$All
+    [switch]$All,
+    # With -Mode Analyze, rebuild and analyze one project (its folder) instead
+    # of the solution, so CI can analyze the three on separate runners.
+    [ValidateSet('Driver', 'Overlay', 'Tests')]
+    [string]$Project = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -140,8 +144,11 @@ function Invoke-MSBuildValidation {
             '%2Cperformance-unnecessary-value-param' +
             '%2Creadability-redundant-*' +
             '%2Creadability-simplify-boolean-expr'
+        # The solution's own target for one project, so its paths stay those of
+        # a solution build.
+        $solutionProjects = @{ Driver = 'QuestCalibratorDriver'; Overlay = 'QuestCalibrator'; Tests = 'SolverTests' }
         $arguments += @(
-            '/t:Rebuild',
+            $(if ($Project) { "/t:$($solutionProjects[$Project]):Rebuild" } else { '/t:Rebuild' }),
             "/p:ClangTidyToolPath=$clangTidyDirectory",
             # The Windows SDK otherwise uses MSVC's non-constant offsetof
             # extension, which Clang cannot use in static layout assertions.
@@ -165,7 +172,7 @@ function Invoke-MSBuildValidation {
         # logs; console formatting varies between PowerShell/MSBuild versions.
         # Third-party sources remain outside the policy boundary.
         $rootPattern = [regex]::Escape($Root.TrimEnd('\', '/'))
-        $projectDirectories = @('Driver', 'Overlay', 'Tests') | ForEach-Object { Join-Path $Root $_ }
+        $projectDirectories = @($(if ($Project) { $Project } else { 'Driver', 'Overlay', 'Tests' }) | ForEach-Object { Join-Path $Root $_ })
         $logs = @(
             Get-ChildItem -LiteralPath $projectDirectories `
                 -Recurse -Filter '*.ClangTidy.log' -File -ErrorAction SilentlyContinue |
@@ -309,7 +316,10 @@ switch ($Mode) {
             exit 0
         }
         Invoke-MSBuildValidation -ClangTidy
-        Invoke-SolverTests
+        # Only a build of the test project has a harness to run.
+        if (-not $Project -or $Project -eq 'Tests') {
+            Invoke-SolverTests
+        }
         if ($script:analysisAdvisory) {
             exit 3
         }

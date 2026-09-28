@@ -1,16 +1,19 @@
 name: Clang-Tidy
 
 # Visual Studio's integrated Clang-Tidy over every first-party translation unit:
-# tools\validate-cpp.ps1 -Mode Analyze -All rebuilds the solution so each file is
+# tools\validate-cpp.ps1 -Mode Analyze -All rebuilds each project so each file is
 # analyzed with its own MSVC defines, include paths and precompiled header, then
 # runs the solver harness. The tree has no findings, so any first-party finding
 # fails the job: it is new. The validation workflow calls this on pushes and pull
 # requests, and the release workflow on the tag before it drafts a release, so
 # the analysis no longer has to be run by hand.
 #
-# With the VIRTUALQUEST_DEPLOY_KEY secret (passed on by the caller) the analyzed
-# harness includes the simulated headset's scenarios, as locally; without it the
-# public suite is analyzed. Third-party sources are outside the check either way.
+# The three projects share nothing to build, so each is analyzed on its own
+# runner at the same time (-Project), and the harness runs with the test
+# project's. With the VIRTUALQUEST_DEPLOY_KEY secret (passed on by the caller)
+# the analyzed harness includes the simulated headset's scenarios, as locally;
+# without it the public suite is analyzed. Third-party sources are outside the
+# check either way.
 on:
   workflow_call:
     inputs:
@@ -25,8 +28,14 @@ permissions:
 
 jobs:
   analyze:
+    name: analyze (${{ matrix.project }})
     runs-on: windows-2022
-    timeout-minutes: 150
+    timeout-minutes: 60
+    strategy:
+      # Every project reports, so one project's findings do not hide another's.
+      fail-fast: false
+      matrix:
+        project: [Driver, Overlay, Tests]
     env:
       HAS_VIRTUALQUEST: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY != '' }}
 
@@ -37,8 +46,9 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
+      # Only the test project compiles the simulated headset's scenarios.
       - name: Check out VirtualQuest
-        if: env.HAS_VIRTUALQUEST == 'true'
+        if: env.HAS_VIRTUALQUEST == 'true' && matrix.project == 'Tests'
         timeout-minutes: 5
         shell: pwsh
         env:
@@ -49,11 +59,11 @@ jobs:
       # anything else non-zero is a failed build or harness, missing tools, or
       # a project Clang-Tidy wrote no analysis for. On success it prints how
       # many translation units were analyzed.
-      - name: Analyze every translation unit
-        timeout-minutes: 140
+      - name: Analyze every translation unit of ${{ matrix.project }}
+        timeout-minutes: 50
         shell: pwsh
         run: |
-          powershell -NoProfile -ExecutionPolicy Bypass -File tools\validate-cpp.ps1 -Mode Analyze -All
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools\validate-cpp.ps1 -Mode Analyze -All -Project ${{ matrix.project }}
           $code = $LASTEXITCODE
           if ($code -eq 3) {
             Write-Host '::error::Clang-Tidy reported first-party findings, listed above. The tree had none, so each one is new.'
