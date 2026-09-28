@@ -3,7 +3,14 @@ param(
     [ValidateSet('Build', 'Compile', 'Analyze', 'Duplicates')]
     [string]$Mode = 'Build',
     [string]$Root = '',
-    [switch]$All
+    [switch]$All,
+    # With -Mode Analyze, rebuild and analyze one project (its folder) instead
+    # of the solution, so CI can analyze the three on separate runners.
+    [ValidateSet('Driver', 'Overlay', 'Tests')]
+    [string]$Project = '',
+    # With -Project, analyze only the k-th of n shares of its files ('k/n'),
+    # so CI can spread one project over runners too.
+    [string]$Shard = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -76,6 +83,34 @@ function Reset-ProcessPath {
     $env:Path = $processPath
 }
 
+# A share of a project's first-party translation units: every n-th, in project
+# order, as MSBuild evaluates them. The vendored sources under lib\ are never
+# analyzed, and a file that creates the precompiled header is compiled, and so
+# analyzed, in every share.
+$projectFiles = @{ Driver = 'Driver\QuestCalibratorDriver.vcxproj'; Overlay = 'Overlay\QuestCalibrator.vcxproj'; Tests = 'Tests\SolverTests.vcxproj' }
+function Get-AnalysisShare {
+    if (-not $Project -or $Shard -notmatch '^(\d+)/(\d+)$' -or [int]$Matches[1] -lt 1 -or [int]$Matches[1] -gt [int]$Matches[2]) {
+        Write-Output "-Shard takes k/n with 1 <= k <= n, and needs -Project; got '$Shard'."
+        exit 2
+    }
+    $k = [int]$Matches[1]
+    $n = [int]$Matches[2]
+    $ErrorActionPreference = 'Continue'
+    $json = & $msbuild (Join-Path $Root $projectFiles[$Project]) -nologo -getItem:ClCompile "-p:Configuration=$configuration" `
+        "-p:Platform=$platform" 2>&1 | Out-String
+    try { $items = @(($json | ConvertFrom-Json).Items.ClCompile) }
+    catch { Write-Output "MSBuild did not list $Project's files (MSBuild 17.8 or later is needed): $json"; exit 2 }
+    $firstParty = @($items | Where-Object { $_.ExcludedFromBuild -ne 'true' -and $_.Identity -notlike '..\lib\*' })
+    $pch = @($firstParty | Where-Object { $_.PrecompiledHeader -eq 'Create' })
+    $rest = @($firstParty | Where-Object { $_.PrecompiledHeader -ne 'Create' })
+    $share = @(for ($i = $k - 1; $i -lt $rest.Count; $i += $n) { $rest[$i].Identity })
+    if ($share.Count -eq 0) {
+        Write-Output "Share $Shard of $Project has no files to analyze."
+        exit 2
+    }
+    return [pscustomobject]@{ Files = $share; Expected = $share.Count + $pch.Count }
+}
+
 function Invoke-MSBuildValidation {
     param([switch]$ClangTidy)
 
@@ -140,8 +175,27 @@ function Invoke-MSBuildValidation {
             '%2Cperformance-unnecessary-value-param' +
             '%2Creadability-redundant-*' +
             '%2Creadability-simplify-boolean-expr'
+        # The solution's own target for one project, so its paths stay those of
+        # a solution build. A share compiles only its files, which is how
+        # Visual Studio analyzes selected files; the list goes through a
+        # response file so its semicolons stay inside the property.
+        $solutionProjects = @{ Driver = 'QuestCalibratorDriver'; Overlay = 'QuestCalibrator'; Tests = 'SolverTests' }
+        $share = $null
+        $responseFile = $null
+        if ($Shard) {
+            $share = Get-AnalysisShare
+            $responseFile = [IO.Path]::GetTempFileName()
+            [IO.File]::WriteAllText($responseFile, "/p:SelectedFiles=`"$($share.Files -join ';')`"`r`n")
+            $arguments[0] = Join-Path $Root $projectFiles[$Project]
+            $arguments += @('/t:ClCompile', "@$responseFile")
+        }
+        elseif ($Project) {
+            $arguments += "/t:$($solutionProjects[$Project]):Rebuild"
+        }
+        else {
+            $arguments += '/t:Rebuild'
+        }
         $arguments += @(
-            '/t:Rebuild',
             "/p:ClangTidyToolPath=$clangTidyDirectory",
             # The Windows SDK otherwise uses MSVC's non-constant offsetof
             # extension, which Clang cannot use in static layout assertions.
@@ -155,6 +209,7 @@ function Invoke-MSBuildValidation {
 
     $output = @(& $msbuild @arguments 2>&1 | ForEach-Object { [string]$_ })
     $exitCode = $LASTEXITCODE
+    if ($responseFile) { Remove-Item -LiteralPath $responseFile -ErrorAction SilentlyContinue }
     if ($exitCode -ne 0) {
         $output | Select-Object -Last 80 | Write-Output
         exit $exitCode
@@ -165,11 +220,36 @@ function Invoke-MSBuildValidation {
         # logs; console formatting varies between PowerShell/MSBuild versions.
         # Third-party sources remain outside the policy boundary.
         $rootPattern = [regex]::Escape($Root.TrimEnd('\', '/'))
+        $projectDirectories = @($(if ($Project) { $Project } else { 'Driver', 'Overlay', 'Tests' }) | ForEach-Object { Join-Path $Root $_ })
         $logs = @(
-            Get-ChildItem -LiteralPath (Join-Path $Root 'Driver'), (Join-Path $Root 'Overlay'), (Join-Path $Root 'Tests') `
+            Get-ChildItem -LiteralPath $projectDirectories `
                 -Recurse -Filter '*.ClangTidy.log' -File -ErrorAction SilentlyContinue |
                 Where-Object { $_.LastWriteTime -ge $analysisStarted.AddSeconds(-5) }
         )
+        # A build that analyzed nothing writes no logs, and would otherwise pass
+        # with no findings. Each project writes one, naming every file processed.
+        $unanalyzed = @($projectDirectories | Where-Object {
+            $directory = $_ + [System.IO.Path]::DirectorySeparatorChar
+            -not ($logs | Where-Object { $_.FullName.StartsWith($directory, [StringComparison]::OrdinalIgnoreCase) })
+        })
+        $analyzed = @(
+            $logs |
+                ForEach-Object { Get-Content -LiteralPath $_.FullName } |
+                Where-Object { $_ -match '^\[\d+/\d+\] Processing file ' }
+        ).Count
+        if ($unanalyzed.Count -gt 0 -or $analyzed -eq 0) {
+            Write-Output ('Clang-Tidy did not analyze every project (no log from: ' +
+                (($unanalyzed | ForEach-Object { Split-Path -Leaf $_ }) -join ', ') +
+                "; $analyzed file(s) processed in all).")
+            exit 2
+        }
+        # A share must analyze exactly its files: fewer would pass unseen.
+        if ($share -and $analyzed -ne $share.Expected) {
+            Write-Output "Clang-Tidy analyzed $analyzed file(s) of share $Shard of $Project, not the $($share.Expected) it selected."
+            exit 2
+        }
+        Write-Output ("Clang-Tidy analyzed $analyzed translation unit(s) in $($logs.Count) project(s)" +
+            $(if ($share) { " (share $Shard of $Project)." } else { '.' }))
         $findings = @(
             $logs |
                 ForEach-Object { Get-Content -LiteralPath $_.FullName } |
@@ -290,7 +370,11 @@ switch ($Mode) {
             exit 0
         }
         Invoke-MSBuildValidation -ClangTidy
-        Invoke-SolverTests
+        # Only a build of the test project has a harness to run, and a share
+        # compiles without linking.
+        if (-not $Shard -and (-not $Project -or $Project -eq 'Tests')) {
+            Invoke-SolverTests
+        }
         if ($script:analysisAdvisory) {
             exit 3
         }

@@ -1,0 +1,81 @@
+name: Clang-Tidy
+
+# Visual Studio's integrated Clang-Tidy over every first-party translation unit:
+# tools\validate-cpp.ps1 -Mode Analyze compiles each file with its own MSVC
+# defines, include paths and precompiled header and analyzes it. The tree has no
+# findings, so any first-party finding fails the job: it is new. The validation
+# workflow calls this on pushes and pull requests, and the release workflow on
+# the tag before it drafts a release, so the analysis no longer has to be run by
+# hand.
+#
+# Visual Studio analyzes a project's files one after another, so each project's
+# files are split over runners (-Project, -Shard k/n): every n-th file, as it
+# analyzes a selected file, compiled without linking. Each share fails unless it
+# analyzed exactly the files it selected, so the shares cover every file between
+# them. The harness runs in the validation and release builds, not here. With
+# the VIRTUALQUEST_DEPLOY_KEY secret (passed on by the caller) the test shares
+# include the simulated headset's scenarios, as locally; without it the public
+# suite is analyzed. Third-party sources are outside the check either way.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit, branch or tag to analyze; the caller's own when empty
+        type: string
+        default: ''
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.project }} ${{ matrix.shard }})
+    runs-on: windows-2022
+    timeout-minutes: 60
+    strategy:
+      # Every share reports, so one share's findings do not hide another's.
+      fail-fast: false
+      matrix:
+        # About a dozen files a runner: 7 driver, 30 overlay and 35 test files.
+        include:
+          - { project: Driver, shard: 1/1 }
+          - { project: Overlay, shard: 1/2 }
+          - { project: Overlay, shard: 2/2 }
+          - { project: Tests, shard: 1/3 }
+          - { project: Tests, shard: 2/3 }
+          - { project: Tests, shard: 3/3 }
+    env:
+      HAS_VIRTUALQUEST: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY != '' }}
+
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      # Only the test project compiles the simulated headset's scenarios.
+      - name: Check out VirtualQuest
+        if: env.HAS_VIRTUALQUEST == 'true' && matrix.project == 'Tests'
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
+        run: tools\ci\checkout-virtualquest.ps1
+
+      # Exit 3 is the script's "first-party findings" (listed above the error);
+      # anything else non-zero is a failed compile, missing tools, or a share
+      # Clang-Tidy did not analyze in full. On success it prints how many
+      # translation units were analyzed.
+      - name: Analyze share ${{ matrix.shard }} of ${{ matrix.project }}
+        timeout-minutes: 50
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools\validate-cpp.ps1 -Mode Analyze -All -Project ${{ matrix.project }} -Shard ${{ matrix.shard }}
+          $code = $LASTEXITCODE
+          if ($code -eq 3) {
+            Write-Host '::error::Clang-Tidy reported first-party findings, listed above. The tree had none, so each one is new.'
+            exit 1
+          }
+          if ($code -ne 0) { throw "The compile, the analysis itself or the tools failed (exit $code)." }
