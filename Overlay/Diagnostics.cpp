@@ -506,7 +506,8 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 	}
 	out << "\n";
 	out << "state: " << static_cast<int>(ctx.continuousState) << ", corrections applied: " << ctx.autoCorrectionsApplied
-		<< ", re-anchors: " << ctx.continuousReanchors << " (undone: " << ctx.continuousReanchorsUndone << ")\n";
+		<< ", re-anchors: " << ctx.continuousReanchors << " (undone: " << ctx.continuousReanchorsUndone
+		<< ", past a restart once the tracker's next solution agreed: " << ctx.continuousReanchorsAcrossSolutions << ")\n";
 	out << "headset tracker: connected " << OnOff(ctx.continuousTrackerConnected)
 		<< ", seen " << OnOff(ctx.continuousTrackerSeen)
 		<< ", switched off " << ctx.continuousTrackerOffEpisodes << " times this session; headset seen "

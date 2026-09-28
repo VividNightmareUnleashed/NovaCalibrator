@@ -74,6 +74,9 @@ struct CalibrationProfileState
 	uint32_t autoCorrectionsApplied = 0;
 	uint32_t continuousReanchors = 0;
 	uint32_t continuousReanchorsUndone = 0;
+	// Re-anchors of a freeze put down to a restart, once the next solution
+	// read the same (ContinuousAlignment::Event::acrossSolutions).
+	uint32_t continuousReanchorsAcrossSolutions = 0;
 	questcal::ContinuousAlignment::State continuousState =
 		questcal::ContinuousAlignment::State::Inactive;
 	questcal::ContinuousAlignment::Deviation continuousDeviation;

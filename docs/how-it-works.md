@@ -97,7 +97,8 @@ Runtime alignment maintenance uses the timestamped pose ring and calibration sol
   auto-applied and smoothed by the driver. A large deviation (a tracking fault,
   the lighthouse side moving) pauses auto-apply, and one that then holds still
   becomes the new calibration when SteamVR's log shows no restart of the
-  headset tracker to explain it. The **Legacy** method in Settings never
+  headset tracker to explain it, or the tracker's next solution reads it the
+  same. The **Legacy** method in Settings never
   pauses: it follows every such deviation at once, the headset tracker's own
   faults included, as OpenVR-SpaceCalibrator does. When SteamVR re-solves
   where a base station stands, every device reported in that station's frame
@@ -130,7 +131,13 @@ default configuration it resumes after five seconds of readings below 1° yaw an
 2.5 cm at the head, or thirty seconds below the 2° / 5 cm that paused it. Readings
 that stay off but hold still for thirty seconds become the calibration instead,
 unless the headset tracker restarted its lighthouse tracking in the two minutes
-before they moved, or since: that tracker's own fault waits for the resume. When
+before they moved, or since: that tracker's own fault waits for the resume. A
+restart stops explaining them once the tracker starts a new solution from
+scratch and that reads the same, within 1° and 5 cm: a fault of one solution
+has not survived the next in any session logged, while a calibration saved in
+an earlier session, which the headset's space has since moved away from,
+reads the same in every one. A base station coming or going is not a new
+solution. When
 SteamVR's log cannot be read, or does not name the headset tracker, no restart
 could show, so nothing becomes the calibration this way. If the
 readings later return to the calibration it replaced, that one comes back. Tilt of

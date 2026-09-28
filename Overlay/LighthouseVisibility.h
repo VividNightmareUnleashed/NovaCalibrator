@@ -103,9 +103,12 @@ public:
 		// Live lines only, so a consumer can tell a new one from the last it
 		// saw by the count. Restarts are the subset that begin a new solution
 		// (a bootstrap, or tracking again after no station at all): the pose
-		// before and after them is not one continuous track.
+		// before and after them is not one continuous track. Bootstraps are
+		// the restarts that solved from scratch, with nothing carried over
+		// from the solution before.
 		uint32_t liveDisturbances = 0;
 		uint32_t liveRestarts = 0;
+		uint32_t liveBootstraps = 0;
 		double lastRestart = -1e9;
 
 		// The radio link (LighthouseLog.h). Off from a power-off or a dropped

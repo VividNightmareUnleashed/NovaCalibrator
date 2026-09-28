@@ -336,6 +336,7 @@ void BuildSettingsScreen(const VRState &state)
 						CalCtx.autoCorrectionsApplied = 0;
 						CalCtx.continuousReanchors = 0;
 						CalCtx.continuousReanchorsUndone = 0;
+						CalCtx.continuousReanchorsAcrossSolutions = 0;
 					}
 				}
 				ImGui::PopStyleVar();

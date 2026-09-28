@@ -243,6 +243,8 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 	{
 		d.liveRestarts++;
 		d.lastRestart = ringTime;
+		if (e.kind == Event::Kind::Bootstrapped)
+			d.liveBootstraps++;
 	}
 	return what;
 }

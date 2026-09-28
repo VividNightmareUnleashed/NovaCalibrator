@@ -137,6 +137,14 @@ still settling was measured 1.2 deg off on 2026-09-26), and until ten seconds
 after SteamVR chose its universe. It starts on its own once that holds, and
 after 30 s measures a device that tracks but never settled.
 
+Continuous calibration reads the headset tracker's lines the same way: no
+verdict while it settles, and a pause within two minutes of one of its
+disturbances is put down to that. Only a `BOOTSTRAPPED` line starts a
+solution from scratch; when the solution it starts reads the same deviation
+as the one blamed, the blame is lifted (see [how it works](how-it-works.md)).
+A station coming or going, even the first back after none was in view,
+leaves the solution and its bias in place.
+
 The universe decides one more thing. A station SteamVR re-solves carries
 every device in its frame, and the calibration follows such a move (see
 [how it works](how-it-works.md)). While the universe is set up it does not:

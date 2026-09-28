@@ -364,24 +364,29 @@ void VisibilityScenarios(Check check)
 	// Settling, for the continuous loop: a device the log never named is
 	// settled, a replayed bootstrap leaves its device on the one station it
 	// started from (state) without counting a restart, a live restart is
-	// counted and holds for the window, and fewer than two known stations
+	// counted and holds for the window (a bootstrap counts as one of its own
+	// as well, "tracking again" does not), and fewer than two known stations
 	// hold for as long as they last.
 	{
 		const bool unknownSettled = !vis.Settling("LHR-3", 500.0);
 		vis.Apply(Made(K::Bootstrapped, "LHR-4", 5, {}, true), 0.0);
 		const LighthouseVisibility::Device *replayed = vis.Find("LHR-4");
 		const bool replayedSettled = vis.Settling("LHR-4", 500.0) && vis.Disturbed("LHR-4", 500.0) &&
-			replayed->InView() == 1 && replayed->liveRestarts == 0 && replayed->liveDisturbances == 0;
+			replayed->InView() == 1 && replayed->liveRestarts == 0 && replayed->liveDisturbances == 0 &&
+			replayed->liveBootstraps == 0;
 
 		vis.Apply(Made(K::Bootstrapped, "LHR-3", 5, {}), 500.0);
 		const LighthouseVisibility::Device *three = vis.Find("LHR-3");
 		const bool bootCounted = three->liveRestarts == 1 && three->liveDisturbances == 1 &&
+			three->liveBootstraps == 1 &&
 			vis.RestartedWithin("LHR-3", 503.0, 5.0) && !vis.RestartedWithin("LHR-3", 506.0, 5.0) &&
 			vis.Settling("LHR-3", 505.0);
-		vis.Apply(Made(K::StationAdded, "LHR-3", 5, { 5 }), 500.1);   // "tracking again": a restart too
+		// "tracking again": a restart too, but no solution from scratch.
+		vis.Apply(Made(K::StationAdded, "LHR-3", 5, { 5 }), 500.1);
 		vis.Apply(Made(K::StationAdded, "LHR-3", 8, { 5, 8 }), 501.0); // "back to 2": disturbance only
 		three = vis.Find("LHR-3");
 		const bool windowOnly = three->liveRestarts == 2 && three->liveDisturbances == 3 &&
+			three->liveBootstraps == 1 &&
 			vis.Settling("LHR-3", 510.0) && !vis.Settling("LHR-3", 512.0);
 		vis.Apply(Made(K::StationDropped, "LHR-3", 8, { 5 }), 520.0);
 		const bool singleHolds = vis.Settling("LHR-3", 535.0) && vis.Find("LHR-3")->liveRestarts == 2;

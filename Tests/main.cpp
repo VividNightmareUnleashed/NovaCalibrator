@@ -5124,6 +5124,7 @@ struct ContinuousSim
 	int resolveFreezes = 0;   // subset attributed to a NoteTargetResolved
 	int unstables = 0;
 	int reanchors = 0, undos = 0;
+	int acrossReanchors = 0;   // subset re-anchored past a restart its next solution read too
 	double lastReanchorTime = -1.0, lastUndoTime = -1.0;
 	double maxCorrRotDeg = 0.0;   // largest single emitted correction
 	double maxCorrPosM = 0.0;     // measured as displacement at the head
@@ -5257,6 +5258,7 @@ void RunContinuousSegment(ContinuousSim &sim, const SceneConfig &scene, double t
 				case ContinuousAlignment::Event::ObservationsUnstable: sim.unstables++; break;
 				case ContinuousAlignment::Event::Reanchored:
 					sim.reanchors++;
+					sim.acrossReanchors += e.acrossSolutions ? 1 : 0;
 					sim.lastReanchorTime = t;
 					break;
 				case ContinuousAlignment::Event::ReanchorUndone:
@@ -6290,12 +6292,12 @@ void RunContinuousScenarios()
 				if (!firstNoted && t >= 20.3)
 				{
 					firstNoted = true;
-					sim.ca.NoteTargetResolved(t);
+					sim.ca.NoteTargetResolved(t, true);
 				}
 				if (!secondNoted && t >= 50.3)
 				{
 					secondNoted = true;
-					sim.ca.NoteTargetResolved(t);
+					sim.ca.NoteTargetResolved(t, true);
 				}
 				const bool settling = (t >= 20.3 && t < 30.3) || (t >= 50.3 && t < 60.3);
 				if (settling)
@@ -6444,7 +6446,7 @@ void RunContinuousScenarios()
 					if (restart && !noted && t >= 20.3)
 					{
 						noted = true;
-						sim.ca.NoteTargetResolved(t);
+						sim.ca.NoteTargetResolved(t, true);
 					}
 					sim.ca.SetTargetSettling(restart && t >= 20.3 && t < 30.3);
 				});
@@ -6552,7 +6554,7 @@ void RunContinuousScenarios()
 					if (!noted && t >= 70.3)
 					{
 						noted = true;
-						sim.ca.NoteTargetResolved(t);
+						sim.ca.NoteTargetResolved(t, true);
 					}
 					sim.ca.SetTargetSettling(t >= 70.3 && t < 80.3);
 					if (t >= 60.0 && t < 70.0)
@@ -6679,7 +6681,7 @@ void RunContinuousScenarios()
 					if (!noted && t >= 100.3)
 					{
 						noted = true;
-						sim.ca.NoteTargetResolved(t);
+						sim.ca.NoteTargetResolved(t, true);
 					}
 					sim.ca.SetTargetSettling(t >= 100.3 && t < 110.3);
 				});
@@ -6725,7 +6727,7 @@ void RunContinuousScenarios()
 				return [&s](double t)
 				{
 					if (t >= 200.3 && t < 200.32)
-						s.ca.NoteTargetResolved(t);
+						s.ca.NoteTargetResolved(t, true);
 					s.ca.SetTargetSettling(t >= 200.3 && t < 210.3);
 				};
 			};
@@ -6789,12 +6791,12 @@ void RunContinuousScenarios()
 					if (!first && t >= 10.3)
 					{
 						first = true;
-						sim.ca.NoteTargetResolved(t);
+						sim.ca.NoteTargetResolved(t, true);
 					}
 					if (!second && t >= 170.3)
 					{
 						second = true;
-						sim.ca.NoteTargetResolved(t);
+						sim.ca.NoteTargetResolved(t, true);
 					}
 					sim.ca.SetTargetSettling((t >= 10.3 && t < 20.3) || (t >= 170.3 && t < 180.3));
 				});
@@ -6820,6 +6822,147 @@ void RunContinuousScenarios()
 			heldReanchors == 0 && heldAttributed == 1 && heldResumes == 1 &&
 			heldYaw < 0.3 && heldPos < 0.01 && heldState == ContinuousAlignment::State::Tracking &&
 			oldReanchors >= 1, detail);
+	}
+
+	// 26. The saved calibration no longer fits the session (live 2026-09-26
+	// and -27: the first readings put it 15.4 deg / 30 cm and 4.0 deg / 30 cm
+	// off, the headset's space having moved between sessions). The tracker's
+	// first solution of the session is a restart, so the freeze is put down
+	// to it, and before this only a recalibration ended it. Its next solution
+	// reads the same deviation, which no restart explains: the blame is
+	// lifted and it re-anchors. A station coming or going is no new solution
+	// and lifts nothing, and a next solution that reads something else is a
+	// second opinion that disagrees: both stay frozen.
+	{
+		const Eigen::Quaterniond sessionRot(Eigen::AngleAxisd(4.0 * EIGEN_PI / 180.0, Eigen::Vector3d::UnitY()));
+		GroundTruth session = baseTruth;
+		session.rotation = (sessionRot * baseTruth.rotation).normalized();
+		session.translation = sessionRot * baseTruth.translation + Eigen::Vector3d(0.25, 0.0, -0.15);
+		// What a second solution with a fault of its own reads: 3 deg more yaw.
+		const Eigen::Quaterniond otherRot(Eigen::AngleAxisd(3.0 * EIGEN_PI / 180.0, Eigen::Vector3d::UnitY()));
+		GroundTruth other = session;
+		other.rotation = (otherRot * session.rotation).normalized();
+		other.translation = otherRot * session.translation;
+
+		struct Outcome
+		{
+			int freezes = 0, attributed = 0, reanchors = 0, across = 0;
+			double reanchorTime = -1.0, yawErr = 0.0, posErr = 0.0, tiltErr = 0.0;
+			ContinuousAlignment::State state = ContinuousAlignment::State::Inactive;
+		};
+		// The session's first solution at 10.3 s, then at 100.3 s a second
+		// note, a new solution or a station change, and what it reads.
+		auto run = [&](unsigned seed, bool secondIsSolution, const GroundTruth &second)
+		{
+			std::mt19937 rng(seed);
+			ContinuousSim sim;
+			makeSim(sim, baseTruth);   // the calibration saved last session
+			auto truthAt = [&](double t) { return t >= 100.0 ? second : session; };
+			bool first = false, again = false;
+			RunContinuousSegment(sim, scene, 0.0, 200.0, rng, truthAt, constMount, alwaysVisible,
+				nullptr, false,
+				[&](double t)
+				{
+					if (!first && t >= 10.3)
+					{
+						first = true;
+						sim.ca.NoteTargetResolved(t, true);
+					}
+					if (!again && t >= 100.3)
+					{
+						again = true;
+						sim.ca.NoteTargetResolved(t, secondIsSolution);
+					}
+					sim.ca.SetTargetSettling((t >= 10.3 && t < 20.3) || (t >= 100.3 && t < 110.3));
+				});
+			Outcome o;
+			o.freezes = sim.freezes;
+			o.attributed = sim.resolveFreezes;
+			o.reanchors = sim.reanchors;
+			o.across = sim.acrossReanchors;
+			o.reanchorTime = sim.lastReanchorTime;
+			CalError(sim, second, 200.0, o.yawErr, o.posErr);
+			o.tiltErr = CalTiltDeg(sim, second);
+			o.state = sim.ca.GetState();
+			return o;
+		};
+		const Outcome agreed = run(2601, true, session);
+		const Outcome stations = run(2602, false, session);
+		const Outcome differed = run(2603, true, other);
+		snprintf(detail, sizeof detail,
+			"agrees: freezes %d (attr %d), re-anchors %d (across %d) at %.1f s, %.3f deg / %.3f tilt / %.1f mm, "
+			"state %d; station: re-anchors %d, state %d; differs: re-anchors %d, state %d",
+			agreed.freezes, agreed.attributed, agreed.reanchors, agreed.across, agreed.reanchorTime,
+			agreed.yawErr, agreed.tiltErr, agreed.posErr * 1000.0, static_cast<int>(agreed.state),
+			stations.reanchors, static_cast<int>(stations.state), differed.reanchors,
+			static_cast<int>(differed.state));
+		Check("continuous: a restart's freeze its next solution reads the same re-anchors",
+			agreed.freezes == 1 && agreed.attributed == 1 && agreed.reanchors == 1 && agreed.across == 1 &&
+			agreed.reanchorTime > 130.0 && agreed.reanchorTime < 160.0 &&
+			agreed.yawErr < 0.3 && agreed.tiltErr < 0.3 && agreed.posErr < 0.01 &&
+			agreed.state == ContinuousAlignment::State::Tracking &&
+			stations.freezes == 1 && stations.reanchors == 0 &&
+			stations.state == ContinuousAlignment::State::Frozen &&
+			differed.freezes == 1 && differed.reanchors == 0 &&
+			differed.state == ContinuousAlignment::State::Frozen, detail);
+
+		// As on 2026-09-27, when nearly every new solution of the headset
+		// tracker re-solved the station it started from and SteamVR moved that
+		// station's frame 4 to 6 s in: the move lands at 104 s, while the next
+		// solution settles, and is followed. The reading the freeze was blamed
+		// on moves with the frame, so the solution still reads the same.
+		LighthouseFrameWatch::Move restartMove;   // yaw 0.79 deg and tilt 1.76 deg, as at 20:04:10
+		restartMove.rotation = (Eigen::AngleAxisd(0.79 * EIGEN_PI / 180.0, Eigen::Vector3d::UnitY()) *
+			Eigen::AngleAxisd(1.76 * EIGEN_PI / 180.0, Eigen::Vector3d(0.6, 0.0, 0.8))).normalized();
+		restartMove.translation = Eigen::Vector3d(0.03, -0.01, 0.05);
+		GroundTruth movedSession = session;
+		{
+			const Eigen::Quaterniond fInv = restartMove.rotation.conjugate();
+			movedSession.rotation = (session.rotation * fInv).normalized();
+			movedSession.translation = session.translation -
+				session.scale * (session.rotation * (fInv * restartMove.translation));
+		}
+		std::mt19937 rng(2604);
+		ContinuousSim sim;
+		makeSim(sim, baseTruth);
+		auto truthAt = [&](double t) { return t >= 104.0 ? movedSession : session; };
+		bool first = false, again = false;
+		auto notes = [&](double t)
+		{
+			if (!first && t >= 10.3)
+			{
+				first = true;
+				sim.ca.NoteTargetResolved(t, true);
+			}
+			if (!again && t >= 100.3)
+			{
+				again = true;
+				sim.ca.NoteTargetResolved(t, true);
+			}
+			sim.ca.SetTargetSettling((t >= 10.3 && t < 20.3) || (t >= 100.3 && t < 110.3));
+		};
+		RunContinuousSegment(sim, scene, 0.0, 104.02, rng, truthAt, constMount, alwaysVisible, nullptr, false, notes);
+		{
+			Eigen::Quaterniond dR;
+			Eigen::Vector3d dT;
+			LighthouseFrameWatch::CompensatingDelta(sim.calRot, sim.calTrans, sim.calScale, restartMove, dR, dT);
+			sim.calRot = (dR * sim.calRot).normalized();
+			sim.calTrans = dR * sim.calTrans + dT;
+			sim.ca.NoteTargetFrameMoved(restartMove.rotation, restartMove.translation, sim.calScale);
+		}
+		RunContinuousSegment(sim, scene, 104.02, 200.0, rng, truthAt, constMount, alwaysVisible, nullptr, false, notes);
+		double movedYaw = 0.0, movedPos = 0.0;
+		CalError(sim, movedSession, 200.0, movedYaw, movedPos);
+		const double movedTilt = CalTiltDeg(sim, movedSession);
+		snprintf(detail, sizeof detail,
+			"freezes %d (attr %d), re-anchors %d (across %d) at %.1f s, %.3f deg / %.3f tilt / %.1f mm, state %d",
+			sim.freezes, sim.resolveFreezes, sim.reanchors, sim.acrossReanchors, sim.lastReanchorTime,
+			movedYaw, movedTilt, movedPos * 1000.0, static_cast<int>(sim.ca.GetState()));
+		Check("continuous: the next solution still reads the same after its station's frame moved",
+			sim.freezes == 1 && sim.resolveFreezes == 1 && sim.reanchors == 1 && sim.acrossReanchors == 1 &&
+			sim.lastReanchorTime > 130.0 && sim.lastReanchorTime < 160.0 &&
+			movedYaw < 0.3 && movedTilt < 0.3 && movedPos < 0.01 &&
+			sim.ca.GetState() == ContinuousAlignment::State::Tracking, detail);
 	}
 }
 

@@ -110,9 +110,11 @@ static int ContinuousConsumer = -1;
 static std::vector<protocol::DevicePoseSample> ContinuousScratch;
 static bool ContinuousActive = false;
 // The headset tracker's live lighthouse disturbance count last acted on, so
-// each new one restarts the window exactly once.
+// each new one restarts the window exactly once, and its bootstrap count, so
+// the loop hears which of them began a solution of its own.
 static std::string ContinuousLighthouseSerial;
 static uint32_t ContinuousLighthouseDisturbances = 0;
+static uint32_t ContinuousLighthouseBootstraps = 0;
 // The stream the last TrackerLost named, for the TrackerRecovered after it.
 static ringpose::StoppedStream ContinuousLostStream = ringpose::StoppedStream::Tracker;
 
@@ -1311,12 +1313,16 @@ static void ContinuousTick(CalibrationContext &ctx, double now)
 		if (trackerSeen->serial == ContinuousLighthouseSerial &&
 			trackerSeen->liveDisturbances != ContinuousLighthouseDisturbances)
 		{
-			Continuous->NoteTargetResolved(trackerSeen->lastDisturbance);
+			// A new server session starts the counts over, and its first line
+			// for the tracker need not be a bootstrap.
+			Continuous->NoteTargetResolved(trackerSeen->lastDisturbance,
+				trackerSeen->liveBootstraps != ContinuousLighthouseBootstraps && trackerSeen->liveBootstraps > 0);
 			ctx.continuousCorrectionGate.Clear();
 			ctx.Diag("continuous: window restarted, headset tracker " + trackerSeen->lastDisturbanceText);
 		}
 		ContinuousLighthouseSerial = trackerSeen->serial;
 		ContinuousLighthouseDisturbances = trackerSeen->liveDisturbances;
+		ContinuousLighthouseBootstraps = trackerSeen->liveBootstraps;
 	}
 	Continuous->SetTargetSettling(trackerSeen &&
 		ctx.lighthouse.Settling(ctx.continuousTrackerSerial, ringNow));
@@ -1483,9 +1489,13 @@ static void ContinuousTick(CalibrationContext &ctx, double now)
 				ctx.continuousNoPause ? "followed" : "re-anchored",
 				ev.deviation.yawDeg, ev.deviation.tiltDeg, ev.deviation.posM * 100.0,
 				ev.deviation.tiltDeg >= Continuous->GetConfig().holdTiltDeg ? ", tilt included" : "",
-				ev.afterTargetResolve ? " -- after the headset tracker's base station tracking restarted" : "");
+				ev.afterTargetResolve ? " -- after the headset tracker's base station tracking restarted"
+				: ev.acrossSolutions ? " -- the headset tracker's next solution read it too, so its restart did not explain it"
+				: "");
 			ctx.Log(buf);
 			ctx.continuousReanchors++;
+			if (ev.acrossSolutions)
+				ctx.continuousReanchorsAcrossSolutions++;
 			Monitors.freezeNotified = false;
 			if (!ctx.continuousNoPause)
 				ctx.Tell("Continuous calibration re-aligned your trackers after the tracking spaces moved apart.\n",
@@ -2057,6 +2067,7 @@ static void FinishCalibration(CalibrationContext &ctx)
 	ctx.autoCorrectionsApplied = 0;
 	ctx.continuousReanchors = 0;
 	ctx.continuousReanchorsUndone = 0;
+	ctx.continuousReanchorsAcrossSolutions = 0;
 	Drift->Reset();
 
 	bool priorUniverseUnsafe = ctx.profileUniverseUnsafe;
