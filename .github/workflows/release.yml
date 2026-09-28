@@ -2,9 +2,9 @@ name: Release
 
 # Pushing a questcalibrator-v* tag builds it on a clean Windows machine with the
 # full test suite (VirtualQuest included) and the pose hub trace replay through
-# its TLA+ model, packages it, scans it on VirusTotal, creates a DRAFT release
-# here, and runs the install test on that draft. Nothing reaches users until
-# the draft is published by hand.
+# its TLA+ model, analyzes it with Clang-Tidy, packages it, scans it on
+# VirusTotal, creates a DRAFT release here, and runs the install test on that
+# draft. Nothing reaches users until the draft is published by hand.
 #
 # Installed copies look for updates only in VividNightmareUnleashed/QuestCalibrator,
 # so a run anywhere else (a fork, or this repository under another name) stops
@@ -38,10 +38,12 @@ env:
   TLA2TOOLS_URL: https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
   TLA2TOOLS_SHA256: 936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
 
-# Three jobs: check refuses what must not be built, in seconds; build tests,
-# packages and scans, and keeps the result with the run; publish creates the
-# draft from that kept package. A failed publish is repeated with "Re-run
-# failed jobs" in a minute, without building again.
+# Jobs: check refuses what must not be built, in seconds; build tests,
+# packages and scans, and keeps the result with the run; clang-tidy analyzes
+# the tagged source beside it (clang-tidy.yml), and any first-party finding
+# stops the release; publish creates the draft from the kept package once both
+# passed. A failed publish is repeated with "Re-run failed jobs" in a minute,
+# without building again.
 #
 # A tag on a commit whose message contains [skip release] starts nothing
 # (every later job needs check, so they skip too); cut that release locally
@@ -242,8 +244,17 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  # The env context is not available where a reusable workflow is called, so
+  # the tag is spelled out as TAG is above.
+  clang-tidy:
+    needs: check
+    uses: ./.github/workflows/clang-tidy.yml
+    with:
+      ref: refs/tags/${{ inputs.tag || github.ref_name }}
+    secrets: inherit
+
   publish:
-    needs: build
+    needs: [build, clang-tidy]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

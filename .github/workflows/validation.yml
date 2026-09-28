@@ -1,9 +1,10 @@
 name: Validation
 
-# The local release gates on pushes to alpha and stable and on pull requests
-# into them: the Release build and the solver harness (blocking), then the
-# duplicate scan (advisory, as locally: its findings need a human's review,
-# not an automatic veto). Clang-Tidy runs locally only. Changes to
+# The release gates on pushes to alpha and stable and on pull requests into
+# them: the Release build and the solver harness (blocking), then the duplicate
+# scan (advisory, as locally: its findings need a human's review, not an
+# automatic veto), and in a parallel job Clang-Tidy over every translation unit
+# (clang-tidy.yml; blocking, since the tree has no findings). Changes to
 # documentation alone don't trigger it; the release workflow runs every gate on
 # the tagged commit anyway.
 #
@@ -116,6 +117,12 @@ jobs:
           npm install --global --no-fund --no-audit jscpd@5.0.12 | Out-Null
           powershell -NoProfile -ExecutionPolicy Bypass -File tools\validate-cpp.ps1 -Mode Duplicates
           if ($LASTEXITCODE -ne 0) { Write-Host '::warning::The duplicate scan reported clones; review them.'; exit 1 }
+
+  # A full rebuild under analysis, so it runs beside the build job rather than
+  # after it.
+  clang-tidy:
+    uses: ./.github/workflows/clang-tidy.yml
+    secrets: inherit
 
   input-validation:
     runs-on: ubuntu-24.04

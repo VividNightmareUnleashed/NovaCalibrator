@@ -15,7 +15,8 @@ once in any other repository (a fork, or this one under another name). Otherwise
 a clean Windows runner, it checks out the tag and the VirtualQuest commit it pins,
 builds with the full solver suite (including the VirtualQuest scenarios and the
 formal-model links), replays the pose hub traces through their TLA+ model, runs the
-duplicate scan as an advisory gate (Clang-Tidy stays local, in the preflight below),
+duplicate scan as an advisory gate and, in a parallel job, Clang-Tidy over every
+translation unit (`clang-tidy.yml`, where any first-party finding stops the release),
 checks the version against the tag, packages with `install\build-package.ps1`, scans
 with `install\virustotal-scan.ps1`, creates a **draft** release with the zip, its
 `.sha256` and notes carrying the hash and the VirusTotal table, and then runs the
@@ -51,16 +52,20 @@ committed.
   shipping.
 - Review `docs/vendored-dependencies.md`; resolve missing or changed notice material
   before producing a distributable binary.
-- Run the Release build, duplicate scan, and full project-aware analysis:
+- Run the Release build and solver harness locally, which catches a broken version
+  edit and gives the scenario count for the tag message:
 
   ```powershell
   tools\validate-cpp.ps1 -Mode Build
-  tools\validate-cpp.ps1 -Mode Duplicates
-  tools\validate-cpp.ps1 -Mode Analyze -All
   ```
 
-- Review every advisory clone or Clang-Tidy finding, even though those findings do
-  not fail validation on their own.
+- Leave the rest to CI, on the exact commit: pushing `alpha` runs the validation
+  workflow (build, harness, hub trace replay, duplicate scan, input-validation model
+  checks and Clang-Tidy), and a push of VirtualQuest that touches `formal/` runs its
+  formal models. Wait for both to pass before pushing the tag, and review every
+  advisory clone they report. Run a check locally only to debug a failure, or when
+  Actions is unavailable (`tools\validate-cpp.ps1 -Mode Duplicates`,
+  `-Mode Analyze -All`, `VirtualQuest\formal\check.ps1`).
 
 ## Commit, push, and tag
 

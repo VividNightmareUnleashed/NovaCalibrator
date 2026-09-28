@@ -1,0 +1,60 @@
+name: Clang-Tidy
+
+# Visual Studio's integrated Clang-Tidy over every first-party translation unit:
+# tools\validate-cpp.ps1 -Mode Analyze -All rebuilds the solution so each file is
+# analyzed with its own MSVC defines, include paths and precompiled header, then
+# runs the solver harness. The tree has no findings, so any first-party finding
+# fails the job: it is new. The validation workflow calls this on pushes and pull
+# requests, and the release workflow on the tag before it drafts a release, so
+# the analysis no longer has to be run by hand.
+#
+# With the VIRTUALQUEST_DEPLOY_KEY secret (passed on by the caller) the analyzed
+# harness includes the simulated headset's scenarios, as locally; without it the
+# public suite is analyzed. Third-party sources are outside the check either way.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit, branch or tag to analyze; the caller's own when empty
+        type: string
+        default: ''
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: windows-2022
+    timeout-minutes: 150
+    env:
+      HAS_VIRTUALQUEST: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY != '' }}
+
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Check out VirtualQuest
+        if: env.HAS_VIRTUALQUEST == 'true'
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
+        run: tools\ci\checkout-virtualquest.ps1
+
+      # Exit 3 is the script's "first-party findings" (listed above the error);
+      # anything else non-zero is a failed build or harness, or missing tools.
+      - name: Analyze every translation unit
+        timeout-minutes: 140
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools\validate-cpp.ps1 -Mode Analyze -All
+          $code = $LASTEXITCODE
+          if ($code -eq 3) {
+            Write-Host '::error::Clang-Tidy reported first-party findings, listed above. The tree had none, so each one is new.'
+            exit 1
+          }
+          if ($code -ne 0) { throw "The analysis build, the solver harness or the tools failed (exit $code)." }
