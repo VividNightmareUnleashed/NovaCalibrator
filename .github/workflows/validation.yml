@@ -22,9 +22,10 @@ name: Validation
 # formal.yml skips them, since it has no QuestCalibrator sources, and nothing
 # else here catches a loosened bound in them, so the job fails on a skipped
 # check as well as a wrong outcome. The release workflow does not run it. It
-# runs on four runners at once (check.ps1 -Shard): each of the three longest
-# checks has one to itself, and the fourth runs the rest, three at a time. The
-# image is cached by its Dockerfile's hash. A pull request only reads caches
+# runs on four runners at once (check.ps1 -Shard, which balances them by the
+# time each check last took), so each of the three longest checks runs with
+# only a few short ones beside it. The image is cached by its Dockerfile's
+# hash. A pull request only reads caches
 # saved on its own or its base branch, so the image a push to alpha saves lets
 # pull requests into alpha skip the build.
 on:
