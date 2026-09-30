@@ -320,15 +320,22 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: assurance-linux
-          path: assurance
+          path: ${{ runner.temp }}/assurance
       - uses: actions/download-artifact@v4
         with:
           name: assurance-traces
-          path: assurance
+          path: ${{ runner.temp }}/assurance
       - name: Require complete exact-pair assurance
         run: |
-          python tools/assemble-assurance.py --contracts assurance/now/result.json --core assurance/core.json --numeric assurance/numeric.json --traces assurance/traces.json --output assurance/complete.json
-          python tools/verify-assurance.py --evidence assurance/complete.json
+          python tools/assemble-assurance.py --contracts "$RUNNER_TEMP/assurance/now/result.json" --core "$RUNNER_TEMP/assurance/core.json" --numeric "$RUNNER_TEMP/assurance/numeric.json" --traces "$RUNNER_TEMP/assurance/traces.json" --output "$RUNNER_TEMP/assurance/complete.json"
+          python tools/verify-assurance.py --evidence "$RUNNER_TEMP/assurance/complete.json"
+      - name: Keep complete assurance with this release run
+        uses: actions/upload-artifact@v4
+        with:
+          name: assurance-complete
+          path: ${{ runner.temp }}/assurance/complete.json
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Fetch the package
         uses: actions/download-artifact@v4
