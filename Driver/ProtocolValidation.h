@@ -74,14 +74,29 @@ inline bool ValidateAndSanitize(const protocol::SetAlignmentField &input,
 	return true;
 }
 
+// Keep these scalar assignments explicit: the formal checker expands aggregate
+// copies containing arrays into costly byte-level operations.
+inline void CopyFrameCorrectionScalars(const protocol::FrameCorrection &input,
+	protocol::FrameCorrection &output)
+{
+	output.rotation.w = input.rotation.w;
+	output.rotation.x = input.rotation.x;
+	output.rotation.y = input.rotation.y;
+	output.rotation.z = input.rotation.z;
+	output.translation.v[0] = input.translation.v[0];
+	output.translation.v[1] = input.translation.v[1];
+	output.translation.v[2] = input.translation.v[2];
+}
+
 inline bool ValidateAndSanitize(const protocol::FrameCorrection &input,
 	protocol::FrameCorrection &output)
 {
-	protocol::FrameCorrection clean = input;
+	protocol::FrameCorrection clean;
+	CopyFrameCorrectionScalars(input, clean);
 	if (!IsBoundedVector3(clean.translation.v, protocol::limits::MaxAbsTranslationMeters) ||
 		!NormalizeQuaternion(clean.rotation))
 		return false;
-	output = clean;
+	CopyFrameCorrectionScalars(clean, output);
 	return true;
 }
 
@@ -100,7 +115,7 @@ inline void CopyFrameCorrections(
 	protocol::FrameCorrection (&output)[vr::k_unMaxTrackedDeviceCount])
 {
 	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
-		output[id] = input[id];
+		CopyFrameCorrectionScalars(input[id], output[id]);
 }
 
 inline void CopyFrameSerialKeys(const uint64_t (&input)[vr::k_unMaxTrackedDeviceCount],
