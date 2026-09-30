@@ -249,7 +249,12 @@ void ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr:
 		vr::HmdVector3d_t scaledOrigin = questcal::driverpose::Scale(
 			pose.vecWorldFromDriverTranslation, cal.scale);
 		vr::HmdVector3d_t rawWorld = questcal::driverpose::Add(rotatedPosition.v, scaledOrigin.v);
-		bool usablePosition = pose.poseIsValid && pose.deviceIsConnected &&
+		// Standable hides physical trackers by clearing their connection flag
+		// while they still publish valid Running_OK poses. Keep both calibration
+		// layers current for those poses; a disconnected device that is no longer
+		// tracking must still leave the smoothing state alone.
+		bool usablePosition = pose.poseIsValid &&
+			(pose.deviceIsConnected || pose.result == vr::TrackingResult_Running_OK) &&
 			questcal::numeric::IsBoundedVector3(rawWorld.v,
 				cal.scale * protocol::limits::MaxAbsPosePositionMeters);
 

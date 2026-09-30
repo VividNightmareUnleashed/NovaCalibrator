@@ -158,6 +158,7 @@ Eigen::Vector3d MappedPose(const vr::DriverPose_t &pose)
 void ContinuousDriverSlewScenarios(Check check)
 {
 	for (bool moving : { false, true })
+	for (bool hidden : { false, true })
 	{
 		bool valid = true;
 		double excursion = 0, largestStep = 0, finalError = 0, angularStep = 0;
@@ -177,7 +178,8 @@ void ContinuousDriverSlewScenarios(Check check)
 			const Eigen::Vector3d originT(2, 0.3, -1);
 			auto rawPose = [&](const Eigen::Vector3d &point) {
 				vr::DriverPose_t pose{};
-				pose.poseIsValid = pose.deviceIsConnected = true;
+				pose.poseIsValid = true;
+				pose.deviceIsConnected = !hidden;
 				pose.result = vr::TrackingResult_Running_OK;
 				pose.qRotation.w = pose.qDriverFromHeadRotation.w = 1;
 				pose.qWorldFromDriverRotation = { originR.w(), originR.x(), originR.y(), originR.z() };
@@ -242,11 +244,101 @@ void ContinuousDriverSlewScenarios(Check check)
 		char detail[192];
 		snprintf(detail, sizeof detail, "excursion %.6f mm, step %.6f mm, settled error %.3e",
 			excursion * 1000, largestStep * 1000, finalError);
-		check(moving ? "continuous driver: moving point respects slew limits" : "continuous driver: yaw keeps head position fixed",
+		check(hidden
+			? (moving ? "continuous driver: hidden moving point respects slew limits" : "continuous driver: hidden yaw keeps head position fixed")
+			: (moving ? "continuous driver: moving point respects slew limits" : "continuous driver: yaw keeps head position fixed"),
 			valid && excursion < 1e-9 && finalError < 1e-8 &&
 			largestStep <= alignfield::BaseSlewLimits.maxTranslationPerSec / 90 + 1e-10 &&
 			angularStep <= alignfield::BaseSlewLimits.maxRotationPerSec / 90 + 1e-9, detail);
 	}
+}
+
+void HiddenTrackerCalibrationScenario(Check check)
+{
+	// Standable hides physical trackers with connected=false while they keep
+	// publishing valid Running_OK poses. Both calibration layers must keep up
+	// with the same updates received by an otherwise identical visible tracker.
+	auto provider = std::make_unique<ServerTrackedDeviceProvider>();
+	protocol::SetRuntimeState runtime;
+	runtime.enabledMask = 3;
+	runtime.transform.generation = runtime.field.generation = 1;
+	runtime.transform.translation.v[0] = 0.3;
+	runtime.field.enabled = 1;
+	runtime.field.anchorCount = 1;
+	runtime.field.anchors[0].position[0] = 1.3;
+	runtime.field.anchors[0].translationDelta[0] = 0.02;
+	bool accepted = provider->TrySetRuntimeState(runtime);
+	vr::DriverPose_t raw{};
+	raw.poseIsValid = true;
+	raw.result = vr::TrackingResult_Running_OK;
+	raw.qRotation.w = raw.qWorldFromDriverRotation.w = raw.qDriverFromHeadRotation.w = 1;
+	raw.vecPosition[0] = 1;
+	auto sample = [&](uint32_t id, double time, vr::DriverPose_t pose) {
+		pose.deviceIsConnected = id == 0;
+		provider->SetPoseTimeForTest(time);
+		provider->HandleDevicePoseUpdated(id, pose);
+		return pose;
+	};
+	sample(0, 0, raw);
+	const auto first = sample(1, 0, raw);
+	const double firstExpected = 1.3 + 0.02 / (1 + alignfield::IdentityFloorWeight);
+	check("driver: hidden tracker receives base and field on first pose",
+		accepted && !first.deviceIsConnected && first.poseIsValid &&
+		std::abs(MappedPose(first).x() - firstExpected) < 1e-10, "");
+
+	runtime.transform.generation = runtime.field.generation = 2;
+	runtime.transform.translation.v[0] = -0.2;
+	runtime.field.anchors[0].position[0] = 0.8;
+	runtime.field.anchors[0].translationDelta[0] = -0.03;
+	accepted &= provider->TrySetRuntimeState(runtime);
+	const auto visible = sample(0, 0.01, raw);
+	const auto hidden = sample(1, 0.01, raw);
+	const double expected = 0.8 - 0.03 / (1 + alignfield::IdentityFloorWeight);
+	check("driver: hidden tracker receives recalibration and field generation changes",
+		accepted && !hidden.deviceIsConnected && hidden.poseIsValid &&
+		std::abs(MappedPose(visible).x() - expected) < 1e-10 &&
+		std::abs(MappedPose(hidden).x() - expected) < 1e-10, "");
+
+	// Continuous updates retain their generation and slew on every sample.
+	runtime.transform.translation.v[0] += 0.01;
+	runtime.field.anchors[0].translationDelta[0] += 0.01;
+	accepted &= provider->TrySetRuntimeState(runtime);
+	bool matched = true;
+	vr::DriverPose_t settled{};
+	for (int frame = 2; frame <= 400; ++frame)
+	{
+		const auto a = sample(0, frame * 0.01, raw);
+		settled = sample(1, frame * 0.01, raw);
+		matched &= (MappedPose(a) - MappedPose(settled)).norm() < 1e-10 &&
+			!settled.deviceIsConnected && settled.poseIsValid;
+	}
+	check("driver: hidden tracker keeps receiving continuous base and field updates",
+		accepted && matched && MappedPose(settled).x() > expected + 0.01, "");
+
+	// Dropping the connection requirement must not admit a disconnected pose
+	// with failed tracking, an invalid pose, or a non-finite/out-of-bounds point.
+	runtime.transform.generation = runtime.field.generation = 3;
+	runtime.transform.translation.v[0] = 0.5;
+	runtime.field.anchors[0].position[0] = 1.5;
+	runtime.field.anchors[0].translationDelta[0] = 0.02;
+	accepted &= provider->TrySetRuntimeState(runtime);
+	bool held = true;
+	for (int kind = 0; kind < 4; ++kind)
+	{
+		auto bad = raw;
+		if (kind == 0) bad.poseIsValid = false;
+		if (kind == 1) bad.result = vr::TrackingResult_Running_OutOfRange;
+		if (kind == 2) bad.vecPosition[0] = std::numeric_limits<double>::quiet_NaN();
+		if (kind == 3) bad.vecPosition[0] = 1e300;
+		bad = sample(1, 5 + kind, bad);
+		held &= std::abs(bad.vecWorldFromDriverTranslation[0] -
+			settled.vecWorldFromDriverTranslation[0]) < 1e-10;
+	}
+	const auto recovered = sample(1, 9, raw);
+	const double recoveryExpected = 1.5 + 0.02 / (1 + alignfield::IdentityFloorWeight);
+	check("driver: hidden tracker holds unsafe inputs and recovers on valid tracking",
+		accepted && held && !recovered.deviceIsConnected &&
+		std::abs(MappedPose(recovered).x() - recoveryExpected) < 1e-10, "");
 }
 
 void ContinuousHeadClampScenario(Check check)
@@ -633,6 +725,7 @@ void RunReviewRegressionScenarios(Check check)
 	RuntimeTransactionScenario(check);
 	CorrectionWithdrawalScenarios(check);
 	ContinuousDriverSlewScenarios(check);
+	HiddenTrackerCalibrationScenario(check);
 	ContinuousHeadClampScenario(check);
 	FieldPivotSlewScenario(check);
 	FieldRebaseScenario(check);
