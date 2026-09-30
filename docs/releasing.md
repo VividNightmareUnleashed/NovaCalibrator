@@ -36,6 +36,15 @@ VirusTotal key comes from `$env:VT_API_KEY` or the git-ignored `.env` at the
 repository root. Package output in `install/out/` and `install/test-out/` is never
 committed.
 
+Both draft-release paths now require complete formal assurance for the exact
+QuestCalibrator commit and its VirtualQuest gitlink. The hosted workflow collects
+the private core, numeric proofs, twelve Now contracts and Windows hub traces,
+and refuses a draft when any named check or source/tool provenance is missing.
+For a local release, assemble and verify the same evidence as described in
+[`formal-now.md`](formal-now.md), then pass
+`-FormalEvidence /path/to/complete.json` to `install\release.ps1`. A focused Now
+report or a Linux-only record cannot satisfy this gate.
+
 ## Source preflight
 
 - Confirm the release is authorized by the QuestCalibrator copyright holder.

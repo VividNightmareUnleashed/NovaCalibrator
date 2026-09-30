@@ -176,7 +176,9 @@ public:
 		now.angVel = Eigen::Vector3d(s.angularVelocity[0], s.angularVelocity[1], s.angularVelocity[2]);
 		now.mark = nextTransition;
 
+		if (d.valid && now.time <= d.time) return;
 		latestTime = (std::max)(latestTime, now.time);
+		ExpireInferences();
 		if (!baseStation && trackingSince > 1e299)
 			trackingSince = now.time;
 		const bool changed = (d.valid || d.away) &&
@@ -220,6 +222,10 @@ public:
 		out.swap(moves);
 		return out;
 	}
+
+    // Overflow invalidates completeness: callers must stop applying the
+    // profile until recalibration, rather than silently use partial frames.
+    bool TakeMoveOverflow() { const bool out = moveOverflow; moveOverflow = false; return out; }
 
 	// True the first time a frame move is asked about: its devices report it
 	// one by one, often across two ticks, and it is acted on once.
@@ -283,6 +289,7 @@ public:
 		open.clear();
 		closed.clear();
 		moves.clear();
+        moveOverflow = false;
 		transitions.clear();
 		inferences.clear();
 		frameMoves.clear();
@@ -502,7 +509,7 @@ private:
 
 		for (size_t i = 0; i < inferences.size();)
 		{
-			if (Leads(inferences[i]))
+			if (inferences[i].move.time >= latestTime - config.inferSeconds && Leads(inferences[i]))
 			{
 				Hand(inferences[i].move);
 				inferences.erase(inferences.begin() + static_cast<std::ptrdiff_t>(i));
@@ -570,6 +577,8 @@ private:
 	{
 		if (moves.size() < MaxPendingMoves)
 			moves.push_back(m);
+        else
+            moveOverflow = true;
 	}
 
 	void ExpireInferences()
@@ -589,6 +598,7 @@ private:
 	std::vector<Change> open;
 	std::vector<Report> closed;
 	std::vector<Move> moves;
+    bool moveOverflow = false;
 	std::vector<Transition> transitions;
 	std::vector<Inference> inferences;
 	std::vector<Move> frameMoves;
