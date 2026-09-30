@@ -123,6 +123,8 @@
     <ClInclude Include="Modules.h" />
     <ClInclude Include="TrackingStreamDigest.h" />
     <ClInclude Include="LighthouseFrameWatch.h" />
+    <ClInclude Include="TrackerFrameCorrections.h" />
+    <ClInclude Include="FrameRecovery.h" />
     <ClInclude Include="LocalPoseContinuity.h" />
     <ClInclude Include="DriverSession.h" />
     <ClInclude Include="DriverSyncPolicy.h" />

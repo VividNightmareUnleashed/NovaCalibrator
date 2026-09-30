@@ -101,6 +101,7 @@
   <ItemGroup>
     <ClCompile Include="CalibrationContextTests.cpp" />
     <ClCompile Include="ReviewRegressionTests.cpp" />
+    <ClCompile Include="TrackerFrameCorrectionTests.cpp" />
     <ClCompile Include="HookInjectorTests.cpp" />
     <ClCompile Include="UniverseVerdictTests.cpp" />
     <ClCompile Include="PoseHubHoleTests.cpp" />

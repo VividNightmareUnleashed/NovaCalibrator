@@ -1,4 +1,5 @@
 #pragma once
+#include "../../Overlay/FrameRecovery.h"
 
 // The properties every untrusted input must keep, one function per input the
 // program parses or validates. Each takes arbitrary bytes and returns "" when
@@ -439,9 +440,11 @@ inline std::string CheckDriverRequest(const uint8_t *data, size_t size)
 		return "";
 	}
 	if (!handshaken || request.protocol.version != protocol::Version ||
-		(request.type != protocol::RequestSetDeviceTransform && request.type != protocol::RequestSetRuntimeState))
-		return "a request is dispatched without a handshake, a version or a mutation";
+		(request.type != protocol::RequestSetDeviceTransform && request.type != protocol::RequestSetRuntimeState &&
+		 request.type != protocol::RequestGetRuntimeState))
+		return "a request is dispatched without a handshake, a version or a supported request kind";
 
+	if (request.type == protocol::RequestGetRuntimeState) return "";
 	if (request.type == protocol::RequestSetDeviceTransform)
 	{
 		protocol::SetDeviceTransform sanitized;
@@ -463,6 +466,12 @@ inline std::string CheckDriverRequest(const uint8_t *data, size_t size)
 	std::string why = CheckTransform(sanitized.transform);
 	if (why.empty())
 		why = CheckField(sanitized.field);
+	for (const auto &frame : sanitized.frames)
+	{
+		protocol::SetDeviceTransform transform(0, true, frame.translation, frame.rotation, 1.0);
+		if (why.empty())
+			why = CheckTransform(transform);
+	}
 	return why;
 }
 
@@ -564,6 +573,7 @@ inline std::string RequestBytes(bool handshaken, const protocol::Request &reques
 inline std::vector<std::string> RequestSeeds()
 {
 	protocol::Request handshake(protocol::RequestHandshake);
+	protocol::Request recovery(protocol::RequestGetRuntimeState);
 	protocol::Request transform(protocol::RequestSetDeviceTransform);
 	transform.setDeviceTransform = protocol::SetDeviceTransform(3, true, { { 0.5, -1.0, 2.0 } },
 		{ 0.9, 0.1, -0.3, 0.3 }, 1.02, 0.01);
@@ -571,12 +581,47 @@ inline std::vector<std::string> RequestSeeds()
 	state.setRuntimeState.enabledMask = 0x6;
 	state.setRuntimeState.hiddenMask = 0x4;
 	state.setRuntimeState.transform.rotation = { 0.9, 0.1, -0.3, 0.3 };
+	state.setRuntimeState.frames[2].rotation = { 0.9, 0.1, -0.3, 0.3 };
+	state.setRuntimeState.frames[2].translation = { { 0.4, -0.2, 0.6 } };
 	state.setRuntimeState.field.enabled = 1;
 	state.setRuntimeState.field.anchorCount = 2;
 	state.setRuntimeState.field.anchors[0].position[0] = 1.5;
 	state.setRuntimeState.field.anchors[0].translationDelta[2] = 0.02;
 	state.setRuntimeState.field.anchors[1].rotationDelta = { 0.999, 0.0, 0.02, 0.0 };
-	return { RequestBytes(false, handshake), RequestBytes(true, transform), RequestBytes(true, state) };
+	return { RequestBytes(false, handshake), RequestBytes(true, transform), RequestBytes(true, state),
+		RequestBytes(false, recovery), RequestBytes(true, recovery) };
+}
+
+inline std::string CheckFrameRecovery(const uint8_t *data, size_t size)
+{
+	protocol::Response response(protocol::ResponseRuntimeState);
+	response.driverSessionId = 7;
+	response.runtimeState.frameProfileKey = 11;
+	response.runtimeState.frameSerialKeys[9] = 42;
+	std::memcpy(&response, data, (std::min)(size, sizeof response));
+	questcal::FrameSerialKeys serials{};
+	serials[9] = 42;
+	questcal::RecoveredFrames out{};
+	out[9].translation.v[0] = 0.125;
+	const auto before = out;
+	if (!questcal::RecoverTrackerFrames(response, 7, 11, serials, out))
+		return out == before ? "" : "refused recovery changed output";
+	if (response.driverSessionId != 7 || response.runtimeState.frameProfileKey != 11)
+		return "recovery crossed a session or profile";
+	for (const auto &frame : out)
+		if (!UnitQuat(frame.rotation) || !Finite3(frame.translation.v))
+			return "recovery produced an invalid correction";
+	return "";
+}
+
+inline std::vector<std::string> FrameRecoverySeeds()
+{
+	protocol::Response response(protocol::ResponseRuntimeState);
+	response.driverSessionId = 7;
+	response.runtimeState.frameProfileKey = 11;
+	response.runtimeState.frameSerialKeys[9] = 42;
+	response.runtimeState.frames[9].translation.v[2] = 0.3;
+	return { std::string(reinterpret_cast<const char *>(&response), sizeof response) };
 }
 
 struct Target
@@ -593,6 +638,7 @@ inline const std::vector<Target> &Targets()
 		{ "feed", CheckReleaseFeed, FeedSeeds },
 		{ "lighthouse", CheckLighthouseLine, LighthouseSeeds },
 		{ "request", CheckDriverRequest, RequestSeeds },
+		{ "frame-recovery", CheckFrameRecovery, FrameRecoverySeeds },
 	};
 	return targets;
 }

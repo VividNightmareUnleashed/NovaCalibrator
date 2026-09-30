@@ -146,8 +146,9 @@ A station coming or going, even the first back after none was in view,
 leaves the solution and its bias in place.
 
 The universe decides one more thing. A station SteamVR re-solves carries
-every device in its frame, and the calibration follows such a move (see
-[how it works](how-it-works.md)). While the universe is set up it does not:
+every device in its frame. Each affected device receives its own inverse
+frame correction (see [how it works](how-it-works.md)); a stationary device
+in another frame receives none. While the universe is set up this is skipped:
 the move places a station SteamVR guessed at startup, and a saved calibration
 belongs to the universe, not to the guess. On 2026-09-27 the first station
 was placed 26 ms after the universe was chosen (`Moving base F210FBA6 1205mm
@@ -160,6 +161,45 @@ start tracking stand in for it.
 
 Lighthouse devices are target-side devices, so none of this touches the
 universe-jump detector, which only reads the reference system's stream.
+
+Frame corrections are runtime state, separate from the shared calibration.
+Complete driver updates retain them; ordinary tracking loss and return do too.
+A new device starts with no inferred correction: identical current frames do
+not establish identical history. A reused slot with a different serial, a new
+profile, and a new SteamVR pose session clear the relevant state. A full
+recalibration within the same active profile keeps the per-device corrections: its
+raw solve is expressed in the existing normalized space. The frame watch keeps
+running during the measurement, including when it is cancelled. Repairing a
+disabled or unsafe profile starts a fresh solve; it does not wait for that
+profile's stopped frame monitor.
+
+An overlay restart reads the last complete checkpoint from the running driver
+before publishing a replacement. The profile's calibration timestamp, tracking
+systems and HMD identify its target space; physical serial keys identify the
+trackers. Sleeping trackers retain their checkpoint until they enumerate,
+including when a different device occupies their previous index. Those saved
+entries remain inactive until their serial is identified; a replacement device
+never inherits the correction. Temporary calibration
+neutralization does not overwrite the checkpoint. Every restored publication
+is pinned to the driver's session ID, so reconnecting to a new SteamVR process
+cannot replay old corrections. No frame matrices are persisted across SteamVR
+sessions. Corrections cannot recover disagreement that existed before observation,
+or infer frame changes during an interval when the overlay was closed.
+
+The raw pose ring stays unchanged. Continuous calibration waits for the frame
+watch to examine each pose, then normalizes the mounted tracker before solving
+or looking up its field correction. Samples older than the latest compensated
+move are discarded when the observation window restarts. The diagnostic export
+includes the live per-device corrections; each frame event records the serial,
+old and new frames, and desired correction. Detailed logging also captures raw
+and runtime poses after notable moves, coalesced to at most one capture every
+two seconds. These are asynchronous samples, not an exact before/after pair.
+The driver separately logs the actual transformed pose before hiding a device
+whenever its frame correction changes; the export includes the latest 256 KiB
+of that driver log. Runtime snapshots include valid disconnected physical
+trackers alongside virtual devices such as Standable's outputs.
+IPC protocol 10 requires updating
+the overlay and driver together and restarting SteamVR.
 
 ## One session, in numbers
 

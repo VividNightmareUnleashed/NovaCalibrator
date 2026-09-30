@@ -71,7 +71,7 @@ SyncDevice EnumerateDevice(uint32_t id, const DriverSyncDesired &desired)
 
 	device.trackingSystemKnown = ReadTrackedDeviceString(id,
 		vr::Prop_TrackingSystemName_String, device.trackingSystem);
-	if (SlotNeedsSerial(desired, device))
+	if (device.trackingSystemKnown && device.trackingSystem == desired.targetTrackingSystem)
 		device.serialKnown = ReadTrackedDeviceString(id,
 			vr::Prop_SerialNumber_String, device.serial);
 	return device;
@@ -104,6 +104,31 @@ void ApplyCompletion(CalibrationContext &ctx,
 		ctx.ClearError(CalibrationContext::ErrorSource::Driver);
 
 	const auto &result = completion.result;
+	if (result.synchronized)
+	{
+		ctx.frameDriverSession = result.driverSessionId;
+		if (ctx.frameRecoveryPending && result.recoveryChecked)
+		{
+			if (result.framesRecovered && result.frameProfileKey == FrameProfileKey(
+				ctx.referenceTrackingSystem, ctx.targetTrackingSystem, ctx.profileHmdSerial, ctx.calibrationUnixTime))
+			{
+				auto recovered = result.frames;
+				auto keys = result.frameSerialKeys;
+				for (uint32_t id = 0; id < recovered.size(); ++id)
+					if (ctx.trackerFrames.IdentityKey(id) != 0 &&
+						result.frameSerialKeys[id] != ctx.trackerFrames.IdentityKey(id))
+					{
+						recovered[id] = {};
+						keys[id] = ctx.trackerFrames.IdentityKey(id);
+					}
+				ctx.trackerFrames.Restore(recovered, keys);
+				++ctx.trackerFrameEpoch;
+				ctx.Log("Restored tracker frame corrections from the current SteamVR driver session. "
+					"Frame changes while the overlay was closed were not observed.\n");
+			}
+			ctx.frameRecoveryPending = false;
+		}
+	}
 	ctx.enabled = result.enabled;
 	ctx.driverPoseHookMask = result.poseHookMask;
 	switch (result.cause)
@@ -253,7 +278,22 @@ void SynchronizeCalibrationDriver(CalibrationContext &ctx)
 	job.time = ctx.timeLastTick;
 	if (job.request.enabled)
 		for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+		{
 			job.devices[id] = EnumerateDevice(id, desired);
+			if (job.devices[id].serialKnown)
+				ctx.trackerFrames.Bind(id, job.devices[id].serial);
+		}
+	job.request.frames = ctx.trackerFrames.Snapshot();
+	job.request.frameProfileKey = FrameProfileKey(ctx.referenceTrackingSystem,
+		ctx.targetTrackingSystem, ctx.profileHmdSerial, ctx.calibrationUnixTime);
+	job.request.driverSessionId = ctx.frameDriverSession;
+	job.request.recoverFrames = ctx.frameRecoveryPending && ctx.enabled;
+	for (uint32_t id = 0; id < job.devices.size(); ++id)
+	{
+		job.request.frameSerialKeys[id] = ctx.trackerFrames.IdentityKey(id);
+		if (!ctx.trackerFrames.Serial(id).empty())
+			job.request.frameBoundMask |= uint64_t{1} << id;
+	}
 
 	// Derive the monitors' device identities now, from the devices the worker
 	// ships, so a sync in flight never reads as a disabled profile. The

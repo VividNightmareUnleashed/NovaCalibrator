@@ -15,10 +15,10 @@
 namespace protocol
 {
 	// The handshake requires exact version equality, so every bump costs users a
-	// driver reinstall and a SteamVR restart. v9: the field blends
-	// field-transformed query positions, and both peers must share those
-	// semantics because continuous calibration predicts the driver's output.
-	const uint32_t Version = 9;
+	// driver reinstall and a SteamVR restart. v10 adds a per-device rigid
+	// frame correction before the shared base calibration and spatial field,
+	// plus session-bound recovery of those corrections after an overlay restart.
+	const uint32_t Version = 10;
 	const uint32_t PoseHook005 = 1u << 0;
 	const uint32_t PoseHook006 = 1u << 1;
 
@@ -28,6 +28,7 @@ namespace protocol
 		RequestHandshake,
 		RequestSetDeviceTransform,
 		RequestSetRuntimeState,
+		RequestGetRuntimeState,
 	};
 
 	enum ResponseType : uint32_t
@@ -35,6 +36,7 @@ namespace protocol
 		ResponseInvalid,
 		ResponseHandshake,
 		ResponseSuccess,
+		ResponseRuntimeState,
 	};
 
 	struct Protocol
@@ -124,6 +126,24 @@ namespace protocol
 		}
 	};
 
+	// Maps one device's current raw world into the calibration's target space.
+	// Frame changes snap independently of base/field slew. Translation is in
+	// unscaled target meters; the base scale is applied afterwards.
+	struct FrameCorrection
+	{
+		vr::HmdQuaternion_t rotation{ 1.0, 0.0, 0.0, 0.0 };
+		vr::HmdVector3d_t translation{ { 0.0, 0.0, 0.0 } };
+
+		bool operator==(const FrameCorrection &other) const noexcept
+		{
+			return rotation.w == other.rotation.w && rotation.x == other.rotation.x &&
+				rotation.y == other.rotation.y && rotation.z == other.rotation.z &&
+				translation.v[0] == other.translation.v[0] &&
+				translation.v[1] == other.translation.v[1] &&
+				translation.v[2] == other.translation.v[2];
+		}
+	};
+
 	struct SetRuntimeState
 	{
 		uint64_t enabledMask = 0;
@@ -133,6 +153,12 @@ namespace protocol
 		// the masks only after validating the complete message.
 		SetDeviceTransform transform{ 0, true };
 		SetAlignmentField field;
+		FrameCorrection frames[vr::k_unMaxTrackedDeviceCount];
+		// Session-bound recovery metadata. Keys identify a profile's target
+		// space and physical serials; they are not authentication credentials.
+		uint64_t frameProfileKey = 0;
+		uint64_t frameSerialKeys[vr::k_unMaxTrackedDeviceCount] = {};
+		uint64_t expectedSessionId = 0;
 	};
 
 	// Raw driver-space pose as captured by the pose hook inside vrserver, stamped
@@ -173,6 +199,8 @@ namespace protocol
 		ResponseType type = ResponseInvalid;
 		Protocol protocol;
 		uint32_t poseHookMask = 0;
+		uint64_t driverSessionId = 0;
+		SetRuntimeState runtimeState;
 
 		Response() = default;
 		explicit Response(ResponseType type) : type(type) { }
@@ -186,9 +214,10 @@ namespace protocol
 	static_assert(sizeof(SetDeviceTransform) == 88, "SetDeviceTransform wire layout changed");
 	static_assert(sizeof(FieldAnchor) == 80, "FieldAnchor wire layout changed");
 	static_assert(sizeof(SetAlignmentField) == 664, "SetAlignmentField wire layout changed");
-	static_assert(sizeof(SetRuntimeState) == 768, "SetRuntimeState wire layout changed");
-	static_assert(sizeof(Request) == 864, "Request wire layout changed");
-	static_assert(sizeof(Response) == 12, "Response wire layout changed");
+	static_assert(sizeof(FrameCorrection) == 56, "FrameCorrection wire layout changed");
+	static_assert(sizeof(SetRuntimeState) == 4880, "SetRuntimeState wire layout changed");
+	static_assert(sizeof(Request) == 4976, "Request wire layout changed");
+	static_assert(sizeof(Response) == 4904, "Response wire layout changed");
 	// Crosses the shared-memory ring: bump PoseRing::LayoutVersion instead.
 	static_assert(sizeof(DevicePoseSample) == 192, "DevicePoseSample layout changed");
 }

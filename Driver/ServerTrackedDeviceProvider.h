@@ -44,8 +44,15 @@ public:
 	bool TrySetDeviceTransform(const protocol::SetDeviceTransform &newTransform);
 	bool TrySetRuntimeState(const protocol::SetRuntimeState &newState);
 	void HandleDevicePoseUpdated(uint32_t openVRID, vr::DriverPose_t &pose);
+	// IPC-thread owned checkpoint, separate from temporary slot neutralization.
+	void GetRuntimeState(protocol::Response &response) const
+	{
+		response.driverSessionId = driverSessionId;
+		response.runtimeState = recoveryState;
+	}
 
 #ifdef QUESTCAL_DRIVER_PROVIDER_TEST_SEAM
+	void SetSessionForTest(uint64_t id) { driverSessionId = id; recoveryState = {}; }
 	void SetPoseTimeForTest(double seconds) { poseTimeForTest = seconds; }
 #endif
 
@@ -72,6 +79,7 @@ private:
 	{
 		DeviceControl control;
 		protocol::SetDeviceTransform calibration;
+		protocol::FrameCorrection frame;
 	};
 
 	// Protected by runtimeSequence: the IPC thread writes, pose callbacks read.
@@ -89,8 +97,11 @@ private:
 		questcal::atomicsnapshot::Quaternion rotation;
 		questcal::atomicsnapshot::Double scale{ 1.0 };
 		questcal::atomicsnapshot::Double timeOffset{ 0.0 };
+		questcal::atomicsnapshot::Quaternion frameRotation;
+		questcal::atomicsnapshot::Vector3 frameTranslation;
 
-		void Store(const protocol::SetDeviceTransform &source) noexcept
+		void Store(const protocol::SetDeviceTransform &source,
+			const protocol::FrameCorrection &frame = {}) noexcept
 		{
 			enabled.store(source.enabled ? 1u : 0u, std::memory_order_release);
 			hidden.store(source.hidden ? 1u : 0u, std::memory_order_release);
@@ -99,6 +110,8 @@ private:
 			rotation.Store(source.rotation);
 			scale.store(source.scale, std::memory_order_release);
 			timeOffset.store(source.timeOffset, std::memory_order_release);
+			frameRotation.Store(frame.rotation);
+			frameTranslation.Store(frame.translation.v);
 		}
 
 		DeviceTransform Load() const noexcept
@@ -117,6 +130,8 @@ private:
 			result.calibration.rotation = rotation.Load<vr::HmdQuaternion_t>();
 			result.calibration.scale = scale.load(std::memory_order_acquire);
 			result.calibration.timeOffset = timeOffset.load(std::memory_order_acquire);
+			result.frame.rotation = frameRotation.Load<vr::HmdQuaternion_t>();
+			frameTranslation.Load(result.frame.translation.v);
 			return result;
 		}
 
@@ -207,7 +222,10 @@ private:
 	// matching pose mutex.
 	alignfield::EvalState fieldState[vr::k_unMaxTrackedDeviceCount];
 	alignfield::EvalState baseState[vr::k_unMaxTrackedDeviceCount];
+	protocol::FrameCorrection lastLoggedFrame[vr::k_unMaxTrackedDeviceCount];
 
+	uint64_t driverSessionId = 0;
+	protocol::SetRuntimeState recoveryState;
 	double qpcToSeconds = 0.0;
 #ifdef QUESTCAL_DRIVER_PROVIDER_TEST_SEAM
 	double poseTimeForTest = -1.0;

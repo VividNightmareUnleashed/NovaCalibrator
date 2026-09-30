@@ -74,6 +74,41 @@ inline bool ValidateAndSanitize(const protocol::SetAlignmentField &input,
 	return true;
 }
 
+inline bool ValidateAndSanitize(const protocol::FrameCorrection &input,
+	protocol::FrameCorrection &output)
+{
+	protocol::FrameCorrection clean = input;
+	if (!IsBoundedVector3(clean.translation.v, protocol::limits::MaxAbsTranslationMeters) ||
+		!NormalizeQuaternion(clean.rotation))
+		return false;
+	output = clean;
+	return true;
+}
+
+inline bool ValidateFrameCorrections(
+	const protocol::FrameCorrection (&input)[vr::k_unMaxTrackedDeviceCount],
+	protocol::FrameCorrection (&output)[vr::k_unMaxTrackedDeviceCount])
+{
+	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+		if (!ValidateAndSanitize(input[id], output[id]))
+			return false;
+	return true;
+}
+
+inline void CopyFrameCorrections(
+	const protocol::FrameCorrection (&input)[vr::k_unMaxTrackedDeviceCount],
+	protocol::FrameCorrection (&output)[vr::k_unMaxTrackedDeviceCount])
+{
+	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+		output[id] = input[id];
+}
+
+inline void CopyFrameSerialKeys(const uint64_t (&input)[vr::k_unMaxTrackedDeviceCount],
+	uint64_t (&output)[vr::k_unMaxTrackedDeviceCount])
+{
+	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id) output[id] = input[id];
+}
+
 inline bool ValidateAndSanitize(const protocol::SetRuntimeState &input,
 	protocol::SetRuntimeState &output)
 {
@@ -90,11 +125,17 @@ inline bool ValidateAndSanitize(const protocol::SetRuntimeState &input,
 	if (field.enabled != 0 && input.enabledMask == 0)
 		return false;
 
-	output = protocol::SetRuntimeState{};
+	protocol::FrameCorrection frames[vr::k_unMaxTrackedDeviceCount];
+	if (!ValidateFrameCorrections(input.frames, frames))
+		return false;
 	output.enabledMask = input.enabledMask;
 	output.hiddenMask = input.hiddenMask;
 	output.transform = transform;
 	output.field = field;
+	output.frameProfileKey = input.frameProfileKey;
+	output.expectedSessionId = input.expectedSessionId;
+	CopyFrameSerialKeys(input.frameSerialKeys, output.frameSerialKeys);
+	CopyFrameCorrections(frames, output.frames);
 	return true;
 }
 

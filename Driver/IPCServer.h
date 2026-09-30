@@ -17,12 +17,13 @@ class IPCServer
 {
 public:
 	// What the transport may call into, so it names no driver type and tests can
-	// run it against a recording sink. Every member must be set.
+	// run it against a recording sink. Only getRuntimeState is optional.
 	struct RequestSink
 	{
 		std::function<bool(const protocol::SetDeviceTransform &)> setDeviceTransform;
 		std::function<bool(const protocol::SetRuntimeState &)> setRuntimeState;
 		std::function<uint32_t()> poseHookMask;
+		std::function<void(protocol::Response &)> getRuntimeState;
 	};
 
 	~IPCServer();

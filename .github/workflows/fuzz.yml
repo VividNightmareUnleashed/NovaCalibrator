@@ -27,7 +27,7 @@ jobs:
       # One target's failure leaves the others to finish their search.
       fail-fast: false
       matrix:
-        target: [profile, feed, lighthouse, request]
+        target: [profile, feed, lighthouse, request, frame-recovery]
 
     steps:
       - name: Check out the source

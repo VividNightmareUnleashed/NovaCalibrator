@@ -102,7 +102,10 @@ const char *ContinuousStatusLine(ContinuousStatus status)
 	case ContinuousStatus::Tracking:   return "Continuous calibration is active.";
 	case ContinuousStatus::Coasting:   return "Continuous calibration is waiting. The headset tracker isn't being seen.";
 	case ContinuousStatus::HeadsetUnseen: return "Continuous calibration is waiting. The headset isn't tracking.";
-	case ContinuousStatus::Frozen:     return "Continuous calibration is paused. Readings drifted too far to correct.";
+	case ContinuousStatus::Frozen:
+		return CalCtx.continuousFreezeFromRestart
+			? "Continuous calibration is paused after a tracker restart. Recovery may need another tracker restart."
+			: "Continuous calibration is paused. Readings drifted too far to correct.";
 	case ContinuousStatus::Holding:    return "Continuous calibration is waiting. It resumes when tracking settles.";
 	default:                           return "Continuous calibration is warming up.";
 	}
@@ -304,7 +307,9 @@ void BuildStatusBand(const VRState &state)
 		ImGui::TextUnformatted(Tr("Continuous calibration paused"));
 		ImGui::PopFont();
 		ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width - actionW - 36.0f);
-		ImGui::TextWrapped("%s", Tr("Tracking no longer matches the saved alignment. Recalibrate with the headset tracker."));
+		ImGui::TextWrapped("%s", Tr(CalCtx.continuousFreezeFromRestart
+			? "Restart the headset tracker in view of its base stations. If stable tracking stays misaligned, recalibrate."
+			: "Tracking no longer matches the saved alignment. Recalibrate with the headset tracker."));
 		ImGui::PopTextWrapPos();
 		ImGui::SetCursorScreenPos(ImVec2(p.x + width - actionW, p.y));
 		if (IconButton("fixmount", "Recalibrate", IconPlay, ImVec2(actionW, 46.0f), BtnKind::Primary))

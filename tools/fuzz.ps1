@@ -22,7 +22,7 @@
 #>
 param(
     [int]$Seconds = 60,
-    [string[]]$Targets = @('profile', 'feed', 'lighthouse', 'request')
+    [string[]]$Targets = @('profile', 'feed', 'lighthouse', 'request', 'frame-recovery')
 )
 
 # Continue, not Stop: cl and the fuzzers write progress to stderr, which
@@ -67,6 +67,7 @@ $dictionaries = @{
         'lighthouse: Stopped tracking with universe ', '] - vrserver ', ' startup with PID=',
         'Fri ', 'Sep ', 'Feb ', ' 2026 ', '23:59:', '60.999', ' [Info] - ')
     request    = @()
+    "frame-recovery" = @()
 }
 $failed = @()
 foreach ($t in $Targets)

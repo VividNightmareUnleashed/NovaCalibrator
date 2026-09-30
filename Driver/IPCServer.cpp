@@ -30,7 +30,17 @@ void IPCServer::HandleRequest(const protocol::Request &request, protocol::Respon
 	if (!questcal::ipc::PrepareRequest(request, connection, response))
 	{
 		if (response.type == protocol::ResponseHandshake)
+		{
 			response.poseHookMask = sink.poseHookMask();
+			// Read the session identity without returning a checkpoint before
+			// the peer has completed an exact-version handshake.
+			if (sink.getRuntimeState)
+			{
+				protocol::Response snapshot;
+				sink.getRuntimeState(snapshot);
+				response.driverSessionId = snapshot.driverSessionId;
+			}
+		}
 		// Only a mutation refused for the connection's own state is worth a line.
 		if (request.type == protocol::RequestSetDeviceTransform ||
 			request.type == protocol::RequestSetRuntimeState)
@@ -40,7 +50,17 @@ void IPCServer::HandleRequest(const protocol::Request &request, protocol::Respon
 		return;
 	}
 
-	// PrepareRequest passes only the two mutation types.
+	if (request.type == protocol::RequestGetRuntimeState)
+	{
+		if (sink.getRuntimeState)
+		{
+			sink.getRuntimeState(response);
+			response.type = protocol::ResponseRuntimeState;
+		}
+		return;
+	}
+
+	// All mutations pass the same connection gate.
 	if (request.type == protocol::RequestSetDeviceTransform)
 		response.type = SetterResult(
 			sink.setDeviceTransform(request.setDeviceTransform), "SetDeviceTransform");

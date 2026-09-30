@@ -1,0 +1,592 @@
+#include "../Driver/ServerTrackedDeviceProvider.h"
+#include "../Driver/ProtocolValidation.h"
+#include "../Driver/PoseTransform.h"
+#include "../Overlay/TrackerFrameCorrections.h"
+#include "../Overlay/ContinuousAlignment.h"
+#include "../Overlay/DriverSession.h"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdio>
+#include <limits>
+#include <memory>
+
+namespace
+{
+using Check = void (*)(const char *, bool, const char *);
+using Q = Eigen::Quaterniond;
+using V = Eigen::Vector3d;
+constexpr double TickScale = 1e-6;
+
+protocol::DevicePoseSample Sample(uint32_t id, double time, const V &local,
+	const Q &frameRotation = Q::Identity(), const V &frameTranslation = V::Zero())
+{
+	protocol::DevicePoseSample s;
+	s.deviceId = id;
+	s.sampleTimeQpc = static_cast<int64_t>(std::llround(time / TickScale));
+	s.poseIsValid = true;
+	s.deviceIsConnected = id == 9; // Four Standable-hidden body trackers.
+	s.trackingResult = vr::TrackingResult_Running_OK;
+	s.worldFromDriverRotation = questcal::WireQuaternion(frameRotation);
+	for (int i = 0; i < 3; ++i)
+	{
+		s.position[i] = local(i);
+		s.worldFromDriverTranslation[i] = frameTranslation(i);
+	}
+	return s;
+}
+
+vr::DriverPose_t DriverPose(const protocol::DevicePoseSample &s)
+{
+	vr::DriverPose_t pose{};
+	pose.poseIsValid = s.poseIsValid;
+	pose.deviceIsConnected = s.deviceIsConnected;
+	pose.result = static_cast<vr::ETrackingResult>(s.trackingResult);
+	pose.qRotation = s.rotation;
+	pose.qWorldFromDriverRotation = s.worldFromDriverRotation;
+	pose.qDriverFromHeadRotation.w = 1;
+	for (int i = 0; i < 3; ++i)
+	{
+		pose.vecPosition[i] = s.position[i];
+		pose.vecWorldFromDriverTranslation[i] = s.worldFromDriverTranslation[i];
+		pose.vecVelocity[i] = s.velocity[i];
+		pose.vecAngularVelocity[i] = s.angularVelocity[i];
+	}
+	return pose;
+}
+
+V World(const vr::DriverPose_t &pose)
+{
+	const auto &q = pose.qWorldFromDriverRotation;
+	return Q(q.w, q.x, q.y, q.z) * V(pose.vecPosition) + V(pose.vecWorldFromDriverTranslation);
+}
+
+Q WorldRotation(const vr::DriverPose_t &pose)
+{
+	const auto q = questcal::driverpose::Multiply(pose.qWorldFromDriverRotation, pose.qRotation);
+	return Q(q.w, q.x, q.y, q.z);
+}
+
+questcal::PoseSample Composed(const protocol::DevicePoseSample &s)
+{
+	// Hidden poses intentionally bypass the connected-only solver gate in
+	// driver assertions. The mounted tracker itself is connected.
+	auto connected = s;
+	connected.deviceIsConnected = true;
+	questcal::PoseSample pose;
+	TryComposeRingSample(connected, TickScale, pose);
+	return pose;
+}
+
+struct Fixture
+{
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections corrections;
+	std::unique_ptr<ServerTrackedDeviceProvider> driver = std::make_unique<ServerTrackedDeviceProvider>();
+	std::unique_ptr<ServerTrackedDeviceProvider> control = std::make_unique<ServerTrackedDeviceProvider>();
+	std::array<protocol::DevicePoseSample, 5> raw;
+	std::array<protocol::DevicePoseSample, 5> original;
+	protocol::SetRuntimeState state;
+	bool valid = true;
+	size_t moves = 0;
+	double time = 20.0;
+
+	Fixture(bool field)
+	{
+		state.transform.rotation = questcal::WireQuaternion(Q(Eigen::AngleAxisd(0.21, V::UnitY())));
+		state.transform.translation = { { 0.3, 0.1, -0.4 } };
+		state.transform.scale = 1.12;
+		state.field.enabled = field;
+		state.field.anchorCount = field ? 2 : 0;
+		state.field.anchors[0].position[0] = -0.6;
+		state.field.anchors[0].translationDelta[0] = 0.07;
+		state.field.anchors[1].position[0] = 1.4;
+		state.field.anchors[1].translationDelta[2] = -0.05;
+		state.field.anchors[1].rotationDelta = questcal::WireQuaternion(Q(Eigen::AngleAxisd(0.08, V::UnitY())));
+		for (uint32_t i = 0; i < raw.size(); ++i)
+		{
+			state.enabledMask |= uint64_t{1} << (9 + i);
+			const V local(-0.5 + i * 0.3, 1.7 - i * 0.3, 0.2 + i * 0.2);
+			raw[i] = Sample(9 + i, time, local, Q::Identity(), i < 3 ? V::Zero() : V(0.8, 0, -0.5));
+			corrections.Bind(9 + i, "tracker-" + std::to_string(i));
+		}
+		original = raw;
+		Observe();
+		Publish();
+		valid &= Error() < 1e-10;
+	}
+
+	void Observe()
+	{
+		for (auto &s : raw)
+		{
+			s.sampleTimeQpc = static_cast<int64_t>(std::llround(time / TickScale));
+			watch.Note(s, TickScale, false);
+		}
+		auto changes = watch.TakeMoves();
+		std::sort(changes.begin(), changes.end(), [](const auto &a, const auto &b) { return a.time < b.time; });
+		moves += changes.size();
+		for (const auto &move : changes)
+			valid &= corrections.Follow(move);
+	}
+
+	void Publish()
+	{
+		std::copy(corrections.Snapshot().begin(), corrections.Snapshot().end(), state.frames);
+		valid &= driver->TrySetRuntimeState(state);
+		auto neutralFrames = state;
+		for (auto &frame : neutralFrames.frames) frame = {};
+		valid &= control->TrySetRuntimeState(neutralFrames);
+	}
+
+	double Error()
+	{
+		driver->SetPoseTimeForTest(time);
+		control->SetPoseTimeForTest(time);
+		double error = 0;
+		for (size_t i = 0; i < raw.size(); ++i)
+		{
+			auto actual = DriverPose(raw[i]), expected = DriverPose(original[i]);
+			driver->HandleDevicePoseUpdated(raw[i].deviceId, actual);
+			control->HandleDevicePoseUpdated(raw[i].deviceId, expected);
+			error = (std::max)(error, (World(actual) - World(expected)).norm());
+			error = (std::max)(error, WorldRotation(actual).angularDistance(WorldRotation(expected)));
+		}
+		return error;
+	}
+
+	void MoveFrame(unsigned mask, const Q &rotation, const V &translation)
+	{
+		time += 0.01;
+		for (size_t i = 0; i < raw.size(); ++i)
+		{
+			if (!(mask & (1u << i))) continue;
+			auto &s = raw[i];
+			const auto parts = UnpackRingSample(s);
+			s.worldFromDriverRotation = questcal::WireQuaternion((rotation * parts.wfdRot).normalized());
+			const V origin = rotation * parts.wfdTrans + translation;
+			for (int axis = 0; axis < 3; ++axis) s.worldFromDriverTranslation[axis] = origin(axis);
+		}
+		Observe();
+		Publish();
+	}
+};
+
+void SplitFrames(Check check)
+{
+	const Q rotation = Eigen::AngleAxisd(9.79 * EIGEN_PI / 180.0, V::UnitY()) *
+		Eigen::AngleAxisd(74.08 * EIGEN_PI / 180.0, V::UnitX());
+	const V pivot(0, 1.7, 0);
+	const V translation = pivot + V(0, 0, 0.538) - rotation * pivot;
+	for (const unsigned mask : { 31u, 7u, 1u })
+	for (const bool field : { false, true })
+	{
+		Fixture f(field);
+		f.MoveFrame(mask, rotation, translation);
+		double error = f.Error();
+		const size_t expectedMoves = mask == 31 ? 5 : mask == 7 ? 3 : 1;
+		bool pass = f.valid && f.moves == expectedMoves && error < 1e-9;
+		// A new full snapshot (including a shared continuous correction) must
+		// retain N, and field/base histories must follow the same trajectory.
+		f.state.transform.translation.v[0] += 0.025;
+		f.state.field.anchors[0].translationDelta[0] += 0.015;
+		for (int step = 0; step < 100; ++step)
+		{
+			f.time += 0.01;
+			f.Observe();
+			f.Publish();
+			error = (std::max)(error, f.Error());
+		}
+		pass &= f.moves == expectedMoves && error < 1e-9;
+		// Reverse repeatedly, then move the other pair instead.
+		for (int step = 0; step < 8; ++step)
+		{
+			const bool undo = step % 2 == 0;
+			const Q r = undo ? rotation.conjugate() : rotation;
+			const V t = undo ? V(-(rotation.conjugate() * translation)) : translation;
+			f.MoveFrame(mask, r, t);
+			error = (std::max)(error, f.Error());
+		}
+		f.MoveFrame(24, rotation, translation);
+		error = (std::max)(error, f.Error());
+		char detail[128];
+		snprintf(detail, sizeof detail, "mask=%u, field=%d, maximum error %.3g", mask, field, error);
+		check(field ? "frame correction: split/common/reversed frames with spatial field" :
+			"frame correction: split/common/reversed frames survive shared updates",
+			pass && f.valid && error < 1e-9, detail);
+	}
+}
+
+void ReexpressionAndRecovery(Check check)
+{
+	Fixture f(false);
+	const Q r(Eigen::AngleAxisd(0.7, V::UnitX()));
+	const V t(0.1, 0.2, 0.3);
+	f.MoveFrame(7, r, t);
+	const auto before = f.corrections.Snapshot();
+	const size_t moves = f.moves;
+	auto &s = f.raw[0];
+	const auto world = Composed(s);
+	const Q newFrame(Eigen::AngleAxisd(-0.6, V::UnitY()));
+	const V newOrigin(1, 0, 2);
+	s.worldFromDriverRotation = questcal::WireQuaternion(newFrame);
+	s.rotation = questcal::WireQuaternion(newFrame.conjugate() * world.rot);
+	const V local = newFrame.conjugate() * (world.pos - newOrigin);
+	for (int axis = 0; axis < 3; ++axis)
+	{
+		s.position[axis] = local(axis);
+		s.worldFromDriverTranslation[axis] = newOrigin(axis);
+	}
+	f.time += 0.01;
+	f.Observe();
+	f.Publish();
+	check("frame correction: re-expression preserves accumulated normalization",
+		f.valid && f.moves == moves && before == f.corrections.Snapshot() && f.Error() < 1e-9, "");
+
+	// A station proves a move while the mounted tracker is off. Only its
+	// frame component is cancelled on return; an additional local jump stays.
+	for (bool returned : { false, true })
+	for (bool localJump : { false, true })
+	{
+		LighthouseFrameWatch watch;
+		questcal::TrackerFrameCorrections corrections;
+		auto tracker = Sample(9, 10, V(0, 1.7, 0));
+		auto station = Sample(1, 10, V::Zero());
+		watch.Note(tracker, TickScale, false);
+		watch.Note(station, TickScale, true);
+		if (returned)
+		{
+			tracker.poseIsValid = tracker.deviceIsConnected = false;
+			tracker.sampleTimeQpc += 10000;
+			watch.Note(tracker, TickScale, false);
+		}
+		const V offset = localJump ? V(0.2, 0, 0) : V::Zero();
+		tracker = Sample(9, 10.02, V(0, 1.7, 0) + offset, r, t);
+		watch.Note(tracker, TickScale, false);
+		// The station's corroboration can arrive after the tracker's pose.
+		station = Sample(1, 10.03, V::Zero(), r, t);
+		watch.Note(station, TickScale, true);
+		auto changes = watch.TakeMoves();
+		bool pass = changes.size() == 1 && changes.front().returned == returned;
+		for (const auto &move : changes) pass &= corrections.Follow(move);
+		auto normalized = Composed(tracker);
+		pass &= corrections.Normalize(9, normalized);
+		watch.Note(tracker, TickScale, false);
+		check(localJump ? "frame correction: a proven frame move preserves an independent local jump" :
+			"frame correction: live/returning tracker follows a proven station move once",
+			pass && (normalized.pos - V(0, 1.7, 0) - offset).norm() < 1e-9 && watch.TakeMoves().empty(), "");
+	}
+}
+
+void SessionPublication(Check check)
+{
+	questcal::DriverSession session;
+	protocol::SetRuntimeState received;
+	unsigned snapshots = 0;
+	session.SetTransport([&](const protocol::Request &request)
+	{
+		questcal::DriverTransportResult result;
+		result.completed = true;
+		result.connectionGeneration = 1;
+		result.response.type = request.type == protocol::RequestHandshake ?
+			protocol::ResponseHandshake : protocol::ResponseSuccess;
+		if (request.type == protocol::RequestSetRuntimeState)
+		{
+			received = request.setRuntimeState;
+			++snapshots;
+		}
+		return result;
+	});
+	session.SetErrorSink([](const std::string &) {}, []() {});
+	session.SetDeviceEnumerator([](uint32_t id, const questcal::DriverSyncDesired &)
+	{
+		questcal::SyncDevice device;
+		device.id = id;
+		if (id == 0 || id == 9)
+		{
+			device.deviceClass = id == 0 ? questcal::SyncDeviceClass::Hmd : questcal::SyncDeviceClass::Other;
+			device.trackingSystemKnown = true;
+			device.trackingSystem = id == 0 ? "reference" : "lighthouse";
+		}
+		return device;
+	});
+	questcal::DriverApplyRequest request;
+	request.enabled = true;
+	request.desired.referenceTrackingSystem = "reference";
+	request.desired.targetTrackingSystem = "lighthouse";
+	const auto before = request;
+	request.frames[9].translation.v[0] = 0.4;
+	bool pass = !(before == request) && session.Apply(request, 1).synchronized;
+	pass &= received.frames[9] == request.frames[9] && received.enabledMask == (uint64_t{1} << 9);
+	request.desired.translationMeters.x() = 0.03;
+	pass &= session.Apply(request, 2).synchronized && received.frames[9] == request.frames[9];
+	check("frame correction: complete session publications retain per-device state",
+		pass && snapshots == 2 && received.transform.translation.v[0] == 0.03, "");
+}
+
+void LifetimeAndValidation(Check check)
+{
+	questcal::TrackerFrameCorrections frames;
+	frames.Bind(9, "first");
+	LighthouseFrameWatch::Move move;
+	move.id = 9;
+	move.time = 5;
+	move.rotation = Q(Eigen::AngleAxisd(0.4, V::UnitY()));
+	move.translation = V(0.5, 0, -0.3);
+	bool pass = frames.Follow(move);
+	const auto snapshot = frames.Snapshot();
+	questcal::PoseSample old;
+	old.time = 4.99;
+	pass &= !frames.Normalize(9, old);
+	move.time = 4;
+	pass &= !frames.Follow(move) && frames.Snapshot() == snapshot;
+	check("frame correction: backlog and out-of-order inferred moves cannot mix frames", pass, "");
+	pass = !frames.Bind(9, "") && !frames.Bind(9, "first") && frames.Snapshot() == snapshot;
+	pass &= frames.Bind(9, "replacement") && frames.Snapshot()[9] == protocol::FrameCorrection{};
+	pass &= frames.Snapshot()[10] == protocol::FrameCorrection{};
+	move.time = 6;
+	pass &= frames.Follow(move);
+	frames.Reset();
+	check("frame correction: reconnect retains state; new slot and session start neutral",
+		pass && frames.Snapshot()[9] == protocol::FrameCorrection{}, "");
+
+	protocol::SetRuntimeState input, output;
+	input.enabledMask = uint64_t{1} << 9;
+	input.frames[9] = snapshot[9];
+	pass = questcal::driverinput::ValidateAndSanitize(input, output);
+	const auto saved = output.frames[9];
+	input.frames[63].translation.v[2] = std::numeric_limits<double>::quiet_NaN();
+	pass &= !questcal::driverinput::ValidateAndSanitize(input, output) && output.frames[9] == saved;
+	input.frames[63] = {};
+	input.frames[9].rotation = {0, 0, 0, 0};
+	pass &= !questcal::driverinput::ValidateAndSanitize(input, output) && output.frames[9] == saved;
+	check("frame correction: malformed snapshots are rejected atomically", pass, "");
+}
+
+void RecalibrationSpace(Check check)
+{
+	Fixture f(false);
+	f.MoveFrame(7, Q(Eigen::AngleAxisd(0.8, V::UnitX())), V(0.2, 0.6, -0.1));
+	const auto atStart = f.corrections.Snapshot()[9];
+	const Q oldRotation(f.state.transform.rotation.w, f.state.transform.rotation.x,
+		f.state.transform.rotation.y, f.state.transform.rotation.z);
+	const V oldTranslation(f.state.transform.translation.v);
+	const Q n(atStart.rotation.w, atStart.rotation.x, atStart.rotation.y, atStart.rotation.z);
+	// The raw solve's reference transform at the first accepted target pose.
+	Q solved = oldRotation * n;
+	V translated = oldTranslation + f.state.transform.scale * (oldRotation * V(atStart.translation.v));
+	// Both the selected tracker and another group change frames mid-run.
+	f.MoveFrame(7, Q(Eigen::AngleAxisd(0.2, V::UnitY())), V(-0.1, 0, 0.2));
+	f.MoveFrame(24, Q(Eigen::AngleAxisd(-0.3, V::UnitZ())), V(0, 0.1, 0));
+	const auto before = f.corrections.Snapshot();
+	questcal::TrackerFrameCorrections::ExpressCalibration(atStart, solved, translated, f.state.transform.scale);
+	f.state.transform.rotation = questcal::WireQuaternion(solved);
+	f.state.transform.translation = questcal::WireVector(translated);
+	++f.state.transform.generation;
+	f.Publish();
+	check("frame lifecycle: recalibration preserves split frames including moves during collection",
+		f.valid && f.Error() < 1e-9 && solved.angularDistance(oldRotation) < 1e-9 &&
+		(translated - oldTranslation).norm() < 1e-9 && before == f.corrections.Snapshot(), "");
+	// An aborted measurement publishes no solve, while frame following continues.
+	f.MoveFrame(8, Q(Eigen::AngleAxisd(0.1, V::UnitY())), V(0, 0, 0.3));
+	check("frame lifecycle: cancelled measurement retains corrections observed while measuring",
+		f.valid && f.Error() < 1e-9, "");
+}
+
+void RestartRecovery(Check check)
+{
+	Fixture f(false);
+	f.driver->SetSessionForTest(41);
+	f.control->SetSessionForTest(41);
+	f.MoveFrame(7, Q(Eigen::AngleAxisd(0.6, V::UnitX())), V(0.2, 0.4, 0.1));
+	f.state.frameProfileKey = 73;
+	f.state.expectedSessionId = 41;
+	for (uint32_t id = 9; id < 14; ++id)
+		f.state.frameSerialKeys[id] = questcal::FrameIdentityKey("tracker-" + std::to_string(id - 9));
+	f.Publish();
+	// A temporary neutralization for runtime-pose collection must not erase
+	// the checkpoint, even if the overlay exits during that measurement.
+	f.valid &= f.driver->TrySetDeviceTransform(protocol::SetDeviceTransform(9, false));
+	questcal::DriverSession session;
+	session.SetErrorSink([](const std::string &) {}, [] {});
+	session.SetDeviceEnumerator([](uint32_t id, const questcal::DriverSyncDesired &) {
+		questcal::SyncDevice device;
+		device.id = id;
+		if (id == 0 || (id >= 9 && id < 14))
+		{
+			device.deviceClass = id == 0 ? questcal::SyncDeviceClass::Hmd : questcal::SyncDeviceClass::Other;
+			device.trackingSystemKnown = true;
+			device.trackingSystem = id == 0 ? "reference" : "lighthouse";
+		}
+		return device;
+	});
+	int reads = 0, writes = 0;
+	session.SetTransport([&](const protocol::Request &request) {
+		questcal::DriverTransportResult result;
+		result.completed = true;
+		result.connectionGeneration = 1;
+		f.driver->GetRuntimeState(result.response);
+		if (request.type == protocol::RequestHandshake)
+			result.response.type = protocol::ResponseHandshake;
+		else if (request.type == protocol::RequestGetRuntimeState)
+		{
+			++reads;
+			result.response.type = protocol::ResponseRuntimeState;
+		}
+		else
+		{
+			++writes;
+			result.response.type = f.driver->TrySetRuntimeState(request.setRuntimeState)
+				? protocol::ResponseSuccess : protocol::ResponseInvalid;
+		}
+		return result;
+	});
+	questcal::DriverApplyRequest request;
+	request.enabled = true;
+	request.recoverFrames = true;
+	request.frameProfileKey = 73;
+	request.frameBoundMask = (uint64_t{31} << 9);
+	request.desired.referenceTrackingSystem = "reference";
+	request.desired.targetTrackingSystem = "lighthouse";
+	request.desired.rotation = Q(f.state.transform.rotation.w, f.state.transform.rotation.x,
+		f.state.transform.rotation.y, f.state.transform.rotation.z);
+	request.desired.translationMeters = V(f.state.transform.translation.v);
+	request.desired.scale = f.state.transform.scale;
+	std::copy(std::begin(f.state.frameSerialKeys), std::end(f.state.frameSerialKeys), request.frameSerialKeys.begin());
+	const auto applied = session.Apply(request, 30);
+	check("frame lifecycle: overlay restart restores driver checkpoint before first publication",
+		f.valid && applied.synchronized && applied.recoveryChecked && applied.framesRecovered &&
+		reads == 1 && writes == 1 && f.Error() < 1e-9, "");
+	protocol::Response snapshot(protocol::ResponseRuntimeState);
+	f.driver->GetRuntimeState(snapshot);
+	questcal::RecoveredFrames restored{};
+	auto serials = request.frameSerialKeys;
+	std::swap(serials[9], serials[14]);
+	bool pass = questcal::RecoverTrackerFrames(snapshot, 41, 73, serials, restored);
+	pass &= restored[9] == protocol::FrameCorrection{} && restored[14] == applied.frames[9];
+	serials[14] = questcal::FrameIdentityKey("replacement");
+	pass &= questcal::RecoverTrackerFrames(snapshot, 41, 73, serials, restored) &&
+		restored[14] == protocol::FrameCorrection{};
+	check("frame lifecycle: recovery follows serials and excludes replacement devices", pass, "");
+	questcal::FrameSerialKeys sleeping{}, recoveredKeys{};
+	questcal::RecoveredFrames sleepingFrames{};
+	pass = questcal::RecoverTrackerFrames(snapshot, 41, 73, sleeping, sleepingFrames, &recoveredKeys);
+	questcal::TrackerFrameCorrections waking;
+	waking.Restore(sleepingFrames, recoveredKeys);
+	waking.Bind(14, "tracker-0");
+	pass &= waking.Snapshot()[14] == applied.frames[9] && waking.Snapshot()[9] == protocol::FrameCorrection{};
+	waking.Bind(10, "replacement");
+	pass &= waking.Snapshot()[10] == protocol::FrameCorrection{};
+	check("frame lifecycle: sleeping tracker retains recovery until its serial appears", pass, "");
+	// A different live device can occupy the sleeping tracker's old slot.
+	sleeping[9] = questcal::FrameIdentityKey("replacement");
+	pass = questcal::RecoverTrackerFrames(snapshot, 41, 73, sleeping, sleepingFrames, &recoveredKeys);
+	waking.Reset();
+	waking.Restore(sleepingFrames, recoveredKeys);
+	waking.Bind(9, "replacement");
+	waking.Bind(14, "tracker-0");
+	pass &= waking.Snapshot()[9] == protocol::FrameCorrection{} && waking.Snapshot()[14] == applied.frames[9];
+	check("frame lifecycle: a sleeping tracker survives reuse of its previous slot", pass, "");
+	const auto activeRequest = request;
+	request.frameSerialKeys = {};
+	request.frameBoundMask = 0;
+	const auto parked = session.Apply(request, 30.5);
+	protocol::Response parkedSnapshot(protocol::ResponseRuntimeState);
+	f.driver->GetRuntimeState(parkedSnapshot);
+	pass = parked.synchronized && parked.framesRecovered;
+	for (uint32_t id = 9; id < 14; ++id)
+		pass &= !parked.targetDeviceMask[id] && parked.frames[id] == applied.frames[id];
+	// A disabled publication retains the active checkpoint for later binding.
+	pass &= parkedSnapshot.runtimeState.frames[9] == applied.frames[9];
+	check("frame lifecycle: unidentified recovered corrections cannot drive runtime slots", pass, "");
+	request = activeRequest;
+	const auto before = restored;
+	pass = !questcal::RecoverTrackerFrames(snapshot, 42, 73, serials, restored) && restored == before;
+	pass &= !questcal::RecoverTrackerFrames(snapshot, 41, 74, serials, restored) && restored == before;
+	request.driverSessionId = 41;
+	f.driver->SetSessionForTest(42);
+	pass &= !session.Apply(request, 31).synchronized && writes == 2;
+	pass &= !f.driver->TrySetRuntimeState(f.state);
+	check("frame lifecycle: a SteamVR restart or profile change cannot import old corrections", pass, "");
+	serials = request.frameSerialKeys;
+	snapshot.runtimeState.frames[9].translation.v[0] = std::numeric_limits<double>::quiet_NaN();
+	check("frame lifecycle: invalid recovered frame leaves all output unchanged",
+		!questcal::RecoverTrackerFrames(snapshot, 41, 73, serials, restored) && restored == before, "");
+}
+
+void RecoveryProtocolGate(Check check)
+{
+	IPCServer server;
+	int reads = 0, writes = 0;
+	IPCServer::RequestSink sink;
+	sink.setDeviceTransform = [&](const protocol::SetDeviceTransform &) { ++writes; return true; };
+	sink.setRuntimeState = [&](const protocol::SetRuntimeState &) { ++writes; return true; };
+	sink.poseHookMask = [] { return uint32_t{7}; };
+	sink.getRuntimeState = [&](protocol::Response &response) {
+		++reads;
+		response.driverSessionId = 41;
+		response.runtimeState.frameProfileKey = 73;
+		response.runtimeState.frames[9].translation.v[0] = 0.3;
+	};
+	server.SetSinkForTest(std::move(sink));
+	questcal::ipc::ConnectionState connection;
+	protocol::Response response;
+	protocol::Request read(protocol::RequestGetRuntimeState);
+	server.DispatchForTest(read, response, connection);
+	bool pass = response.type == protocol::ResponseInvalid && reads == 0;
+	server.DispatchForTest(protocol::Request(protocol::RequestHandshake), response, connection);
+	pass &= response.type == protocol::ResponseHandshake && response.driverSessionId == 41 &&
+		response.runtimeState.frameProfileKey == 0 && reads == 1;
+	server.DispatchForTest(read, response, connection);
+	pass &= response.type == protocol::ResponseRuntimeState && response.driverSessionId == 41 &&
+		response.runtimeState.frameProfileKey == 73 && response.runtimeState.frames[9].translation.v[0] == 0.3 && reads == 2;
+	read.protocol.version = protocol::Version - 1;
+	server.DispatchForTest(read, response, connection);
+	pass &= response.type == protocol::ResponseInvalid && reads == 2 && writes == 0;
+	check("frame lifecycle: checkpoint reads require the exact-version connection handshake", pass, "");
+}
+
+void ContinuousSpace(Check check)
+{
+	Fixture f(true);
+	const Q r(Eigen::AngleAxisd(1.29, V::UnitX()));
+	const V t(0, 1.2, -0.5);
+	f.MoveFrame(7, r, t);
+	questcal::ContinuousAlignment engine;
+	questcal::MountExtrinsic mount;
+	mount.valid = true;
+	engine.SetExtrinsic(mount);
+	bool pass = true;
+	for (int i = 0; i < 4000; ++i)
+	{
+		const double time = 30.0 + i * 0.01;
+		auto sample = f.raw[0];
+		sample.sampleTimeQpc = static_cast<int64_t>(std::llround(time / TickScale));
+		auto target = Composed(sample);
+		pass &= f.corrections.Normalize(9, target);
+		auto reference = Composed(f.original[0]);
+		reference.time = time;
+		engine.PushReference(reference);
+		engine.PushTarget(target);
+		engine.Update(time, Q::Identity(), V::Zero(), 1.0, 0.0);
+	}
+	questcal::ContinuousAlignment::Correction correction;
+	const auto diagnostics = engine.GetDiagnostics();
+	check("frame correction: continuous calibration observes normalized target poses",
+		pass && diagnostics.observations > 0 && !engine.PollReanchor(correction) &&
+		(!engine.PollCorrection(correction) || correction.translation.norm() < 1e-9), "");
+}
+} // namespace
+
+void RunTrackerFrameCorrectionScenarios(Check check)
+{
+	SplitFrames(check);
+	ReexpressionAndRecovery(check);
+	LifetimeAndValidation(check);
+	SessionPublication(check);
+	ContinuousSpace(check);
+	RecalibrationSpace(check);
+	RestartRecovery(check);
+	RecoveryProtocolGate(check);
+}

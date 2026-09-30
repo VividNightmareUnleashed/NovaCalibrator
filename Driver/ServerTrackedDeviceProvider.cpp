@@ -15,6 +15,10 @@ vr::EVRInitError ServerTrackedDeviceProvider::Init(vr::IVRDriverContext *pDriver
 	TRACE("ServerTrackedDeviceProvider::Init()");
 	// Pose callbacks can begin on other driver threads as soon as the global
 	// host detour is enabled. Initialize every callback-visible member first.
+	LARGE_INTEGER started;
+	QueryPerformanceCounter(&started);
+	driverSessionId = static_cast<uint64_t>(started.QuadPart);
+	recoveryState = {};
 	LARGE_INTEGER freq;
 	QueryPerformanceFrequency(&freq);   // never fails on XP or later
 	qpcToSeconds = 1.0 / static_cast<double>(freq.QuadPart);
@@ -58,6 +62,7 @@ vr::EVRInitError ServerTrackedDeviceProvider::Init(vr::IVRDriverContext *pDriver
 		return TrySetRuntimeState(state);
 	};
 	sink.poseHookMask = [] { return PoseUpdateHookMask(); };
+	sink.getRuntimeState = [this](protocol::Response &response) { GetRuntimeState(response); };
 	if (!server.Run(std::move(sink)))
 	{
 		LOG("IPC server could not establish its control listener");
@@ -139,6 +144,8 @@ bool ServerTrackedDeviceProvider::TrySetDeviceTransform(const protocol::SetDevic
 
 bool ServerTrackedDeviceProvider::TrySetRuntimeState(const protocol::SetRuntimeState &newState)
 {
+	if (newState.expectedSessionId != 0 && newState.expectedSessionId != driverSessionId)
+		return false;
 	protocol::SetRuntimeState sanitized;
 	if (!questcal::driverinput::ValidateAndSanitize(newState, sanitized))
 	{
@@ -149,6 +156,8 @@ bool ServerTrackedDeviceProvider::TrySetRuntimeState(const protocol::SetRuntimeS
 		return false;
 	}
 
+	if (sanitized.enabledMask != 0 && sanitized.frameProfileKey != 0)
+		recoveryState = sanitized;
 	runtimeSequence.fetch_add(1, std::memory_order_acq_rel);
 	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
 	{
@@ -157,7 +166,7 @@ bool ServerTrackedDeviceProvider::TrySetRuntimeState(const protocol::SetRuntimeS
 		transform.enabled = (sanitized.enabledMask >> id) & 1;
 		transform.hidden = (sanitized.hiddenMask >> id) & 1;
 		auto &slot = transforms[id];
-		slot.Store(transform);
+		slot.Store(transform, sanitized.frames[id]);
 	}
 
 	alignmentField.Store(sanitized.field);
@@ -233,6 +242,16 @@ void ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr:
 	DeviceTransform tf;
 	protocol::SetAlignmentField field;
 	ReadRuntimeState(openVRID, tf, field);
+	const bool logFrame = tf.control.enabled && pose.poseIsValid &&
+		!(lastLoggedFrame[openVRID] == tf.frame);
+	vr::HmdVector3d_t inputPosition{};
+	vr::HmdQuaternion_t inputRotation{};
+	if (logFrame)
+	{
+		const auto rotated = questcal::driverpose::RotateVector(pose.qWorldFromDriverRotation, pose.vecPosition);
+		inputPosition = questcal::driverpose::Add(rotated.v, pose.vecWorldFromDriverTranslation);
+		inputRotation = questcal::driverpose::Multiply(pose.qWorldFromDriverRotation, pose.qRotation);
+	}
 
 	double nowSeconds = static_cast<double>(now.QuadPart) * qpcToSeconds;
 #ifdef QUESTCAL_DRIVER_PROVIDER_TEST_SEAM
@@ -242,6 +261,9 @@ void ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr:
 
 	if (tf.control.enabled)
 	{
+		// The raw ring was published above. Cancel only this device's frame
+		// motion, before scale, base slew, and the field's spatial lookup.
+		questcal::driverpose::Apply(pose, tf.frame.rotation, tf.frame.translation.v, 1.0, 0.0);
 		const protocol::SetDeviceTransform &cal = tf.calibration;
 		vr::HmdVector3d_t scaledPosition = questcal::driverpose::Scale(pose.vecPosition, cal.scale);
 		vr::HmdVector3d_t rotatedPosition = questcal::driverpose::RotateVector(
@@ -316,6 +338,20 @@ void ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr:
 		// Re-enabling later must snap, not slew from a stale state.
 		baseState[openVRID].hasCurrent = false;
 		fieldState[openVRID].hasCurrent = false;
+	}
+
+	if (logFrame && LogFile)
+	{
+		const auto rotated = questcal::driverpose::RotateVector(pose.qWorldFromDriverRotation, pose.vecPosition);
+		const auto output = questcal::driverpose::Add(rotated.v, pose.vecWorldFromDriverTranslation);
+		const auto rotation = questcal::driverpose::Multiply(pose.qWorldFromDriverRotation, pose.qRotation);
+		LOG("frame applied device %u QPC %lld connected %d: raw p %.6f %.6f %.6f q %.6f %.6f %.6f %.6f; "
+			"output before hiding p %.6f %.6f %.6f q %.6f %.6f %.6f %.6f (base generation %u)",
+			openVRID, static_cast<long long>(now.QuadPart), pose.deviceIsConnected,
+			inputPosition.v[0], inputPosition.v[1], inputPosition.v[2],
+			inputRotation.w, inputRotation.x, inputRotation.y, inputRotation.z,
+			output.v[0], output.v[1], output.v[2], rotation.w, rotation.x, rotation.y, rotation.z, tf.control.generation);
+		lastLoggedFrame[openVRID] = tf.frame;
 	}
 
 	// Hide the HMD-mounted continuous-calibration tracker from applications:

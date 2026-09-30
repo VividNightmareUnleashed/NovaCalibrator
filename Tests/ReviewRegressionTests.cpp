@@ -27,6 +27,7 @@ void RuntimeTransactionScenario(Check check)
 	a.field.anchorCount = b.field.anchorCount = 1;
 	a.field.anchors[0].translationDelta[0] = 0.1;
 	b.transform.translation.v[0] = 0.2;
+	b.frames[0].translation.v[0] = 0.35;
 	b.field.anchors[0].position[0] = 0.2;
 	b.field.anchors[0].translationDelta[0] = -0.1;
 	a.transform.generation = a.field.generation = 1;
@@ -65,7 +66,7 @@ void RuntimeTransactionScenario(Check check)
 	reader.join();
 	char detail[128];
 	snprintf(detail, sizeof detail, "%u mixed snapshots in %u callbacks", mixed.load(), samples.load());
-	check("driver: base and field publish together", accepted && mixed == 0 && samples > 0, detail);
+	check("driver: frame, base and field publish together", accepted && mixed == 0 && samples > 0, detail);
 
 	protocol::SetDeviceTransform disabled;
 	disabled.openVRID = 0;

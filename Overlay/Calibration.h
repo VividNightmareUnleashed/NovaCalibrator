@@ -9,6 +9,7 @@
 #include "RingPoseMath.h"
 #include "LighthouseVisibility.h"
 #include "Modules.h"
+#include "TrackerFrameCorrections.h"
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
@@ -54,6 +55,7 @@ struct CalibrationTransform
 struct CalibrationProfileState
 {
 	CalibrationTransform transform;
+	questcal::TrackerFrameCorrections trackerFrames;
 	// The target-device timeline shift most recently requested from the driver.
 	double appliedTimeOffset = 0.0;
 
@@ -80,6 +82,7 @@ struct CalibrationProfileState
 	questcal::ContinuousAlignment::State continuousState =
 		questcal::ContinuousAlignment::State::Inactive;
 	questcal::ContinuousAlignment::Deviation continuousDeviation;
+	bool continuousFreezeFromRestart = false;
 	double continuousScatterRotDeg = 0.0;
 	double continuousScatterPosM = 0.0;
 	// The headset tracker itself, apart from the loop's state: whether OpenVR
@@ -139,6 +142,16 @@ void AppendSessionLog(const std::string &msg);
 
 struct CalibrationContext : CalibrationProfileState
 {
+	// Observation epochs are monotonic across profile replacement.
+	uint64_t trackerFrameEpoch = 0;
+	uint64_t frameDriverSession = 0;
+	bool frameRecoveryPending = false;
+	void ResetTrackerFrames()
+	{
+		trackerFrames.Reset();
+		++trackerFrameEpoch;
+	}
+
 	// Session evidence survives profile resets and recalibrations. Only the
 	// continuous loops feed these per-slot counts while their method is active.
 	struct ContinuousDiagnostics
@@ -267,12 +280,12 @@ struct CalibrationContext : CalibrationProfileState
 	// and the last one's log line, for the diagnostics export.
 	uint32_t lighthouseFrameMoves = 0;
 	std::string lastLighthouseFrameMove;
-	// Moves of the headset tracker's own frame the calibration followed at
+	// Moves of the headset tracker's own frame compensated at
 	// once (see RuntimeMonitorTick), and the last one's log line.
 	uint32_t trackerFrameCompensations = 0;
 	std::string lastTrackerFrameCompensation;
-	// Without the continuous loop, moves of the frame most calibrated trackers
-	// are in that the calibration followed, and the last one's log line.
+	// Per-device frame moves compensated, including hidden body trackers,
+	// with or without the continuous loop, and the last one's log line.
 	uint32_t frameMovesFollowed = 0;
 	std::string lastFrameMoveFollowed;
 	// Moves either of those would have acted on, left alone because SteamVR
@@ -303,7 +316,7 @@ struct CalibrationContext : CalibrationProfileState
 	bool ContinuousShouldRun() const
 	{
 		return state == CalibrationState::None && enabled && validProfile &&
-			poseRingOpen && ContinuousArmed() &&
+			poseRingOpen && !frameRecoveryPending && ContinuousArmed() &&
 			continuousTrackerId < vr::k_unMaxTrackedDeviceCount &&
 			referenceDeviceMask[vr::k_unTrackedDeviceIndex_Hmd];
 	}
@@ -405,6 +418,7 @@ struct CalibrationContext : CalibrationProfileState
 	void Clear()
 	{
 		ResetProfile();
+		ResetTrackerFrames();
 		fieldGeneration++;
 		persistence.OnProfileDiscarded();
 		timeLastScan = -1e9;

@@ -40,8 +40,9 @@ struct CalibrationRun
 	// (LighthouseFrameWatch.h); on 2026-09-26 it did so every minute or two
 	// for half an hour (6 to 12 cm each), and each such move stopped a run as
 	// a tracking reset. Now the samples after a move are put back in the frame
-	// the run began in (ToStart), and the finished solve is carried to the
-	// frame the tracker ends in (CarryCalibration). A frame change the pose
+	// the run began in (ToStart). A fresh solve is carried to the ending frame
+	// (CarryCalibration); a live-profile solve is converted to its existing
+	// normalized space instead. A frame change the pose
 	// jumped with still stops the run; one that left the pose where it was
 	// (the same pose in another station's frame) changes nothing.
 	struct TargetFrame
@@ -133,6 +134,12 @@ struct CalibrationRun
 	std::string hmdSerial;
 	bool anchor = false;
 	bool usesPoseRing = false;
+	// A same-active-profile recalibration changes C, retaining each device's N.
+	// Captured at the first accepted target sample, in the solve's start frame.
+	bool preserveTrackerFrames = false;
+	bool normalizationCaptured = false;
+	Eigen::Quaterniond targetNormalizationRotation{ 1, 0, 0, 0 };
+	Eigen::Vector3d targetNormalizationTranslation{ 0, 0, 0 };
 	// Raw collection: the hub's session-boundary count when it began, and the
 	// short source gaps it rode through.
 	uint64_t streamBoundariesAtStart = 0;

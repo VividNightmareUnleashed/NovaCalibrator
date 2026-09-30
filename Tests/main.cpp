@@ -68,6 +68,7 @@ bool DiagnosticsExportScenario();
 bool ContinuousWindowDiagnosticsScenario();
 bool ContinuousPairingDiagnosticsScenario();
 void RunReviewRegressionScenarios(void (*check)(const char *, bool, const char *));
+void RunTrackerFrameCorrectionScenarios(void (*check)(const char *, bool, const char *));
 void RunHookInjectorScenarios(void (*check)(const char *, bool, const char *));
 void RunUniverseVerdictScenarios(void (*check)(const char *, bool, const char *));
 void RunPoseHubHoleScenarios(void (*check)(const char *, bool, const char *));
@@ -8893,6 +8894,7 @@ int main(int argc, char **argv)
 	RunGuideScenarios();
 	RunUpdatePolicyScenarios();
 	RunReviewRegressionScenarios(Check);
+	RunTrackerFrameCorrectionScenarios(Check);
 
 	// ---- Profile persistence: codec, write gates, load plan ----
 	RunPersistenceScenarios();

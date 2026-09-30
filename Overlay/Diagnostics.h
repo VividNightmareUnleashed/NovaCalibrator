@@ -21,10 +21,13 @@ struct DiagnosticCapture
 	PoseStreamHub::Diagnostics poseStream;
 	questcal::DriverSyncTracker driverSync;
 	double sampleClock = 0.0;
+	std::string steamVrRuntimePath;
 	float steamVrWorldScale = 0.0f;
 	vr::EVRSettingsError worldScaleError = vr::VRSettingsError_ReadFailed;
 };
 DiagnosticCapture CaptureCalibrationDiagnostics();
+std::string DescribeFrameFailureCapture(const CalibrationContext &ctx, vr::IVRSystem *system,
+	const DiagnosticCapture &capture, double qpcToSeconds);
 
 // Writes the file under %LOCALAPPDATA%\QuestCalibrator\diagnostics. On
 // success pathOut is the file's UTF-8 path; on failure error says why.

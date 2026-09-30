@@ -213,6 +213,7 @@ static void ApplyProfilePreferences(
 
 static void ApplyProfileRecord(CalibrationContext &ctx, ProfileRecord record)
 {
+	ctx.ResetTrackerFrames();
 	ctx.referenceTrackingSystem = std::move(record.referenceTrackingSystem);
 	ctx.targetTrackingSystem = std::move(record.targetTrackingSystem);
 	ctx.SetCalibration(record.rotation, record.translationMeters, record.scale);

@@ -89,6 +89,19 @@ std::string ReadWholeFile(const std::wstring &path)
 	return ss.str();
 }
 
+std::string ReadFileTail(const std::wstring &path)
+{
+	std::ifstream in(path.c_str(), std::ios::binary | std::ios::ate);
+	if (!in.is_open()) return {};
+	const auto bytes = in.tellg();
+	if (bytes <= 0) return {};
+	constexpr std::streamoff limit = 256 * 1024;
+	in.seekg(bytes > limit ? bytes - limit : std::streampos(0));
+	std::ostringstream out;
+	out << in.rdbuf();
+	return out.str();
+}
+
 std::string Stamp(const char *format)
 {
 	char buf[64] = {};
@@ -194,7 +207,7 @@ void DescribeRuntimePoses(std::ostream &out, const CalibrationContext &ctx, vr::
 	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
 	{
 		const auto &pose = poses[id];
-		if (!pose.bDeviceIsConnected)
+		if (!pose.bDeviceIsConnected && !pose.bPoseIsValid && !ctx.targetDeviceMask[id])
 			continue;
 		auto property = [&](vr::ETrackedDeviceProperty key) {
 			char value[256]{};
@@ -207,6 +220,7 @@ void DescribeRuntimePoses(std::ostream &out, const CalibrationContext &ctx, vr::
 			<< ", manufacturer " << property(vr::Prop_ManufacturerName_String)
 			<< ", system " << property(vr::Prop_TrackingSystemName_String)
 			<< ", class " << static_cast<int>(system->GetTrackedDeviceClass(id))
+			<< ", connected " << OnOff(pose.bDeviceIsConnected)
 			<< ", target assignment " << OnOff(ctx.targetDeviceMask[id])
 			<< ", valid " << OnOff(pose.bPoseIsValid)
 			<< ", tracking result " << static_cast<int>(pose.eTrackingResult);
@@ -224,6 +238,26 @@ void DescribeRuntimePoses(std::ostream &out, const CalibrationContext &ctx, vr::
 }
 
 } // namespace
+
+std::string DescribeFrameFailureCapture(const CalibrationContext &ctx, vr::IVRSystem *system,
+	const DiagnosticCapture &capture, double qpcToSeconds)
+{
+	std::ostringstream out;
+	out << std::setprecision(10) << "frame failure capture at QPC seconds " << capture.sampleClock
+		<< ", driver session " << ctx.frameDriverSession << ", calibration state " << static_cast<int>(ctx.state)
+		<< "\nRaw and runtime samples have different capture/prediction times; they are not an exact pose pair.\n";
+	DescribeRawPoses(out, capture.poseStream, capture.sampleClock, qpcToSeconds);
+	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+	{
+		if (!ctx.targetDeviceMask[id]) continue;
+		const auto &frame = ctx.trackerFrames.Snapshot()[id];
+		out << "desired frame correction device " << id << " serial " << ctx.trackerFrames.Serial(id)
+			<< " q " << frame.rotation.w << " " << frame.rotation.x << " " << frame.rotation.y << " " << frame.rotation.z
+			<< " t " << frame.translation.v[0] << " " << frame.translation.v[1] << " " << frame.translation.v[2] << "\n";
+	}
+	DescribeRuntimePoses(out, ctx, system);
+	return out.str();
+}
 
 std::string DescribeContinuousDiagnostics(const CalibrationContext &ctx, double qpcNow)
 {
@@ -476,13 +510,28 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 	out << "\nheadset tracker frame moves compensated: " << ctx.trackerFrameCompensations;
 	if (!ctx.lastTrackerFrameCompensation.empty())
 		out << " (last: " << ctx.lastTrackerFrameCompensation << ")";
-	out << "\nframe moves followed for the calibrated trackers (no headset tracker): " << ctx.frameMovesFollowed;
+	out << "\nper-device frame moves compensated: " << ctx.frameMovesFollowed;
 	if (!ctx.lastFrameMoveFollowed.empty())
 		out << " (last: " << ctx.lastFrameMoveFollowed << ")";
 	out << "\nframe moves left alone while SteamVR set up its base stations: " << ctx.frameMovesInSetup;
 	if (!ctx.lastFrameMoveInSetup.empty())
 		out << " (last: " << ctx.lastFrameMoveInSetup << ")";
 	out << "\n\n";
+
+	out << "[tracker frame corrections]\n";
+	out << "session epoch: " << ctx.trackerFrameEpoch << "\n";
+	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+	{
+		const auto &frame = ctx.trackerFrames.Snapshot()[id];
+		if (frame == protocol::FrameCorrection{})
+			continue;
+		out << "device " << id << " " << ctx.trackerFrames.Serial(id)
+			<< ": rotation (w x y z) " << frame.rotation.w << " " << frame.rotation.x
+			<< " " << frame.rotation.y << " " << frame.rotation.z
+			<< ", translation (unscaled m) " << frame.translation.v[0] << " "
+			<< frame.translation.v[1] << " " << frame.translation.v[2] << "\n";
+	}
+	out << "\n";
 
 	out << "[driver synchronization]\n";
 	const auto &sync = capture.driverSync;
@@ -533,6 +582,12 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 		out << Clock(entry.unixTime) << "  " << entry.text << "\n";
 	out << "\n";
 
+	std::string driverLog;
+	if (!capture.steamVrRuntimePath.empty())
+		driverLog = ReadFileTail(Wide(capture.steamVrRuntimePath) + L"\\drivers\\01questcalibrator\\bin\\win64\\quest_calibrator_driver.log");
+	if (driverLog.empty())
+		driverLog = ReadFileTail(EnvW(L"TEMP") + L"\\quest_calibrator_driver.log");
+	out << "[driver log tail, newest 256 KiB; may include earlier sessions]\n" << driverLog << "\n";
 	out << "[session log]\n" << ReadWholeFile(appDir + L"\\QuestCalibrator.log") << "\n";
 	out << "[previous session log]\n" << ReadWholeFile(appDir + L"\\QuestCalibrator.prev.log") << "\n";
 

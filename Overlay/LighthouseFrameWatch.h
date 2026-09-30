@@ -290,6 +290,18 @@ public:
 		trackingSince = 1e300;
 	}
 
+	// A reused slot must not bridge two physical devices. Other devices' frame
+	// transitions remain useful to infer a returning tracker's frame.
+	void ForgetDevice(uint32_t id)
+	{
+		if (id < vr::k_unMaxTrackedDeviceCount)
+			devices[id] = Device{};
+		moves.erase(std::remove_if(moves.begin(), moves.end(),
+			[id](const Move &m) { return m.id == id; }), moves.end());
+		inferences.erase(std::remove_if(inferences.begin(), inferences.end(),
+			[id](const Inference &i) { return i.move.id == id; }), inferences.end());
+	}
+
 	// A move large enough for the session log: a centimeter at a device or a
 	// tenth of a degree. Smaller ones (a station's pose refined in place)
 	// belong in the detailed log with the re-expressions.

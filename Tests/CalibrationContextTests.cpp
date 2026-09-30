@@ -29,6 +29,12 @@ bool DiagnosticsExportScenario()
 	ctx.lastResult.valid = true;
 	ctx.lastResult.scaleCondition = 0.0001;
 	ctx.mountExtrinsic.valid = true;
+	LighthouseFrameWatch::Move frameMove;
+	frameMove.id = 16;
+	frameMove.time = 1.0;
+	frameMove.translation.x() = 0.25;
+	ctx.trackerFrames.Bind(16, "test-tracker");
+	ctx.trackerFrames.Follow(frameMove);
 	DiagnosticCapture capture;
 	capture.poseStream.devices[16].received = 1;
 	capture.poseStream.devices[16].latest.deviceId = 16;
@@ -58,6 +64,8 @@ bool DiagnosticsExportScenario()
 	std::filesystem::remove(root);
 	return saved && error.empty() && shortened && report.find("SHA-256: unavailable") == std::string::npos &&
 		report.find("[driver synchronization]") != std::string::npos &&
+		report.find("[tracker frame corrections]") != std::string::npos &&
+		report.find("device 16 test-tracker: rotation (w x y z) 1 0 0 0, translation (unscaled m) -0.25 0 0") != std::string::npos &&
 		report.find("scale identifiable: off, condition 0.0001") != std::string::npos &&
 		report.find("mount rotation (w x y z)") != std::string::npos &&
 		report.find("device 16: received 1") != std::string::npos &&

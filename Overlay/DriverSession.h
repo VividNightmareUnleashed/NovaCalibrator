@@ -1,9 +1,12 @@
 #pragma once
 
 #include "DriverSyncPolicy.h"
+#include "FrameRecovery.h"
 #include "../common/Protocol.h"
 
 #include <cstdint>
+#include <array>
+#include <algorithm>
 #include <functional>
 #include <string>
 #include <utility>
@@ -49,11 +52,22 @@ struct DriverApplyRequest
 	// predicate (profile live, anchors present). The session also requires at
 	// least one enabled slot and builds the canonical disable itself.
 	protocol::SetAlignmentField field;
+	std::array<protocol::FrameCorrection, vr::k_unMaxTrackedDeviceCount> frames{};
+	FrameSerialKeys frameSerialKeys{};
+	// Parked recovery entries retain identity but cannot drive a slot until
+	// enumeration has bound that slot to the same physical serial.
+	uint64_t frameBoundMask = 0;
+	uint64_t frameProfileKey = 0;
+	uint64_t driverSessionId = 0;
+	bool recoverFrames = false;
 
 	bool operator==(const DriverApplyRequest &other) const
 	{
 		return enabled == other.enabled && desired == other.desired &&
-			field == other.field;
+			field == other.field && frames == other.frames && frameSerialKeys == other.frameSerialKeys &&
+			frameBoundMask == other.frameBoundMask && frameProfileKey == other.frameProfileKey &&
+			driverSessionId == other.driverSessionId &&
+			recoverFrames == other.recoverFrames;
 	}
 };
 
@@ -80,6 +94,12 @@ struct DriverApplyResult
 	bool targetDeviceMask[vr::k_unMaxTrackedDeviceCount] = {};
 	uint32_t continuousTrackerId = vr::k_unTrackedDeviceIndexInvalid;
 	uint32_t poseHookMask = 0;
+	uint64_t driverSessionId = 0;
+	uint64_t frameProfileKey = 0;
+	bool recoveryChecked = false;
+	bool framesRecovered = false;
+	RecoveredFrames frames{};
+	FrameSerialKeys frameSerialKeys{};
 };
 
 // The per-slot half of one reconciliation, derived from the enumerated devices
@@ -125,6 +145,7 @@ class DriverSession
 		bool connectionReady = false;
 		uint64_t connectionGeneration = 0;
 		uint32_t poseHookMask = 0;
+		uint64_t driverSessionId = 0;
 	};
 
 public:
@@ -149,6 +170,14 @@ public:
 		DriverApplyResult result;
 		result.enabled = request.enabled;
 		result.poseHookMask = batch.poseHookMask;
+		result.driverSessionId = batch.driverSessionId;
+		if (!batch.connectionReady || (request.driverSessionId != 0 &&
+			request.driverSessionId != batch.driverSessionId))
+		{
+			result.enabled = false;
+			result.cause = DriverDisableCause::DriverUnreachable;
+			return result;
+		}
 		uint64_t batchConnectionGeneration = batch.connectionGeneration;
 
 		protocol::SetRuntimeState desiredState;
@@ -158,6 +187,39 @@ public:
 			request.desired.timeShift);
 		desiredState.transform.generation = request.desired.baseGeneration;
 		desiredState.field = request.field;
+		std::copy(request.frames.begin(), request.frames.end(), desiredState.frames);
+		desiredState.frameProfileKey = request.frameProfileKey;
+		desiredState.expectedSessionId = batch.driverSessionId;
+		std::copy(request.frameSerialKeys.begin(), request.frameSerialKeys.end(), desiredState.frameSerialKeys);
+		if (request.recoverFrames)
+		{
+			protocol::Response snapshot;
+			if (!SendRequest(protocol::Request(protocol::RequestGetRuntimeState),
+				"recovering tracker frame corrections", &batchConnectionGeneration, &snapshot))
+			{
+				result.enabled = false;
+				result.cause = DriverDisableCause::DriverUnreachable;
+				return result;
+			}
+			result.recoveryChecked = true;
+			result.frameProfileKey = request.frameProfileKey;
+			result.frameSerialKeys = request.frameSerialKeys;
+			result.framesRecovered = RecoverTrackerFrames(snapshot, batch.driverSessionId,
+				request.frameProfileKey, request.frameSerialKeys, result.frames, &result.frameSerialKeys);
+			if (!result.framesRecovered && request.frameProfileKey != 0 &&
+				snapshot.runtimeState.frameProfileKey == request.frameProfileKey)
+			{
+				ReportThrottled("The driver returned invalid tracker-frame recovery state; calibration was not overwritten\n");
+				result.enabled = false;
+				result.cause = DriverDisableCause::DriverUnreachable;
+				return result;
+			}
+			if (result.framesRecovered)
+			{
+				std::copy(result.frames.begin(), result.frames.end(), desiredState.frames);
+				std::copy(result.frameSerialKeys.begin(), result.frameSerialKeys.end(), desiredState.frameSerialKeys);
+			}
+		}
 
 		if (result.enabled)
 		{
@@ -170,6 +232,17 @@ public:
 			result.continuousTrackerId = slots.continuousTrackerId;
 			desiredState.enabledMask = slots.enabledMask;
 			desiredState.hiddenMask = slots.hiddenMask;
+			for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+			{
+				const uint64_t bit = uint64_t{1} << id;
+				if (desiredState.frameSerialKeys[id] == 0 || (request.frameBoundMask & bit) != 0)
+					continue;
+				desiredState.enabledMask &= ~bit;
+				desiredState.hiddenMask &= ~bit;
+				result.targetDeviceMask[id] = false;
+				if (result.continuousTrackerId == id)
+					result.continuousTrackerId = vr::k_unTrackedDeviceIndexInvalid;
+			}
 			if (slots.hmdMismatch)
 			{
 				result.enabled = false;
@@ -236,7 +309,10 @@ private:
 		batch.connectionReady = SendRequest(handshake, "checking the driver connection",
 			&batch.connectionGeneration, &response);
 		if (batch.connectionReady)
+		{
 			batch.poseHookMask = response.poseHookMask;
+			batch.driverSessionId = response.driverSessionId;
+		}
 		return batch;
 	}
 
@@ -250,7 +326,11 @@ private:
 		const DriverTransportResult result = transport(request);
 		if (result.completed)
 		{
-			bool accepted = result.response.type == protocol::ResponseSuccess ||
+			bool accepted = (result.response.type == protocol::ResponseSuccess &&
+				request.type != protocol::RequestGetRuntimeState) ||
+				(request.type == protocol::RequestGetRuntimeState &&
+					result.response.type == protocol::ResponseRuntimeState &&
+					result.response.protocol.version == protocol::Version) ||
 				(request.type == protocol::RequestHandshake &&
 					result.response.type == protocol::ResponseHandshake &&
 					result.response.protocol.version == protocol::Version);

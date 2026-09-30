@@ -14,7 +14,7 @@ struct ConnectionState
 	bool handshakeComplete = false;
 };
 
-// Returns true only when the caller may dispatch a mutating request. Control
+// Returns true only when the caller may dispatch a state read or mutation. Control
 // and rejected requests have their complete response populated here.
 inline bool PrepareRequest(const protocol::Request &request,
 	ConnectionState &state, protocol::Response &response)
@@ -28,9 +28,10 @@ inline bool PrepareRequest(const protocol::Request &request,
 		return false;
 	}
 
-	bool mutation = request.type == protocol::RequestSetDeviceTransform ||
-		request.type == protocol::RequestSetRuntimeState;
-	return mutation && state.handshakeComplete &&
+	bool dispatchable = request.type == protocol::RequestSetDeviceTransform ||
+		request.type == protocol::RequestSetRuntimeState ||
+		request.type == protocol::RequestGetRuntimeState;
+	return dispatchable && state.handshakeComplete &&
 		request.protocol.version == protocol::Version;
 }
 

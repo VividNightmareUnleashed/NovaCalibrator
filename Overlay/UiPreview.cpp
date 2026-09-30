@@ -258,6 +258,7 @@ void SetupPreviewState()
 		// The loop measured a deviation too large to correct and stopped:
 		// the band shows its two actions and the activity card the event.
 		CalCtx.continuousState = questcal::ContinuousAlignment::State::Frozen;
+		CalCtx.continuousFreezeFromRestart = true;
 		CalCtx.continuousDeviation.yawDeg = 2.6;
 		CalCtx.continuousDeviation.tiltDeg = 0.9;
 		CalCtx.continuousDeviation.posM = 0.11;

@@ -102,13 +102,18 @@ Runtime alignment maintenance uses the timestamped pose ring and calibration sol
   pauses: it follows every such deviation at once, the headset tracker's own
   faults included, as OpenVR-SpaceCalibrator does. When SteamVR re-solves
   where a base station stands, every device reported in that station's frame
-  jumps with it; if the headset tracker is one of them, the calibration
-  follows the jump at once and exactly, tilt included, whichever method is
-  chosen. A re-solve made while the headset tracker was switched off is
-  followed the same way once it is back in that station's frame. Without a
-  headset tracker (or with continuous calibration off), the calibration follows
-  a re-solved station when most of the calibrated trackers are in its frame,
-  counting trackers another driver hides from games (Standable does). Neither
+  jumps with it. QuestCalibrator cancels that exact frame motion separately for
+  each affected tracker, including trackers Standable hides. Trackers in other
+  frames keep their alignment. This works with either continuous method or
+  with continuous calibration off. A returning tracker receives a correction
+  only when its frame change can be established from observed station moves;
+  any additional change in its own local tracking remains visible. The
+  correction is applied before the shared calibration and spatial field, and
+  continuous calibration uses the same corrected target space. Recalibrating an
+  active profile retains these relative frame corrections while measuring the new shared
+  alignment. Restarting the overlay restores them from the current driver's
+  session, matched by profile and device serial; restarting SteamVR starts a
+  new session. Neither method
   follows the moves SteamVR makes while it sets up its universe, at startup or
   after every lighthouse device was off: those place a station it guessed, and
   a saved calibration already belongs where the station is placed. The
@@ -137,7 +142,11 @@ scratch and that reads the same, within 1° and 5 cm: a fault of one solution
 has not survived the next in any session logged, while a calibration saved in
 an earlier session, which the headset's space has since moved away from,
 reads the same in every one. A base station coming or going is not a new
-solution. When
+solution. A pause attributed to a restart can therefore last indefinitely if
+no new solution starts. The UI explains this condition and suggests restarting
+the headset tracker in view of its stations, with an explicit recalibration
+action if stable tracking remains misaligned. Time alone does not authorize an
+automatic re-alignment. When
 SteamVR's log cannot be read, or does not name the headset tracker, no restart
 could show, so nothing becomes the calibration this way. If the
 readings later return to the calibration it replaced, that one comes back. Tilt of
@@ -164,7 +173,7 @@ stream gaps, window resets, Quest observation gates, re-anchors, lighthouse fram
 moves, the ones the calibration followed and the ones it left alone while SteamVR
 set up its base stations, SteamVR's lighthouse universe, how often SteamVR switched each
 lighthouse device off for sitting still, and a snapshot of connected devices
-relative to SteamVR's floor. Counters
+and valid disconnected trackers relative to SteamVR's floor. Counters
 survive recalibration for the session. Exports also include raw driver
 poses for every device, scale and timing confidence, mount and field transforms,
 driver synchronization status, and executable hashes to identify the build. The

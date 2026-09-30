@@ -109,6 +109,16 @@ static std::unique_ptr<questcal::ContinuousAlignment> Continuous;
 static int ContinuousConsumer = -1;
 static std::vector<protocol::DevicePoseSample> ContinuousScratch;
 static bool ContinuousActive = false;
+// The hub can publish between the monitor and continuous drains. Retain that
+// tail until the frame watch has seen it; never solve an unexamined frame.
+static std::vector<protocol::DevicePoseSample> ContinuousPending;
+static int64_t FrameObservedThrough[vr::k_unMaxTrackedDeviceCount] = {};
+static std::string FrameObservedSerials[vr::k_unMaxTrackedDeviceCount];
+static uint64_t FrameEpoch = 0;
+static uint64_t FrameStreamBoundary = 0;
+static bool FrameCapturePending = false;
+static double FrameCaptureDue = 0.0;
+static double LastFrameCapture = -1e9;
 // The headset tracker's live lighthouse disturbance count last acted on, so
 // each new one restarts the window exactly once, and its bootstrap count, so
 // the loop hears which of them began a solution of its own.
@@ -154,6 +164,10 @@ DiagnosticCapture CaptureCalibrationDiagnostics()
 {
 	DiagnosticCapture capture{ PoseHub.ReadDiagnostics(), questcal::CaptureDriverSyncDiagnostics() };
 	capture.sampleClock = QpcNowSeconds();
+	char runtimePath[4096]{};
+	uint32_t needed = 0;
+	if (vr::VR_GetRuntimePath(runtimePath, sizeof runtimePath, &needed))
+		capture.steamVrRuntimePath = runtimePath;
 	if (auto settings = vr::VRSettings())
 		capture.steamVrWorldScale = settings->GetFloat(vr::k_pch_SteamVR_Section,
 			vr::k_pch_SteamVR_WorldScale_Float, &capture.worldScaleError);
@@ -265,6 +279,8 @@ void AppendSessionLog(const std::string &msg)
 
 void InitCalibrator()
 {
+	CalCtx.frameRecoveryPending = true;
+	CalCtx.frameDriverSession = 0;
 	LARGE_INTEGER freq{};
 	QueryPerformanceFrequency(&freq);
 	QpcToSeconds = 1.0 / static_cast<double>(freq.QuadPart);
@@ -382,6 +398,18 @@ static bool CollectFromPoseRing(CalibrationContext &ctx, double now)
 	run.toleratedGaps += drained.gaps;
 	for (const auto &s : CollectorScratch)
 	{
+		if (s.deviceId == run.targetId && run.preserveTrackerFrames && !run.normalizationCaptured)
+		{
+			questcal::PoseSample first;
+			if (s.sampleTimeQpc > FrameObservedThrough[s.deviceId] ||
+				!TryComposeRingSample(s, QpcToSeconds, first) ||
+				!ctx.trackerFrames.Normalize(s.deviceId, first))
+				continue;
+			const auto &frame = ctx.trackerFrames.Snapshot()[s.deviceId];
+			run.targetNormalizationRotation = Eigen::Quaterniond(frame.rotation.w, frame.rotation.x, frame.rotation.y, frame.rotation.z);
+			run.targetNormalizationTranslation = Eigen::Vector3d(frame.translation.v);
+			run.normalizationCaptured = true;
+		}
 		if ((s.deviceId == run.referenceId || s.deviceId == run.targetId) &&
 			IsTrustedRingSample(s, QpcToSeconds))
 		{
@@ -439,6 +467,8 @@ static bool CollectFromPoseRing(CalibrationContext &ctx, double now)
 			if (!TryComposeRingSample(s, QpcToSeconds, sample))
 				continue;
 			run.targetFrame.ToStart(sample);
+			if (run.anchor && !ctx.trackerFrames.Normalize(s.deviceId, sample))
+				continue;
 			if (!run.targetSamples.empty() && sample.time <= run.targetSamples.back().time)
 				continue;
 			run.targetSamples.push_back(sample);
@@ -475,6 +505,12 @@ static void CollectFromRuntimePoses(CalibrationContext &ctx, double now)
 		s.angVel = Eigen::Vector3d(p.vAngularVelocity.v[0], p.vAngularVelocity.v[1], p.vAngularVelocity.v[2]);
 		if (!IsUsableComposedSample(s) || (!into.empty() && s.time <= into.back().time))
 			return;
+		if (run.anchor && id == run.targetId)
+		{
+			// Runtime fallback uses the UI clock, not QPC; only the transform
+			// applies here (the selected driver slot was neutralized).
+			ctx.trackerFrames.ApplyToPose(id, s);
+		}
 		into.push_back(s);
 		lastTime = now;
 	};
@@ -527,9 +563,9 @@ static void NotifyStaleAlignment(CalibrationContext &ctx)
 static void NotifyResolveFreeze(CalibrationContext &ctx)
 {
 	NotifyOnce(ctx, Monitors.freezeNotified,
-		"Continuous calibration paused: the headset tracker's base station tracking restarted and doesn't match the headset yet. It resumes on its own once that settles.",
+		"Continuous calibration paused after the headset tracker restarted. It resumes if tracking recovers; another tracker restart may be needed.",
 		CalibrationContext::Tone::Warn,
-		"QuestCalibrator: continuous calibration paused while the headset tracker's base station tracking settles. It resumes on its own, so don't recalibrate yet.",
+		"QuestCalibrator: tracking has not recovered after the headset tracker restarted. Wait, or turn that tracker off and on in view of its base stations.",
 		ctx.notifyPoorCalibration);
 }
 
@@ -604,7 +640,15 @@ static void LighthouseTick(CalibrationContext &ctx, double time)
 			}
 			std::string serial;
 			if (ReadTrackedDeviceString(id, vr::Prop_SerialNumber_String, serial))
+			{
 				DeviceSerials[id] = serial;
+				if (ctx.trackerFrames.Bind(id, serial))
+				{
+					FrameWatch.ForgetDevice(id);
+					FrameObservedThrough[id] = 0;
+					SynchronizeCalibrationDriver(ctx);
+				}
+			}
 		}
 	}
 
@@ -712,160 +756,113 @@ static bool DuringUniverseSetup(const CalibrationContext &ctx, double moveTime)
 	return moveTime - FrameWatch.TrackingSince() < UniverseSetupFallbackSeconds;
 }
 
-// Without the loop (no headset tracker, or continuous calibration off) no
-// device says which frame the calibration belongs to. A move left alone
-// displaces every calibrated tracker in the moved frame; one followed
-// displaces those outside it by about as much. So the calibration follows a
-// frame when more of the calibrated trackers are in it than outside it (live
-// 2026-09-26: every lighthouse device, the body trackers Standable hides
-// included, sat in the frame of the station SteamVR moved twelve times in 26
-// minutes, 6 to 12 cm each).
-static void FollowFrameMovesForTrackers(CalibrationContext &ctx,
-	const std::vector<LighthouseFrameWatch::Move> &moves, double now)
+// The shared calibration stays in one target space. A proven frame move is
+// cancelled only for the device that reported it: N_i' = N_i o F_i^-1.
+// The watch also handles hidden trackers and returns after tracking loss.
+static void CompensateTrackerFrameMoves(CalibrationContext &ctx)
 {
+	auto moves = FrameWatch.TakeMoves();
+	std::sort(moves.begin(), moves.end(), [](const auto &a, const auto &b)
+	{ return a.time < b.time; });
+	bool changed = false;
 	for (const auto &move : moves)
 	{
-		if (!FrameWatch.FirstOfFrameMove(move))
-			continue;
-		const LighthouseFrameWatch::Census census = FrameWatch.FrameCensus(move,
-			[&](uint32_t id) { return ctx.targetDeviceMask[id]; });
-		double yawDeg = 0.0, tiltDeg = 0.0;
-		const bool notable = DescribeFrameMove(move, yawDeg, tiltDeg);
-		char line[256];
-		if (DuringUniverseSetup(ctx, move.time))
-		{
-			snprintf(line, sizeof line,
-				"lighthouse frame moved under %d of %d calibrated tracker(s) while SteamVR set up its base stations "
-				"(yaw %.2f deg, tilt %.2f deg, %.1f cm); calibration left where it was",
-				census.members, census.members + census.others, yawDeg, tiltDeg, move.shiftM * 100.0);
-			ctx.frameMovesInSetup++;
-			ctx.lastFrameMoveInSetup = line;
-			// Worth the session log when it would have been followed.
-			if (notable && census.members > census.others)
-				ctx.Log(std::string(line) + "\n");
-			else
-				ctx.Diag(line);
-			continue;
-		}
-		if (census.members <= census.others)
-		{
-			snprintf(line, sizeof line,
-				"lighthouse frame moved under %d of %d calibrated tracker(s) (yaw %.2f deg, tilt %.2f deg, %.1f cm); "
-				"calibration left where it was",
-				census.members, census.members + census.others, yawDeg, tiltDeg, move.shiftM * 100.0);
-			ctx.Diag(line);
-			continue;
-		}
-		Eigen::Quaterniond rotation;
-		Eigen::Vector3d translation;
-		LighthouseFrameWatch::CompensatingDelta(ctx.transform.rotation,
-			ctx.transform.translationMeters, ctx.transform.scale, move, rotation, translation);
-		if (!questcal::ApplyCalibrationDelta(ctx, rotation, translation,
-			/*snap=*/true, now, /*moveChaperone=*/false))
-		{
-			ctx.ReportError("A correction was too large to be safe and was skipped. If this keeps happening, recalibrate.\n");
-			continue;
-		}
-		ctx.frameMovesFollowed++;
-		snprintf(line, sizeof line,
-			"lighthouse frame moved under %d of %d calibrated tracker(s): yaw %.2f deg, tilt %.2f deg, %.1f cm; "
-			"calibration followed it",
-			census.members, census.members + census.others, yawDeg, tiltDeg, move.shiftM * 100.0);
-		ctx.lastFrameMoveFollowed = line;
-		if (notable)
-			ctx.Log(std::string(line) + "\n");
-		else
-			ctx.Diag(line);
-	}
-}
-
-// A move of the headset tracker's own frame (LighthouseFrameWatch.h): SteamVR
-// moved the base station the tracker is reported against, so the tracker and
-// every device in that station's frame jumped in the world by one exact delta
-// while nothing moved in the room. The loop would follow the tracker there
-// anyway, but only after it froze on the jump and re-anchored half a minute
-// later, and never for the part of the tilt under its hold threshold; this
-// follows it at once, tilt included (live 2026-09-26: once the tracker's
-// restart put it in the frame of the station SteamVR kept re-solving, twelve
-// such moves in 26 minutes, one frozen for 33 s at 8.8 cm, one leaving
-// 1.3 deg of tilt for three minutes). A device in another station's frame did
-// not move and shifts with the calibration, as it would when the loop caught
-// up. The same goes for a move made while the tracker was switched off, once
-// it is back in that frame: left to the loop, its restart would take the
-// blame and hold the freeze until a recalibration.
-static void CompensateTrackerFrameMoves(CalibrationContext &ctx, double now)
-{
-	const std::vector<LighthouseFrameWatch::Move> moves = FrameWatch.TakeMoves();
-	if (moves.empty())
-		return;
-	if (!ctx.ContinuousShouldRun())
-	{
-		FollowFrameMovesForTrackers(ctx, moves, now);
-		return;
-	}
-	for (const auto &move : moves)
-	{
-		if (move.id != ctx.continuousTrackerId)
+		if (!ctx.targetDeviceMask[move.id])
 			continue;
 		double yawDeg = 0.0, tiltDeg = 0.0;
 		const bool notable = DescribeFrameMove(move, yawDeg, tiltDeg);
-		char line[256];
-		if (DuringUniverseSetup(ctx, move.time))
+		const bool setup = DuringUniverseSetup(ctx, move.time);
+		const bool mounted = move.id == ctx.continuousTrackerId;
+		if (setup)
 		{
-			// Left alone (see DuringUniverseSetup); the loop's window must not
-			// hold readings from both sides of it.
-			ResetContinuousObservations(ctx, questcal::ContinuousAlignment::ResetReason::TargetFrameMoved);
-			snprintf(line, sizeof line,
-				"headset tracker's lighthouse frame moved while SteamVR set up its base stations: yaw %.2f deg, "
-				"tilt %.2f deg, %.1f cm at the tracker; calibration left where it was",
-				yawDeg, tiltDeg, move.shiftM * 100.0);
-			ctx.frameMovesInSetup++;
-			ctx.lastFrameMoveInSetup = line;
-			if (notable)
-				ctx.Log(std::string("Continuous calibration: ") + line + "\n");
-			else
-				ctx.Diag(std::string("continuous: ") + line);
+			if (mounted)
+				ResetContinuousObservations(ctx, questcal::ContinuousAlignment::ResetReason::TargetFrameMoved);
+			++ctx.frameMovesInSetup;
+		}
+		else if (!ctx.trackerFrames.Follow(move))
+		{
+			ctx.Diag("lighthouse: rejected out-of-order or unsafe frame correction for device " +
+				std::to_string(move.id));
 			continue;
 		}
-		Eigen::Quaterniond rotation;
-		Eigen::Vector3d translation;
-		LighthouseFrameWatch::CompensatingDelta(ctx.transform.rotation,
-			ctx.transform.translationMeters, ctx.transform.scale, move, rotation, translation);
-		if (!questcal::ApplyCalibrationDelta(ctx, rotation, translation,
-			/*snap=*/true, now, /*moveChaperone=*/false))
-		{
-			// Left to the loop, which sees the jump like any other.
-			ctx.ReportError("A correction was too large to be safe and was skipped. If this keeps happening, recalibrate.\n");
-			continue;
-		}
-		Continuous->NoteTargetFrameMoved(move.rotation, move.translation, ctx.transform.scale);
-		ctx.continuousDiagnostics.engine = Continuous->GetDiagnostics();
-		ctx.continuousCorrectionGate.Clear();
-		ctx.trackerFrameCompensations++;
-
-		const char *when = move.returned ? " while it was off"
-			: move.ownJump ? " as its own pose jumped" : "";
-		snprintf(line, sizeof line,
-			"headset tracker's lighthouse frame moved%s: yaw %.2f deg, tilt %.2f deg, %.1f cm at the tracker; calibration followed it",
-			when, yawDeg, tiltDeg, move.shiftM * 100.0);
-		ctx.lastTrackerFrameCompensation = line;
-		if (notable)
-			ctx.Log(std::string("Continuous calibration: ") + line + "\n");
 		else
-			ctx.Diag(std::string("continuous: ") + line);
+		{
+			changed = true;
+			++ctx.frameMovesFollowed;
+			if (mounted)
+			{
+				// Observations and previous estimates already live in the
+				// normalized space. Clear the window without rebasing them.
+				ResetContinuousObservations(ctx, questcal::ContinuousAlignment::ResetReason::TargetFrameMoved);
+				++ctx.trackerFrameCompensations;
+			}
+		}
+		const auto &frame = ctx.trackerFrames.Snapshot()[move.id];
+		char line[1024];
+		snprintf(line, sizeof line,
+			"lighthouse device %u %s frame moved%s%s: yaw %.2f deg, tilt %.2f deg, %.1f cm; %s; "
+			"from q(%.6f,%.6f,%.6f,%.6f) t(%.4f,%.4f,%.4f) "
+			"to q(%.6f,%.6f,%.6f,%.6f) t(%.4f,%.4f,%.4f); "
+			"normalization q(%.6f,%.6f,%.6f,%.6f) t(%.4f,%.4f,%.4f)",
+			move.id, DeviceSerials[move.id].c_str(), move.returned ? " while off" : "",
+			move.ownJump ? " with a local pose jump" : "", yawDeg, tiltDeg, move.shiftM * 100.0,
+			setup ? "left alone during universe setup" : "compensated for this device",
+			move.fromRot.w(), move.fromRot.x(), move.fromRot.y(), move.fromRot.z(),
+			move.fromTrans.x(), move.fromTrans.y(), move.fromTrans.z(),
+			move.toRot.w(), move.toRot.x(), move.toRot.y(), move.toRot.z(),
+			move.toTrans.x(), move.toTrans.y(), move.toTrans.z(),
+			frame.rotation.w, frame.rotation.x, frame.rotation.y, frame.rotation.z,
+			frame.translation.v[0], frame.translation.v[1], frame.translation.v[2]);
+		if (setup) ctx.lastFrameMoveInSetup = line;
+		else
+		{
+			ctx.lastFrameMoveFollowed = line;
+			if (mounted) ctx.lastTrackerFrameCompensation = line;
+		}
+		if (notable && ctx.detailedLogging && !FrameCapturePending)
+		{
+			FrameCapturePending = true;
+			FrameCaptureDue = (std::max)(ctx.timeLastTick + 0.15, LastFrameCapture + 2.0);
+		}
+		if (notable) ctx.Log(std::string(line) + "\n");
+		else ctx.Diag(line);
+	}
+	if (changed)
+	{
+		Drift->Reset();
+		SynchronizeCalibrationDriver(ctx);
 	}
 }
 
 static void RuntimeMonitorTick(CalibrationContext &ctx, double now)
 {
+	const uint64_t boundary = PoseHub.StreamBoundaries();
+	if (boundary != FrameStreamBoundary)
+	{
+		FrameStreamBoundary = boundary;
+		ctx.frameDriverSession = 0;
+		ctx.frameRecoveryPending = true;
+		ctx.ResetTrackerFrames();
+		SynchronizeCalibrationDriver(ctx);
+	}
+	if (FrameEpoch != ctx.trackerFrameEpoch)
+	{
+		FrameEpoch = ctx.trackerFrameEpoch;
+		FrameWatch.Reset();
+		std::fill(std::begin(FrameObservedThrough), std::end(FrameObservedThrough), 0);
+		ContinuousPending.clear();
+		ResetContinuousObservations(ctx, questcal::ContinuousAlignment::ResetReason::Suspended);
+	}
 	// Score even while the monitors are parked so the UI's health readout
 	// tracks calibration age from the moment a profile loads. Age alone
 	// saturates below the stale threshold, so this can't notify by itself.
 	if (ctx.validProfile)
 		UpdateDriftScore(ctx);
 
-	bool shouldRun = ctx.state == CalibrationState::None &&
-		ctx.enabled && ctx.validProfile && PoseHub.RingOpen();
+	const bool idle = ctx.state == CalibrationState::None;
+	// Frame normalization belongs to the driver session, including a manual
+	// measurement. Drift and universe acceptance still run only while idle.
+	bool shouldRun = !ctx.frameRecoveryPending && ctx.enabled && ctx.validProfile && PoseHub.RingOpen();
 
 	if (!shouldRun)
 	{
@@ -896,6 +893,17 @@ static void RuntimeMonitorTick(CalibrationContext &ctx, double now)
 	// pass the leash share by share.
 	PoseStreamHub::Hole hole;
 	uint64_t dropped = PoseHub.Drain(MonitorConsumer, MonitorScratch, &hole);
+	if (hole.sessionBoundary && PoseHub.StreamBoundaries() != FrameStreamBoundary)
+	{
+		FrameStreamBoundary = PoseHub.StreamBoundaries();
+		ctx.frameDriverSession = 0;
+		ctx.frameRecoveryPending = true;
+		ctx.ResetTrackerFrames();
+		FrameEpoch = ctx.trackerFrameEpoch;
+		std::fill(std::begin(FrameObservedThrough), std::end(FrameObservedThrough), 0);
+		ContinuousPending.clear();
+		SynchronizeCalibrationDriver(ctx);
+	}
 	if (!ringpose::MonitorGapTolerable(hole.size, hole.sessionBoundary))
 	{
 		// We lost part of our own observation window; baselines across the
@@ -923,22 +931,46 @@ static void RuntimeMonitorTick(CalibrationContext &ctx, double now)
 	{
 		if (s.deviceId >= vr::k_unMaxTrackedDeviceCount)
 			continue;
+		FrameObservedThrough[s.deviceId] = (std::max)(FrameObservedThrough[s.deviceId], s.sampleTimeQpc);
 		// JumpDetector owns the observation-continuity policy and must see bad
 		// frames as well as good ones. Drift/HMD caches below remain valid-only.
 		if (ctx.referenceDeviceMask[s.deviceId])
 		{
-			questcal::ObserveUniversePose(s);
+			if (idle) questcal::ObserveUniversePose(s);
 			if (ctx.detailedLogging)
 				StreamDigest.Note(s, QpcToSeconds);
 		}
 		else
 		{
+			const auto &serial = ctx.trackerFrames.Serial(s.deviceId);
+			if (FrameObservedSerials[s.deviceId] != serial)
+			{
+				FrameWatch.ForgetDevice(s.deviceId);
+				FrameObservedSerials[s.deviceId] = serial;
+			}
 			FrameWatch.Note(s, QpcToSeconds,
 				DeviceClasses[s.deviceId] == vr::TrackedDeviceClass_TrackingReference);
 		}
+	}
+	const bool jumped = idle && questcal::FinishUniverseObservations(ctx, now);
+	CompensateTrackerFrameMoves(ctx);
 
+	if (!idle)
+	{
+		questcal::ResetUniverseObservations(ctx);
+		Drift->Reset();
+		Monitors.ResetObservations();
+		return;
+	}
+
+	for (const auto &s : MonitorScratch)
+	{
+		if (s.deviceId >= vr::k_unMaxTrackedDeviceCount)
+			continue;
 		questcal::PoseSample sample;
 		if (!TryComposeRingSample(s, QpcToSeconds, sample))
+			continue;
+		if (ctx.targetDeviceMask[s.deviceId] && !ctx.trackerFrames.Normalize(s.deviceId, sample))
 			continue;
 		// Per-device watermark across drains.
 		double composedTime = sample.time;
@@ -976,10 +1008,6 @@ static void RuntimeMonitorTick(CalibrationContext &ctx, double now)
 				ctx.targetDeviceMask[s.deviceId] ? ctx.transform.scale : 1.0);
 	}
 
-	const bool jumped = questcal::FinishUniverseObservations(ctx, now);
-	// Before the continuous tick drains the same poses: its window must not
-	// measure the moved frame against the calibration it moved away from.
-	CompensateTrackerFrameMoves(ctx, now);
 	if (ctx.detailedLogging)
 		for (const auto &line : StreamDigest.Flush(now))
 			ctx.Diag(line);
@@ -1240,6 +1268,7 @@ static void ContinuousTick(CalibrationContext &ctx, double now)
 			ContinuousActive = false;
 		}
 		PoseHub.DiscardBacklog(ContinuousConsumer);
+		ContinuousPending.clear();
 		ctx.continuousCorrectionGate.Clear();
 		ctx.continuousState = Continuous->GetState();
 		// Only the running loop drains the tracker's poses to judge by.
@@ -1251,6 +1280,7 @@ static void ContinuousTick(CalibrationContext &ctx, double now)
 	if (!ContinuousActive)
 	{
 		PoseHub.DiscardBacklog(ContinuousConsumer);
+		ContinuousPending.clear();
 		ContinuousActive = true;
 	}
 
@@ -1265,7 +1295,10 @@ static void ContinuousTick(CalibrationContext &ctx, double now)
 	{
 		// A stall-sized hole could fake a discontinuity; baselines across it are unsafe.
 		ResetContinuousObservations(ctx, questcal::ContinuousAlignment::ResetReason::StreamGap);
+		ContinuousPending.clear();
 	}
+	ContinuousScratch.insert(ContinuousScratch.begin(), ContinuousPending.begin(), ContinuousPending.end());
+	ContinuousPending.clear();
 
 	for (const auto &s : ContinuousScratch)
 	{
@@ -1274,6 +1307,12 @@ static void ContinuousTick(CalibrationContext &ctx, double now)
 
 		if (s.deviceId != vr::k_unTrackedDeviceIndex_Hmd && s.deviceId != ctx.continuousTrackerId)
 			continue;
+		if (s.sampleTimeQpc > FrameObservedThrough[s.deviceId])
+		{
+			if (ContinuousPending.size() < PoseStreamHub::HistoryCapacity)
+				ContinuousPending.push_back(s);
+			continue;
+		}
 		questcal::PoseSample sample;
 		if (!diagnostics.devices[s.deviceId].Compose(s, QpcToSeconds, sample))
 		{
@@ -1282,7 +1321,7 @@ static void ContinuousTick(CalibrationContext &ctx, double now)
 		}
 		if (s.deviceId == vr::k_unTrackedDeviceIndex_Hmd)
 			Continuous->PushReference(sample);
-		else
+		else if (ctx.trackerFrames.Normalize(s.deviceId, sample))
 			Continuous->PushTarget(sample);
 	}
 
@@ -1428,6 +1467,8 @@ static void ContinuousTick(CalibrationContext &ctx, double now)
 	}
 
 	ctx.continuousState = Continuous->GetState();
+	if (ctx.continuousState != questcal::ContinuousAlignment::State::Frozen)
+		ctx.continuousFreezeFromRestart = false;
 	ctx.continuousDeviation = Continuous->CurrentDeviation();
 	ctx.continuousScatterRotDeg = Continuous->ScatterRotRmsDeg();
 	ctx.continuousScatterPosM = Continuous->ScatterPosRmsM();
@@ -1457,6 +1498,7 @@ static void ContinuousTick(CalibrationContext &ctx, double now)
 		// the fact, not a diagnosis: a mounted tracker does not move, so
 		// blaming it sends people to check hardware that is fine.
 		case questcal::ContinuousAlignment::Event::FrozenLargeDeviation:
+			ctx.continuousFreezeFromRestart = ev.afterTargetResolve;
 			snprintf(buf, sizeof buf,
 				"Continuous calibration frozen: deviation yaw %.2f deg, tilt %.2f deg, %.1f cm%s\n",
 				ev.deviation.yawDeg, ev.deviation.tiltDeg, ev.deviation.posM * 100.0,
@@ -2020,9 +2062,20 @@ static void FinishCalibration(CalibrationContext &ctx)
 		}
 	}
 
-	// Measured in the frame the target began in; SteamVR moved that frame
-	// during the run, so the calibration is carried to where it ended.
-	if (run.targetFrame.moves > 0)
+	// A live profile keeps its normalized target space. A fresh solve instead
+	// follows the target's start frame to the frame in which collection ended.
+	if (run.preserveTrackerFrames)
+	{
+		if (!run.normalizationCaptured || !questcal::TrackerFrameCorrections::ExpressCalibration(run.targetNormalizationRotation,
+			run.targetNormalizationTranslation, result.rotation, result.translation, result.scale))
+		{
+			AbortCalibration(ctx, { "The calibration result wasn't usable.",
+				"Try again with smooth motion around the room.", "Normalized calibration exceeded numeric bounds" });
+			return;
+		}
+		ctx.Log("Recalibration retained the devices' relative lighthouse frame corrections\n");
+	}
+	else if (run.targetFrame.moves > 0)
 	{
 		run.targetFrame.CarryCalibration(result.rotation, result.translation, result.scale);
 		snprintf(buf, sizeof buf,
@@ -2041,6 +2094,8 @@ static void FinishCalibration(CalibrationContext &ctx)
 	// solve. The UI's pending selection must never redirect an old transform.
 	ctx.referenceTrackingSystem = run.referenceSystem;
 	ctx.targetTrackingSystem = run.targetSystem;
+	if (!run.preserveTrackerFrames)
+		ctx.ResetTrackerFrames();
 	ctx.SetCalibration(result.rotation, result.translation, result.scale);
 	ctx.transform.timeOffset = result.timeOffset;
 	ctx.validProfile = true;
@@ -2157,6 +2212,17 @@ bool StartAnchorCalibration()
 static void BeginCollection(CalibrationContext &ctx, double time)
 {
 	auto &run = ctx.run;
+	// Disabled/unsafe profiles have no running frame monitor. Their repair
+	// must remain a fresh solve rather than wait on an unadvancing watermark.
+	run.preserveTrackerFrames = ctx.validProfile && ctx.enabled && !ctx.frameRecoveryPending && !run.anchor &&
+		run.referenceSystem == ctx.referenceTrackingSystem && run.targetSystem == ctx.targetTrackingSystem;
+	if (run.preserveTrackerFrames && !run.usesPoseRing)
+	{
+		const auto &frame = ctx.trackerFrames.Snapshot()[run.targetId];
+		run.targetNormalizationRotation = Eigen::Quaterniond(frame.rotation.w, frame.rotation.x, frame.rotation.y, frame.rotation.z);
+		run.targetNormalizationTranslation = Eigen::Vector3d(frame.translation.v);
+		run.normalizationCaptured = true;
+	}
 	run.referenceRestartsAtStart = LighthouseRestarts(ctx, run.referenceSerial);
 	run.targetRestartsAtStart = LighthouseRestarts(ctx, run.targetSerial);
 	run.collectionStart = time;
@@ -2206,6 +2272,13 @@ void CalibrationTick(double time)
 	// After the monitors: an accepted jump must land (and reset the continuous
 	// window) before the continuous loop reads the calibration this tick.
 	ContinuousTick(ctx, time);
+	if (!ctx.detailedLogging) FrameCapturePending = false;
+	if (FrameCapturePending && time >= FrameCaptureDue)
+	{
+		FrameCapturePending = false;
+		LastFrameCapture = time;
+		ctx.Diag(DescribeFrameFailureCapture(ctx, vr::VRSystem(), CaptureCalibrationDiagnostics(), QpcToSeconds));
+	}
 	static double lastInputDiagTime = -1e9;
 	if (ctx.detailedLogging && ctx.continuousEnabled && time - lastInputDiagTime >= 10.0)
 	{
