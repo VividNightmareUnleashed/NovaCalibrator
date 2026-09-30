@@ -200,13 +200,13 @@ jobs:
           path: ${{ runner.temp }}/questcal-esbmc.tar
           key: questcal-esbmc-${{ hashFiles('VirtualQuest/formal/input-validation/Dockerfile') }}
 
-      # About 4.5 minutes for the longest check alone, rather than 19 for all
-      # of them in turn. -Strict fails when Docker or the image is missing; the
+      # The expanded 64-frame checks need one memory-heavy process per runner.
+      # -Strict fails when Docker or the image is missing; the
       # SKIP test also catches sources check.ps1 cannot find, and a share that
       # ran nothing fails too.
       - name: Check the input validation (ESBMC and Gappa)
         if: env.HAS_VIRTUALQUEST == 'true'
-        timeout-minutes: 30
+        timeout-minutes: 45
         shell: pwsh
         run: |
           pwsh -NoProfile -File VirtualQuest/formal/check.ps1 -Only input-validation -Strict -Shard ${{ matrix.shard }}/4 | Tee-Object -Variable lines
