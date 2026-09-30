@@ -59,13 +59,22 @@ committed.
   tools\validate-cpp.ps1 -Mode Build
   ```
 
-- Leave the rest to CI, on the exact commit: pushing `alpha` runs the validation
-  workflow (build, harness, hub trace replay, duplicate scan, input-validation model
-  checks and Clang-Tidy), and a push of VirtualQuest that touches `formal/` runs its
-  formal models. Wait for both to pass before pushing the tag, and review every
-  advisory clone they report. Run a check locally only to debug a failure, or when
-  Actions is unavailable (`tools\validate-cpp.ps1 -Mode Duplicates`,
-  `-Mode Analyze -All`, `VirtualQuest\formal\check.ps1`).
+- Push `alpha` and wait for its validation workflow (build, harness, hub trace
+  replay, duplicate scan, input-validation proofs and Clang-Tidy) on the exact
+  release commit. Review every advisory clone it reports.
+- Run the private VirtualQuest suite locally after committing its changes:
+
+  ```powershell
+  pwsh -NoProfile -File VirtualQuest/formal/validate-local.ps1 -Setup
+  ```
+
+  Keep the successful `.local-validation/run-*/result.json` and shard logs as the
+  local release record. Its `commit` must match the pinned VirtualQuest commit,
+  `fullSuite` and `sourcesUnchanged` must be true, and every shard must pass without
+  skipped checks. This covers TLC, Lean and GenMC; the public workflow covers
+  ESBMC, Gappa and trace replay. Both gates must pass before pushing the tag.
+  The private hosted workflow is manual-only and is not required when this local
+  record passes. See `VirtualQuest/formal/README.md` for tool setup and resources.
 
 ## Commit, push, and tag
 
