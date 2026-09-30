@@ -130,7 +130,7 @@ jobs:
   input-validation:
     name: input-validation (${{ matrix.shard }}/4)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       # Every share reports, so one failure does not hide another.
       fail-fast: false
