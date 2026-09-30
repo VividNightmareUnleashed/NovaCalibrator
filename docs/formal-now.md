@@ -1,6 +1,6 @@
 # The twelve Now assurance obligations
 
-The May 2026 inventory identifies A01–A03, P01–P05, S04, S07, N05 and N06 as
+The inventory identifies A01–A03, P01–P05, S04, S07, N05 and N06 as
 the immediate work. `VirtualQuest/formal/obligations.json` records their methods,
 checker names, implementation dependencies and external assumptions. The portable
 contract runner reports a focused milestone; it never issues a full release
@@ -20,6 +20,11 @@ certificate by itself.
 | S07 | Bounded history freshness/reachability, actual short frame chains, inference expiry, tracking returns, setup signals and queue overflow are exercised. Late inference is refused; overflow aborts the current run and disables calibration. | Endpoint tolerance is not a transitive equivalence. Hardware logs, clocks and firmware classification remain external evidence. |
 | N05 | Direct ESBMC/Gappa obligations cover numerical validation and normalization. A separate direct proof establishes the production copy helper preserves every scalar of every finite sanitized field, including unused anchors. C++ publication checks inspect every device slot, identity keys and refusal atomicity. | Each numeric harness records its unwind options. Composition uses the proven sanitizer result and the reviewed post-validation helper call. |
 | N06 | Production settings/chaperone codecs are shared with contracts and fuzz targets. Profile and settings refusal preserve the destination. Direct ESBMC checks cover byte/depth/geometry/version guards. | Record size is capped at 16 MiB, nesting at 16, geometry at 16,384 quads. Registry/JSON allocation and OS failure behavior are outside the guard proof. |
+
+N05 replaces the older manual whole-state field-copy bridge described in the
+VirtualQuest numeric overview. `FieldCopy.cpp` proves the actual
+`CopyAlignmentField` helper; the full-state validator calls it only after its
+transform, field and frame checks succeed.
 
 ## Reproduce focused checks
 
