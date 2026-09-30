@@ -76,6 +76,26 @@ committed.
   The private hosted workflow is manual-only and is not required when this local
   record passes. See `VirtualQuest/formal/README.md` for tool setup and resources.
 
+## Remote validation setup
+
+The local private-suite entry point also supports a Linux runner with PowerShell 7.
+Keep `VirtualQuest/formal/validate-local.ps1`, `check.ps1`, all model and proof
+sources, both formal Dockerfiles and `.github/workflows/formal.yml` in Git.
+The manual hosted workflow documents the existing tool setup as a fallback.
+
+Provision Java 11 or newer, PowerShell 7, Git, elan and a working Linux Docker
+daemon. Give the runner read access to the private VirtualQuest repository through
+its secret store, then initialize the exact submodule commit. Run the same command
+shown above with `-Setup`; it verifies TLC's pinned hash, selects the pinned Lean
+toolchain and builds GenMC from the committed Dockerfile. Choose `-Shards` and
+`-HeapGiB` to fit the runner's memory. A host that cannot run Docker needs a
+container-capable executor for GenMC.
+
+`.local-validation/` is disposable: tool downloads can be cached, while each run's
+result JSON and shard logs should be collected as job artifacts. Credentials,
+Docker Desktop settings, local socket repairs and machine-specific paths are not
+inputs to this workflow and must not be committed.
+
 ## Commit, push, and tag
 
 - Commit the version and release-note changes, then push `alpha`. Verify the exact
