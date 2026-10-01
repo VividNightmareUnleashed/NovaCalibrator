@@ -221,6 +221,10 @@ public:
 		return out;
 	}
 
+    // Overflow invalidates completeness: callers must stop applying the
+    // profile until recalibration, rather than silently use partial frames.
+    bool TakeMoveOverflow() { const bool out = moveOverflow; moveOverflow = false; return out; }
+
 	// True the first time a frame move is asked about: its devices report it
 	// one by one, often across two ticks, and it is acted on once.
 	bool FirstOfFrameMove(const Move &move)
@@ -283,6 +287,7 @@ public:
 		open.clear();
 		closed.clear();
 		moves.clear();
+        moveOverflow = false;
 		transitions.clear();
 		inferences.clear();
 		frameMoves.clear();
@@ -570,6 +575,8 @@ private:
 	{
 		if (moves.size() < MaxPendingMoves)
 			moves.push_back(m);
+        else
+            moveOverflow = true;
 	}
 
 	void ExpireInferences()
@@ -589,6 +596,7 @@ private:
 	std::vector<Change> open;
 	std::vector<Report> closed;
 	std::vector<Move> moves;
+    bool moveOverflow = false;
 	std::vector<Transition> transitions;
 	std::vector<Inference> inferences;
 	std::vector<Move> frameMoves;
