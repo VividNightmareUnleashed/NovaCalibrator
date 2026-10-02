@@ -1,0 +1,191 @@
+name: Formal assurance
+
+# VirtualQuest's private formal suite, run here because the private repository
+# has no hosted Actions: TLC, Lean and GenMC (check.ps1 -Core) on six runners.
+# For a release it also runs the complete numeric suite (ESBMC and Gappa) on
+# four runners of its own, at the same time.
+#
+# This repository is public, so anyone can read its logs and artifacts. Each
+# private check writes its output to the runner's temp folder, never to the log
+# (tools/ci/run-private-check.py), and the private Docker images are built
+# quietly: the log shows how many checks passed and the names of any that did
+# not. Investigate a failure locally.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit, branch or tag to check; the caller's own by default
+        type: string
+        default: ''
+      release:
+        description: Also run the complete numeric suite, as a release does
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  TLA2TOOLS_URL: https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
+  TLA2TOOLS_SHA256: 936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
+  LEAN_TOOLCHAIN: leanprover/lean4:v4.34.0
+
+jobs:
+  # check.ps1 -Shard balances the shares by the time each check last took:
+  # PoseRingQueue, about 16 minutes, has one to itself and the rest take about
+  # 13 each.
+  private-core:
+    name: private-core (${{ matrix.shard }}/6)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      # Every share reports, so one failure does not hide another.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Check out VirtualQuest
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
+        run: tools/ci/checkout-virtualquest.ps1
+
+      - name: Tools this share needs
+        id: share
+        shell: pwsh
+        run: |
+          $checks = pwsh -NoProfile -File VirtualQuest/formal/check.ps1 -Core -ListChecks -SourceRoot $PWD -Shard ${{ matrix.shard }}/6 | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Listing the checks of this share failed.' }
+          "genmc=$(([bool]@($checks | Where-Object Tool -eq 'genmc')).ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Java for TLC
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: tla2tools.jar v1.7.4
+        run: |
+          jar="$RUNNER_TEMP/tla2tools.jar"
+          curl -fsSL "$TLA2TOOLS_URL" -o "$jar"
+          echo "$TLA2TOOLS_SHA256  $jar" | sha256sum -c - > /dev/null
+          echo "TLA2TOOLS_JAR=$jar" >> "$GITHUB_ENV"
+
+      - name: Restore Lean
+        id: lean-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.elan
+          key: elan-${{ runner.os }}-${{ env.LEAN_TOOLCHAIN }}
+
+      - name: Install Lean
+        if: steps.lean-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -o "$RUNNER_TEMP/elan-init.sh"
+          sh "$RUNNER_TEMP/elan-init.sh" -y --no-modify-path --default-toolchain "$LEAN_TOOLCHAIN" > /dev/null
+
+      # GenMC is built from source, which takes a long while, so the image is
+      # cached by its Dockerfile's hash.
+      - name: Restore the GenMC image
+        id: genmc-cache
+        if: steps.share.outputs.genmc == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/questcal-genmc.tar
+          key: questcal-genmc-${{ hashFiles('VirtualQuest/formal/seqlock/Dockerfile') }}
+
+      - name: Load or build the GenMC image
+        if: steps.share.outputs.genmc == 'true'
+        timeout-minutes: 45
+        run: |
+          if [ '${{ steps.genmc-cache.outputs.cache-hit }}' = 'true' ]; then
+            docker load -i "$RUNNER_TEMP/questcal-genmc.tar" > /dev/null
+          else
+            docker build -q -t questcal-genmc VirtualQuest/formal/seqlock > /dev/null 2>&1 || { echo 'Building the GenMC image failed.'; exit 1; }
+            docker save -o "$RUNNER_TEMP/questcal-genmc.tar" questcal-genmc
+          fi
+
+      - name: Save the GenMC image
+        if: steps.share.outputs.genmc == 'true' && steps.genmc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/questcal-genmc.tar
+          key: questcal-genmc-${{ hashFiles('VirtualQuest/formal/seqlock/Dockerfile') }}
+
+      - name: Check share ${{ matrix.shard }} of 6
+        timeout-minutes: 60
+        env:
+          # TLC's default heap is a quarter of the runner's memory.
+          JAVA_TOOL_OPTIONS: -Xmx5g
+        run: >
+          python tools/ci/run-private-check.py --label "private core ${{ matrix.shard }}/6"
+          --raw "$RUNNER_TEMP/core-raw.json" --
+          pwsh -NoProfile -File VirtualQuest/formal/check.ps1 -Core -Strict -Shard ${{ matrix.shard }}/6
+          -SourceRoot "$PWD" -ResultPath "$RUNNER_TEMP/core-raw.json"
+
+  # Every numeric obligation: the expanded 64-frame checks need one
+  # memory-heavy process per runner.
+  numeric:
+    if: inputs.release
+    name: numeric (${{ matrix.shard }}/4)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Check out VirtualQuest
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
+        run: tools/ci/checkout-virtualquest.ps1
+
+      - name: Restore the ESBMC image
+        id: esbmc-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/questcal-esbmc.tar
+          key: questcal-esbmc-${{ hashFiles('VirtualQuest/formal/input-validation/Dockerfile') }}
+
+      - name: Load or build the ESBMC image
+        timeout-minutes: 20
+        run: |
+          if [ '${{ steps.esbmc-cache.outputs.cache-hit }}' = 'true' ]; then
+            docker load -i "$RUNNER_TEMP/questcal-esbmc.tar" > /dev/null
+          else
+            docker build -q -t questcal-esbmc VirtualQuest/formal/input-validation > /dev/null 2>&1 || { echo 'Building the ESBMC image failed.'; exit 1; }
+            docker save -o "$RUNNER_TEMP/questcal-esbmc.tar" questcal-esbmc
+          fi
+
+      - name: Save the ESBMC image
+        if: steps.esbmc-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/questcal-esbmc.tar
+          key: questcal-esbmc-${{ hashFiles('VirtualQuest/formal/input-validation/Dockerfile') }}
+
+      - name: Check share ${{ matrix.shard }} of 4
+        timeout-minutes: 75
+        run: >
+          python tools/ci/run-private-check.py --label "numeric ${{ matrix.shard }}/4"
+          --raw "$RUNNER_TEMP/numeric-raw.json" --
+          pwsh -NoProfile -File VirtualQuest/formal/check.ps1 -Only input-validation -Strict -Shard ${{ matrix.shard }}/4
+          -SourceRoot "$PWD" -ResultPath "$RUNNER_TEMP/numeric-raw.json"
+

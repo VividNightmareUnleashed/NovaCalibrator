@@ -18,8 +18,8 @@ $known = "$key.known_hosts"
 # https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
 [IO.File]::WriteAllText($known,
     "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl`n")
-# On Linux (the input-validation job) ssh ignores a key others can read, so the
-# file is made private before the key goes into it.
+# On Linux ssh ignores a key others can read, so the file is made private
+# before the key goes into it.
 [IO.File]::WriteAllText($key, '')
 if ($IsLinux -or $IsMacOS)
 {
