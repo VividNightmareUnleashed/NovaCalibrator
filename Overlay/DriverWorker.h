@@ -150,7 +150,7 @@ private:
 
 				if (pendingNeutralization)
 				{
-					neutralization = std::move(pendingNeutralization);
+					neutralization = pendingNeutralization;
 					pendingNeutralization.reset();
 				}
 				else if (pendingState && !neutralizationHeld)
