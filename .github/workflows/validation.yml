@@ -20,12 +20,16 @@ name: Validation
 # bounds (formal/check.ps1 -Only input-validation: ESBMC and Gappa in the
 # questcal-esbmc image) against this tree's headers. Nothing else here catches
 # a loosened bound in them, so the job fails on a skipped check as well as a
-# wrong outcome. The release workflow does not run it. This job runs on four
-# runners at once (check.ps1 -Shard, which balances them by the time each
-# check last took), about 25 checks each. The image is cached by its Dockerfile's
-# hash. A pull request only reads caches
-# saved on its own or its base branch, so the image a push to alpha saves lets
-# pull requests into alpha skip the build.
+# wrong outcome. The release workflow runs the same suite through
+# formal-assurance.yml. This job runs on four runners at once (check.ps1
+# -Shard, which balances them by the time each check last took), about 25
+# checks each. The image is cached by its Dockerfile's hash. A pull request only
+# reads caches saved on its own or its base branch, so the image a push to alpha
+# saves lets pull requests into alpha skip the build.
+#
+# The private-core job runs VirtualQuest's own formal suite, TLC, Lean and
+# GenMC, on six runners (formal-assurance.yml). Its output stays off this
+# public log; a failure names the checks that failed, to be run locally.
 on:
   push:
     branches: [alpha, stable]
@@ -211,3 +215,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'An input-validation check did not come out as expected.' }
           if ($lines | Where-Object { "$_" -match '^SKIP ' }) { throw 'An input-validation check was skipped.' }
           if (-not ($lines | Where-Object { "$_" -match '^ok ' })) { throw 'This share ran no input-validation check.' }
+
+  private-core:
+    if: github.event.pull_request.head.repo.fork != true
+    uses: ./.github/workflows/formal-assurance.yml
+    secrets: inherit

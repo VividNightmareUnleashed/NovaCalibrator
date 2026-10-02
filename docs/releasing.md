@@ -40,6 +40,14 @@ VirusTotal key comes from `$env:VT_API_KEY` or the git-ignored `.env` at the
 repository root. Package output in `install/out/` and `install/test-out/` is never
 committed.
 
+The hosted release also proves the tag against VirtualQuest's formal suite on
+Linux (`formal-assurance.yml`), all at once: the private core (TLC, Lean and
+GenMC) on six runners and the complete numeric suite on four, and the draft waits
+for them. This repository is public, so those jobs keep the private checks'
+output off the log; a failure names the checks that failed, and is investigated
+locally. The local release path does not run them, so let validation, which runs
+the same checks, pass on the release commit first.
+
 ## Source preflight
 
 - Confirm the release is authorized by the QuestCalibrator copyright holder.
@@ -63,29 +71,27 @@ committed.
   tools\validate-cpp.ps1 -Mode Build
   ```
 
-- Push `alpha` and wait for its validation workflow (build, harness, hub trace
-  replay, duplicate scan, input-validation proofs and Clang-Tidy) on the exact
-  release commit. Review every advisory clone it reports.
-- Run the private VirtualQuest suite locally after committing its changes:
+- Push VirtualQuest's commits, then `alpha`, and wait for its validation workflow
+  (build, harness, hub trace replay, duplicate scan, input-validation proofs,
+  Clang-Tidy and the private core) on the exact release commit. Review every
+  advisory clone it reports.
+- A private check that fails in a hosted run is reproduced locally; its output
+  never reaches the log:
 
   ```powershell
   pwsh -NoProfile -File VirtualQuest/formal/validate-local.ps1 -Setup
   ```
 
-  Keep the successful `.local-validation/run-*/result.json` and shard logs as the
-  local release record. Its `commit` must match the pinned VirtualQuest commit,
-  `fullSuite` and `sourcesUnchanged` must be true, and every shard must pass without
-  skipped checks. This covers TLC, Lean and GenMC; the public workflow covers
-  ESBMC, Gappa and trace replay. Both gates must pass before pushing the tag.
-  The private hosted workflow is manual-only and is not required when this local
-  record passes. See `VirtualQuest/formal/README.md` for tool setup and resources.
+  Its `.local-validation/run-*/result.json` records the VirtualQuest commit, tool
+  versions and every shard's status. See `VirtualQuest/formal/README.md` for tool
+  setup and resources.
 
 ## Remote validation setup
 
 The local private-suite entry point also supports a Linux runner with PowerShell 7.
 Keep `VirtualQuest/formal/validate-local.ps1`, `check.ps1`, all model and proof
-sources, both formal Dockerfiles and `.github/workflows/formal.yml` in Git.
-The manual hosted workflow documents the existing tool setup as a fallback.
+sources and both formal Dockerfiles in Git. `formal-assurance.yml` here documents
+the hosted tool setup.
 
 Provision Java 11 or newer, PowerShell 7, Git, elan and a working Linux Docker
 daemon. Give the runner read access to the private VirtualQuest repository through
