@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 
 namespace questcal
@@ -671,9 +672,13 @@ bool CalibrationEngine::EstimateTimeOffset(const std::vector<PoseSample> &refStr
 
 	// The best lag's figures are evidence even when they refuse the estimate.
 	if (scoreOut) *scoreOut = std::max(bestScore, -1.0);
-	if (bestScore < 0.25)
-		return refuse(bestScore <= -1.0 ? "no lag had enough varying motion on both sides"
-			: "the best correlation is under 0.25");
+	if (bestScore < config.minTimeOffsetCorrelation)
+	{
+		char weak[64];
+		snprintf(weak, sizeof weak, "the best correlation is under %.2f",
+			config.minTimeOffsetCorrelation);
+		return refuse(bestScore <= -1.0 ? "no lag had enough varying motion on both sides" : weak);
+	}
 
 	int bestGridIndex = static_cast<int>(std::distance(scores.begin(),
 		std::max_element(scores.begin(), scores.end())));
@@ -783,7 +788,7 @@ EngineResult CalibrationEngine::SolveAligned(const std::vector<AlignedSample> &s
 
 			// The devices are rigid: both deltas must rotate by the same angle.
 			// A large mismatch means jitter or a timing glitch on this pair.
-			if (std::abs(refAngle - targetAngle) > 0.35)
+			if (std::abs(refAngle - targetAngle) > config.maxPairAngleMismatch)
 			{
 				result.pairsRejected++;
 				continue;
@@ -1079,7 +1084,7 @@ EngineResult CalibrationEngine::SolveAligned(const std::vector<AlignedSample> &s
 		Eigen::Vector3d transJ = translation;
 		double scaleJ = scale;
 		if (JointRefine(samples, config, gravityRatio, rotJ, transJ, scaleJ) &&
-		    axisRmsDeg(rotJ) <= axisRmsDeg(rot) * 1.02)
+		    axisRmsDeg(rotJ) <= axisRmsDeg(rot) * config.maxRefinementAxisRmsRatio)
 		{
 			result.refinementApplied = true;
 			rot = rotJ;
