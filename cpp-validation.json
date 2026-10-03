@@ -5,8 +5,8 @@
   "platform": "x64",
   "testExecutable": "x64/Release/SolverTests.exe",
   "testProject": "Tests/SolverTests.vcxproj",
-  "minScenarios": 445,
-  "minScenariosWithVirtualQuest": 486,
+  "minScenarios": 446,
+  "minScenariosWithVirtualQuest": 487,
   "duplicateMinLines": 20,
   "duplicateMinTokens": 120
 }
