@@ -96,7 +96,7 @@ jobs:
 
     steps:
       - name: Check out the tagged source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: refs/tags/${{ env.TAG }}
           persist-credentials: false
@@ -140,7 +140,7 @@ jobs:
 
       - name: Keep the package with this run
         timeout-minutes: 10
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: package-${{ env.TAG }}
           path: |
@@ -160,7 +160,7 @@ jobs:
 
     steps:
       - name: Check out the tagged source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: refs/tags/${{ env.TAG }}
           persist-credentials: false
@@ -211,7 +211,8 @@ jobs:
     uses: ./.github/workflows/clang-tidy.yml
     with:
       ref: refs/tags/${{ inputs.tag || github.ref_name }}
-    secrets: inherit
+    secrets:
+      VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
 
   formal-assurance:
     needs: check
@@ -219,7 +220,8 @@ jobs:
     with:
       ref: refs/tags/${{ inputs.tag || github.ref_name }}
       release: true
-    secrets: inherit
+    secrets:
+      VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
 
   publish:
     needs: [build, traces, clang-tidy, formal-assurance]
@@ -232,7 +234,7 @@ jobs:
 
     steps:
       - name: Fetch the package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: package-${{ env.TAG }}
           path: package
