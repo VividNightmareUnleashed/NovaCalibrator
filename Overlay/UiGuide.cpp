@@ -202,7 +202,7 @@ void DrawGuideIndicators(ImDrawList *dl, ImVec2 origin, float width, const quest
 	}
 }
 
-void BuildMenu(const VRState &state, bool runningInOverlay)
+void BuildMenu(const VRState &state)
 {
 	auto &io = ImGui::GetIO();
 	float cw = ImGui::GetContentRegionAvail().x;
@@ -219,7 +219,7 @@ void BuildMenu(const VRState &state, bool runningInOverlay)
 		if (s_showSettings)
 			BuildSettingsScreen(state);
 		else
-			BuildMainScreen(state);
+			BuildMainScreen();
 	}
 	else if (CalCtx.state == CalibrationState::Editing)
 	{
