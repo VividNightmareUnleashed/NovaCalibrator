@@ -152,6 +152,7 @@ void JumpDetector::Push(const protocol::DevicePoseSample &s)
 
 	Hist h;
 	h.t = t;
+	h.sample = s.sampleTimeQpc;
 	h.pos = world.position;
 	h.vel = world.velocity;
 	h.yaw = YawOf(world.rotation);
@@ -187,7 +188,7 @@ void JumpDetector::Push(const protocol::DevicePoseSample &s)
 
 			if (localContinuous)
 			{
-				DetectWfdRebase(s.deviceId, dev, t, p.wfdRot, p.wfdTrans);
+				DetectWfdRebase(s.deviceId, dev, t, s.sampleTimeQpc, p.wfdRot, p.wfdTrans);
 				rebased = true;
 			}
 			else
@@ -231,7 +232,7 @@ void JumpDetector::Push(const protocol::DevicePoseSample &s)
 	TryAccept();
 }
 
-void JumpDetector::DetectWfdRebase(uint32_t id, DeviceState &dev, double t,
+void JumpDetector::DetectWfdRebase(uint32_t id, DeviceState &dev, double t, int64_t sample,
                                    const Eigen::Quaterniond &newRot, const Eigen::Vector3d &newTrans)
 {
 	// Exact world delta: worlds relate by D = new_wfd ∘ old_wfd⁻¹.
@@ -253,6 +254,7 @@ void JumpDetector::DetectWfdRebase(uint32_t id, DeviceState &dev, double t,
 	Candidate c;
 	c.deviceId = id;
 	c.t = t;
+	c.sample = sample;
 	c.kind = Kind::Exact;
 	c.life = Life::Ready;   // the exact path has its delta immediately
 	c.rot = yawRot;
@@ -292,6 +294,7 @@ void JumpDetector::DetectDiscontinuity(uint32_t id, DeviceState &dev, const Hist
 	Candidate c;
 	c.deviceId = id;
 	c.t = incoming.t;   // first post-jump sample time
+	c.sample = incoming.sample;
 	c.kind = Kind::Heuristic;
 	c.life = Life::Pending;
 	c.frameJumpPos = posErr;
@@ -475,6 +478,7 @@ void JumpDetector::TryAccept()
 		d.rotation = c.rot;
 		d.translation = c.trans;
 		d.time = c.t;
+		d.sample = c.sample;
 		d.exact = true;
 		d.devicesAgreeing = 1;
 		d.residualTiltRad = c.residualTiltRad;
@@ -574,6 +578,7 @@ void JumpDetector::TryAccept()
 		{
 			UniverseDelta d;
 			d.time = c0.t;
+			d.sample = c0.sample;
 			d.exact = false;
 			d.devicesAgreeing = static_cast<int>(agree.size());
 			d.residualSpread = spread;
@@ -747,11 +752,11 @@ void JumpDetector::Reset()
 	ignoredTranslation.setZero();
 }
 
-bool JumpDetector::HasLiveHeadsetCandidate(double time) const
+bool JumpDetector::HasLiveHeadsetCandidate(int64_t sample) const
 {
 	for (const auto &c : candidates)
 		if (c.deviceId == vr::k_unTrackedDeviceIndex_Hmd && c.kind == Kind::Heuristic &&
-			c.life != Life::Dead && c.t == time)
+			c.life != Life::Dead && c.sample == sample)
 			return true;
 	return false;
 }
