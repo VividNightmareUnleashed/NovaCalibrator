@@ -57,7 +57,7 @@ committed.
 
 The hosted release also proves the tag against VirtualQuest's formal suite on
 Linux (`formal-assurance.yml`), all at once: the private core (TLC, Lean and
-GenMC) on six runners and the complete numeric suite on four, and the draft waits
+GenMC) on four runners and the complete numeric suite on four, and the draft waits
 for them. This repository is public, so those jobs keep the private checks'
 output off the log; a failure names the checks that failed, and is investigated
 locally. The local release path does not run them, so let validation, which runs
