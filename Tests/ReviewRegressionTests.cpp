@@ -74,6 +74,40 @@ void RuntimeTransactionScenario(Check check)
 	disabled.hidden = 1;
 	check("driver: individual slot update survives runtime publication",
 		provider->TrySetDeviceTransform(disabled) && std::abs(read()) < 1e-12, "");
+
+	// A read that only ever finds a publication in progress (an odd sequence)
+	// gives up after its retries and returns the last coherent snapshot, not
+	// the slot it could not confirm; the next settled read takes the new one.
+	{
+		using namespace questcal::runtimesnapshot;
+		std::atomic<uint32_t> sequence{ 0 };
+		TransformSlot slot;
+		AtomicAlignmentField field;
+		protocol::SetDeviceTransform first;
+		first.enabled = 1;
+		first.generation = 1;
+		first.translation.v[0] = 0.1;
+		slot.Store(first);
+		Snapshot lastGood{};
+		const Snapshot settled = Read(sequence, slot, field, lastGood);
+		protocol::SetDeviceTransform second = first;
+		second.generation = 2;
+		second.translation.v[0] = 0.2;
+		sequence.store(1);
+		slot.Store(second);
+		const Snapshot during = Read(sequence, slot, field, lastGood);
+		sequence.store(2);
+		const Snapshot after = Read(sequence, slot, field, lastGood);
+		char fallback[160];
+		snprintf(fallback, sizeof fallback, "generations read %u, %u during, %u after",
+			settled.transform.control.generation, during.transform.control.generation,
+			after.transform.control.generation);
+		check("driver: a read during a publication keeps the last coherent snapshot",
+			settled.transform.control.generation == 1 && during.transform.control.generation == 1 &&
+			during.transform.calibration.translation.v[0] == 0.1 &&
+			after.transform.control.generation == 2 && lastGood.transform.calibration.translation.v[0] == 0.2,
+			fallback);
+	}
 }
 
 void CorrectionWithdrawalScenarios(Check check)
