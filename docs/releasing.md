@@ -66,8 +66,10 @@ Linux (`formal-assurance.yml`), all at once: the private core (TLC, Lean and
 GenMC) on four runners and the complete numeric suite on four, and the draft waits
 for them. This repository is public, so those jobs keep the private checks'
 output off the log; a failure names the checks that failed, and is investigated
-locally. The local release path does not run them, so let validation, which runs
-the same checks, pass on the release commit first.
+locally. The local release path does not run them, so let validation pass on the
+release commit first. It runs the same checks, each only for a change that can
+affect it (`tools/ci/formal-scope.py`): a check it skips has the same inputs as
+when it last passed.
 
 ## Source preflight
 
