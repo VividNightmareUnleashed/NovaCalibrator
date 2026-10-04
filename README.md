@@ -151,10 +151,8 @@ To run your build, copy `Driver\01questcalibrator` into SteamVR's `drivers` fold
 put `driver_01questcalibrator.dll` in its `bin\win64`, and start `QuestCalibrator.exe`
 with `openvr_api.dll`, `manifest.vrmanifest` and `icon.png` beside it.
 
-More for contributors:
+More about the source:
 
-- [docs/contributing.md](docs/contributing.md) covers the test harness, fuzzing,
-  checking screens without a headset, translations and the private submodule.
 - `tools\validate-cpp.ps1 -Mode Duplicates` scans for copied code, and
   `-Mode Analyze -All` rebuilds everything under Clang-Tidy. Settings live in
   `cpp-validation.json`.
