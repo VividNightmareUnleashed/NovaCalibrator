@@ -31,14 +31,19 @@ name: Validation
 # wrong outcome. The release workflow runs the same suite through
 # formal-assurance.yml. This job runs on six runners at once (check.ps1
 # -Shard, which balances them by the time each check last took), about 16
-# minutes of checks each: it is the longest job a push waits for, so it gets the
-# runners the shorter jobs do not need. The image is cached by its Dockerfile's
-# hash. A pull request only reads caches saved on its own or its base branch, so
-# the image a push to alpha saves lets pull requests into alpha skip the build.
+# minutes of checks each: when it runs it is the longest job a push waits for,
+# so it gets the runners the shorter jobs do not need. The image is cached by
+# its Dockerfile's hash. A pull request only reads caches saved on its own or
+# its base branch, so the image a push to alpha saves lets pull requests into
+# alpha skip the build.
 #
 # The private-core job runs VirtualQuest's own formal suite, TLC, Lean and
 # GenMC, on four runners (formal-assurance.yml). Its output stays off this
 # public log; a failure names the checks that failed, to be run locally.
+#
+# Those two formal jobs run only for a change that can affect them (the
+# formal-scope job below); a push that touches none of their inputs skips them,
+# and the checks list shows them as skipped.
 on:
   push:
     branches: [alpha, stable]
@@ -260,9 +265,44 @@ jobs:
     secrets:
       VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
 
+  # The formal jobs below are deterministic checks of particular files: run
+  # again on the same files they give the same answer. This works out which of
+  # them a change can affect (tools/ci/formal-scope.py), from what each job
+  # compiles and runs: a job runs when one of its inputs changed, when the
+  # VirtualQuest pin moved, or when the workflows or tools that run the checks
+  # changed, and always when the base cannot be compared (a new branch, a
+  # force push, a run started by hand). The release workflow runs the whole
+  # suite on the tag regardless.
+  formal-scope:
+    if: github.repository == 'VividNightmareUnleashed/QuestCalibrator' && github.event.pull_request.head.repo.fork != true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      input_validation: ${{ steps.scope.outputs.input_validation }}
+      core: ${{ steps.scope.outputs.core }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Check out VirtualQuest
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
+        run: tools/ci/checkout-virtualquest.ps1
+      - name: Work out which formal jobs this change needs
+        id: scope
+        env:
+          BASE: ${{ github.event_name == 'push' && github.event.before || github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+        run: |
+          # A base that cannot be fetched counts as one that cannot be compared.
+          if [ -n "$BASE" ]; then git fetch --no-tags --depth=1 origin "$BASE" || true; fi
+          python tools/ci/formal-scope.py --base "$BASE"
+
   input-validation:
     name: input-validation (${{ matrix.shard }}/6)
-    if: github.repository == 'VividNightmareUnleashed/QuestCalibrator' && github.event.pull_request.head.repo.fork != true
+    needs: formal-scope
+    if: needs.formal-scope.outputs.input_validation == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -337,7 +377,8 @@ jobs:
           if (-not ($lines | Where-Object { "$_" -match '^ok ' })) { throw 'This share ran no input-validation check.' }
 
   private-core:
-    if: github.repository == 'VividNightmareUnleashed/QuestCalibrator' && github.event.pull_request.head.repo.fork != true
+    needs: formal-scope
+    if: needs.formal-scope.outputs.core == 'true'
     uses: ./.github/workflows/formal-assurance.yml
     secrets:
       VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}

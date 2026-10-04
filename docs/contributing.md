@@ -162,6 +162,16 @@ so after such a change run
 `python VirtualQuest/formal/check-pins.py`. It checks every pin in about a second
 and names any that moved and where to.
 
+Validation runs each formal job only for a change that can affect it:
+`tools/ci/formal-scope.py` works out each job's inputs from the harnesses it
+compiles and the scripts it runs. `python tools/ci/formal-scope.py --list <job>`
+prints them, and `--base <commit>` says which jobs a change since that commit
+needs. The release workflow runs every formal check on the tag regardless.
+
+The formal suite's scope is settled: add an obligation only when a defect
+shows that the tests could not have caught it, and prefer a harness test when
+one can.
+
 ## Editor setup
 
 `compile_flags.txt` is for clangd only. Never add machine-specific paths to it.
