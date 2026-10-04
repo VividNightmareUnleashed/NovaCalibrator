@@ -536,28 +536,51 @@ void DescribeBaseStations(std::ostream &out, const CalibrationContext &ctx, cons
 	out << "\nper-device frame moves compensated: " << ctx.frameMovesFollowed;
 	if (!ctx.lastFrameMoveFollowed.empty())
 		out << " (last: " << ctx.lastFrameMoveFollowed << ")";
+	out << "\nframe corrections taken from the devices in a frame a device came into: " << ctx.frameJoins;
+	if (!ctx.lastFrameJoin.empty())
+		out << " (last: " << ctx.lastFrameJoin << ")";
 	out << "\nframe moves left alone while SteamVR set up its base stations: " << ctx.frameMovesInSetup;
 	if (!ctx.lastFrameMoveInSetup.empty())
 		out << " (last: " << ctx.lastFrameMoveInSetup << ")";
 	out << "\n\n";
 }
 
-void DescribeTrackerFrames(std::ostream &out, const CalibrationContext &ctx)
+void DescribeTrackerFrames(std::ostream &out, const CalibrationContext &ctx, const DiagnosticCapture &capture)
 {
 	out << "[tracker frame corrections]\n";
 	out << "session epoch: " << ctx.trackerFrameEpoch << "\n";
+	const uint32_t headsetTracker = ctx.ContinuousArmed() ? ctx.continuousTrackerId : vr::k_unTrackedDeviceIndexInvalid;
+	const int headsetGroup = headsetTracker < vr::k_unMaxTrackedDeviceCount ? capture.frameGroup[headsetTracker] : -1;
+	// Devices in one frame share SteamVR's geometry, so their corrections
+	// should match; one that does not is named (TrackerFrameCorrections::Join).
+	const auto &frames = ctx.trackerFrames.Snapshot();
+	int differing = 0;
 	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
 	{
-		const auto &frame = ctx.trackerFrames.Snapshot()[id];
-		if (frame == protocol::FrameCorrection{})
+		const auto &frame = frames[id];
+		const int group = ctx.targetDeviceMask[id] ? capture.frameGroup[id] : -1;
+		if (frame == protocol::FrameCorrection{} && group < 0)
 			continue;
 		out << "device " << id << " " << ctx.trackerFrames.Serial(id)
 			<< ": rotation (w x y z) " << frame.rotation.w << " " << frame.rotation.x
 			<< " " << frame.rotation.y << " " << frame.rotation.z
 			<< ", translation (unscaled m) " << frame.translation.v[0] << " "
-			<< frame.translation.v[1] << " " << frame.translation.v[2] << "\n";
+			<< frame.translation.v[1] << " " << frame.translation.v[2];
+		if (group >= 0)
+		{
+			// Against the headset tracker in its frame, else the frame's first device.
+			const uint32_t against = group == headsetGroup && id != headsetTracker
+				? headsetTracker : static_cast<uint32_t>(group);
+			out << "; frame " << group << (group == headsetGroup ? " (the headset tracker's)" : "");
+			if (against != id && !questcal::TrackerFrameCorrections::Agree(frame, frames[against]))
+			{
+				out << ", correction differs from device " << against << "'s";
+				++differing;
+			}
+		}
+		out << "\n";
 	}
-	out << "\n";
+	out << "devices whose correction differs from their frame's: " << differing << "\n\n";
 }
 
 void DescribeDriverSync(std::ostream &out, const CalibrationContext &ctx, const DiagnosticCapture &capture)
@@ -659,7 +682,7 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 
 	DescribeBaseStations(out, ctx, capture);
 
-	DescribeTrackerFrames(out, ctx);
+	DescribeTrackerFrames(out, ctx, capture);
 
 	DescribeDriverSync(out, ctx, capture);
 

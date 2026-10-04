@@ -6,6 +6,7 @@
 // replaced. Device serials stay: they identify hardware, not people.
 
 #include <openvr.h>
+#include <array>
 #include <string>
 #include "PoseStreamHub.h"
 #include "DriverSyncTracker.h"
@@ -24,6 +25,14 @@ struct DiagnosticCapture
 	std::string steamVrRuntimePath;
 	float steamVrWorldScale = 0.0f;
 	vr::EVRSettingsError worldScaleError = vr::VRSettingsError_ReadFailed;
+	// The lighthouse frame each device, base stations aside, was last seen in
+	// (LighthouseFrameWatch::FrameGroup): devices in one frame share the lowest
+	// id among them, and a device with no frame is -1.
+	std::array<int, vr::k_unMaxTrackedDeviceCount> frameGroup = [] {
+		std::array<int, vr::k_unMaxTrackedDeviceCount> none{};
+		none.fill(-1);
+		return none;
+	}();
 };
 DiagnosticCapture CaptureCalibrationDiagnostics();
 std::string DescribeFrameFailureCapture(const CalibrationContext &ctx, vr::IVRSystem *system,
