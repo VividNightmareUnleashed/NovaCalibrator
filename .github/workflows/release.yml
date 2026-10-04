@@ -353,6 +353,9 @@ jobs:
 
   install-test:
     needs: publish
+    # The implicit success() also looks past publish, and a skipped
+    # formal-assurance would skip the test while the run stays green.
+    if: always() && needs.publish.result == 'success'
     # The install test downloads the draft, which only a token that can write
     # here can see.
     permissions:
