@@ -527,8 +527,8 @@ void VisibilityScenarios(Check check)
 	// SteamVR's startup on 2026-09-27 through the parser, as the overlay read
 	// it: when it started the file held an earlier session and this one's
 	// first line, and the rest came live. Seconds from the server's start.
-	// The census followed the station placed 26 ms after the universe was
-	// chosen; a station SteamVR moved 20 s later is one to follow.
+	// The calibration of the time followed the station placed 26 ms after the
+	// universe was chosen; a station SteamVR moved 20 s later is one to follow.
 	{
 		using U = LighthouseVisibility::UniverseSetup;
 		LighthouseVisibility setup;
