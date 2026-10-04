@@ -63,6 +63,12 @@
     <ClInclude Include="Updater.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="UpdateSignature.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="UpdateSigningKey.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="CalibrationRun.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -231,6 +237,15 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Updater.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UpdateSignature.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\lib\monocypher\monocypher.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\lib\monocypher\monocypher-ed25519.c">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\lib\imgui\imgui.cpp">

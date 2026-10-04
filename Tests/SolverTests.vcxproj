@@ -116,6 +116,7 @@
     <ClCompile Include="UniverseVerdictTests.cpp" />
     <ClCompile Include="PoseHubHoleTests.cpp" />
     <ClCompile Include="PoseRingTests.cpp" />
+    <ClCompile Include="UpdateSignatureTests.cpp" />
     <ClCompile Include="CalibrationSpaceTests.cpp" />
     <ClCompile Include="PoseMathTests.cpp" />
     <ClCompile Include="QualityBandsTests.cpp" />
@@ -148,6 +149,8 @@
     <ClCompile Include="..\lib\MinHook\src\trampoline.c" />
     <ClCompile Include="..\lib\MinHook\src\hde\hde32.c" />
     <ClCompile Include="..\lib\MinHook\src\hde\hde64.c" />
+    <ClCompile Include="..\lib\monocypher\monocypher.c" />
+    <ClCompile Include="..\lib\monocypher\monocypher-ed25519.c" />
     <ClCompile Include="..\Driver\Logging.cpp" />
     <ClCompile Include="..\Overlay\CalibrationDriver.cpp" />
     <ClCompile Include="..\Overlay\CalibrationEngine.cpp" />
@@ -162,6 +165,7 @@
     <ClCompile Include="..\Overlay\JumpDetector.cpp" />
     <ClCompile Include="..\Overlay\PoseStreamHub.cpp" />
     <ClCompile Include="..\Overlay\Updater.cpp" />
+    <ClCompile Include="..\Overlay\UpdateSignature.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\Driver\AlignmentField.h" />

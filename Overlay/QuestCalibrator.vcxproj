@@ -120,6 +120,8 @@
     <ClInclude Include="LocalizationTables.h" />
     <ClInclude Include="UpdatePolicy.h" />
     <ClInclude Include="Updater.h" />
+    <ClInclude Include="UpdateSignature.h" />
+    <ClInclude Include="UpdateSigningKey.h" />
     <ClInclude Include="CalibrationRun.h" />
     <ClInclude Include="Clocks.h" />
     <ClInclude Include="CollectionSource.h" />
@@ -169,6 +171,12 @@
     <ClCompile Include="..\lib\gl3w\src\gl3w.c">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="..\lib\monocypher\monocypher.c">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="..\lib\monocypher\monocypher-ed25519.c">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="..\lib\imgui\imgui.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
@@ -407,6 +415,9 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="Updater.cpp" />
+    <ClCompile Include="UpdateSignature.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="CalibrationEngine.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>

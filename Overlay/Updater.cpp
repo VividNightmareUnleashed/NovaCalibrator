@@ -1,5 +1,7 @@
 #include "stdafx.h"
 #include "Updater.h"
+#include "UpdateSignature.h"
+#include "UpdateSigningKey.h"
 #include "../common/Version.h"
 
 #include <bcrypt.h>
@@ -133,8 +135,9 @@ void SendGet(HINTERNET request, const wchar_t *headers = WINHTTP_NO_ADDITIONAL_H
 		throw std::runtime_error("GitHub returned HTTP " + std::to_string(status) + ".");
 }
 
+// `tooLarge` is the error once the body passes `maxBytes`.
 std::string ReadResponse(HINTERNET request, size_t maxBytes,
-	const std::function<bool()> &cancelled)
+	const std::function<bool()> &cancelled, const char *tooLarge)
 {
 	std::string body;
 	std::array<char, 16384> buffer;
@@ -147,7 +150,7 @@ std::string ReadResponse(HINTERNET request, size_t maxBytes,
 			throw NetworkError("Reading the update response");
 		if (read == 0) break;
 		if (body.size() + read > maxBytes)
-			throw std::runtime_error("GitHub returned an unexpectedly large release list.");
+			throw std::runtime_error(tooLarge);
 		body.append(buffer.data(), read);
 	}
 	return body;
@@ -162,7 +165,8 @@ std::string FetchReleaseFeed(HINTERNET session,
 	SendGet(request,
 		L"Accept: application/vnd.github+json\r\n"
 		L"X-GitHub-Api-Version: 2022-11-28\r\n");
-	return ReadResponse(request, 1024 * 1024, cancelled);
+	return ReadResponse(request, 1024 * 1024, cancelled,
+		"GitHub returned an unexpectedly large release list.");
 }
 
 struct DownloadTarget
@@ -193,56 +197,126 @@ DownloadTarget ParseDownloadTarget(const std::string &url)
 	return target;
 }
 
-bool HashFile(const std::filesystem::path &path,
-	std::array<unsigned char, 32> &digest)
+// SHA-256 through Windows CNG, fed in pieces. Any failure, from opening the
+// provider on, makes Final false.
+class Sha256
 {
-	BCRYPT_ALG_HANDLE algorithm = nullptr;
-	BCRYPT_HASH_HANDLE hash = nullptr;
-	std::vector<unsigned char> object;
-	bool ok = false;
-	do
+public:
+	Sha256()
 	{
 		if (BCryptOpenAlgorithmProvider(&algorithm, BCRYPT_SHA256_ALGORITHM,
-			nullptr, 0) < 0) break;
+			nullptr, 0) < 0)
+		{
+			algorithm = nullptr;
+			return;
+		}
 		DWORD objectBytes = 0, resultBytes = 0;
 		if (BCryptGetProperty(algorithm, BCRYPT_OBJECT_LENGTH,
 			reinterpret_cast<PUCHAR>(&objectBytes), sizeof objectBytes,
-			&resultBytes, 0) < 0 || objectBytes == 0) break;
+			&resultBytes, 0) < 0 || objectBytes == 0)
+			return;
 		object.resize(objectBytes);
 		if (BCryptCreateHash(algorithm, &hash, object.data(), objectBytes,
-			nullptr, 0, 0) < 0) break;
+			nullptr, 0, 0) < 0)
+			hash = nullptr;
+	}
+	~Sha256()
+	{
+		if (hash) BCryptDestroyHash(hash);
+		if (algorithm) BCryptCloseAlgorithmProvider(algorithm, 0);
+	}
+	Sha256(const Sha256 &) = delete;
+	Sha256 &operator=(const Sha256 &) = delete;
 
-		std::ifstream input(path, std::ios::binary);
-		if (!input) break;
-		std::array<char, 65536> buffer;
-		while (input)
-		{
-			input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-			const std::streamsize count = input.gcount();
-			if (count > 0 && BCryptHashData(hash,
-				reinterpret_cast<PUCHAR>(buffer.data()),
-				static_cast<ULONG>(count), 0) < 0) break;
-		}
-		if (!input.eof()) break;
-		if (BCryptFinishHash(hash, digest.data(),
-			static_cast<ULONG>(digest.size()), 0) < 0) break;
-		ok = true;
-	} while (false);
-	if (hash) BCryptDestroyHash(hash);
-	if (algorithm) BCryptCloseAlgorithmProvider(algorithm, 0);
-	return ok;
+	void Update(const void *data, ULONG size)
+	{
+		healthy = healthy && hash && BCryptHashData(hash,
+			static_cast<PUCHAR>(const_cast<void *>(data)), size, 0) >= 0;
+	}
+	bool Final(std::array<unsigned char, 32> &digest)
+	{
+		return healthy && hash && BCryptFinishHash(hash, digest.data(),
+			static_cast<ULONG>(digest.size()), 0) >= 0;
+	}
+
+private:
+	BCRYPT_ALG_HANDLE algorithm = nullptr;
+	BCRYPT_HASH_HANDLE hash = nullptr;
+	std::vector<unsigned char> object;
+	bool healthy = true;
+};
+
+bool HashFile(const std::filesystem::path &path,
+	std::array<unsigned char, 32> &digest)
+{
+	std::ifstream input(path, std::ios::binary);
+	if (!input) return false;
+	Sha256 hash;
+	std::array<char, 65536> buffer;
+	while (input)
+	{
+		input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+		const std::streamsize count = input.gcount();
+		if (count > 0)
+			hash.Update(buffer.data(), static_cast<ULONG>(count));
+	}
+	return input.eof() && hash.Final(digest);
 }
 
-bool FileMatches(const std::filesystem::path &path, uint64_t size,
-	const std::array<unsigned char, 32> &digest)
+class FileHandle
 {
-	// On error these return false and uintmax_t(-1), never a valid size.
-	std::error_code ec;
-	if (!std::filesystem::is_regular_file(path, ec) ||
-		std::filesystem::file_size(path, ec) != size)
-		return false;
-	std::array<unsigned char, 32> actual{};
-	return HashFile(path, actual) && actual == digest;
+public:
+	explicit FileHandle(HANDLE value) : value(value) {}
+	~FileHandle() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); }
+	FileHandle(const FileHandle &) = delete;
+	FileHandle &operator=(const FileHandle &) = delete;
+	operator HANDLE() const { return value; }
+
+private:
+	HANDLE value;
+};
+
+// Reads the package once, through a handle that lets nothing write or replace
+// it meanwhile, and checks its size, its SHA-256 against the release's digest
+// and its signature against `key`. Empty when it passes, otherwise why not.
+// The SHA-256 the update helper checks again is then the digest of signed
+// bytes.
+std::string VerifyPackage(const std::filesystem::path &path,
+	const ReleaseCandidate &release, const SigningPublicKey &key)
+{
+	PackageSignature signature;
+	if (!ParsePackageSignature(release.signature, signature))
+		return "The release signature is malformed.";
+	FileHandle file(CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+		OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
+	if (file == INVALID_HANDLE_VALUE)
+		return "The update package could not be opened.";
+	LARGE_INTEGER size{};
+	if (!GetFileSizeEx(file, &size) || static_cast<uint64_t>(size.QuadPart) != release.size)
+		return "The update package is not the size GitHub reported.";
+
+	Sha256 sha256;
+	Blake2b512 blake2b;
+	std::vector<char> buffer(65536);
+	uint64_t total = 0;
+	for (;;)
+	{
+		DWORD read = 0;
+		if (!ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr))
+			return "The update package could not be read.";
+		if (read == 0) break;
+		total += read;
+		sha256.Update(buffer.data(), read);
+		blake2b.Update(buffer.data(), read);
+	}
+	std::array<unsigned char, 32> digest{};
+	if (total != release.size || !sha256.Final(digest))
+		return "The update package could not be read.";
+	if (digest != release.digestBytes)
+		return "The downloaded package failed SHA-256 verification.";
+	if (!VerifyPackageSignature(key, signature, blake2b.Final(), release.packageName))
+		return "The downloaded package's signature does not verify against the release key.";
+	return std::string();
 }
 
 void DownloadPackage(HINTERNET session, const ReleaseCandidate &release,
@@ -279,6 +353,30 @@ void DownloadPackage(HINTERNET session, const ReleaseCandidate &release,
 	output.close();
 	if (total != release.size)
 		throw std::runtime_error("The update package download was incomplete.");
+}
+
+std::string DownloadSignature(HINTERNET session, const ReleaseCandidate &release,
+	const std::function<bool()> &cancelled)
+{
+	const DownloadTarget target = ParseDownloadTarget(release.signatureUrl);
+	HttpRequest request = OpenGet(session, target.host.c_str(),
+		target.port, target.path.c_str());
+	SendGet(request);
+	std::string signature = ReadResponse(request, static_cast<size_t>(release.signatureSize),
+		cancelled, "The release signature is larger than GitHub reported.");
+	if (signature.size() != release.signatureSize)
+		throw std::runtime_error("The release signature download was incomplete.");
+	return signature;
+}
+
+// The key every update must be signed with, or an error for a build that has
+// none.
+SigningPublicKey ReleaseKey()
+{
+	SigningPublicKey key;
+	if (!ParseSigningPublicKey(ReleaseSigningPublicKey, key))
+		throw std::runtime_error("This build has no release signing key, so it cannot verify updates.");
+	return key;
 }
 
 const char *UpdateHelperScript()
@@ -421,6 +519,14 @@ bool HashFileSha256(const std::filesystem::path &path, std::array<unsigned char,
 {
 	return HashFile(path, digest);
 }
+
+#ifdef QUESTCAL_UPDATER_TEST_SEAM
+std::string VerifyPackageForTest(const std::filesystem::path &path,
+	const ReleaseCandidate &release, const SigningPublicKey &key)
+{
+	return VerifyPackage(path, release, key);
+}
+#endif
 
 Updater::~Updater()
 {
@@ -617,11 +723,21 @@ void Updater::RunCheck(uint64_t checkRevision)
 		else
 		{
 			const std::string version = VersionString(release.version);
+			const SigningPublicKey key = ReleaseKey();
 			if (!Publish(checkRevision, State::Downloading,
 				"Downloading QuestCalibrator " + version, version, 0, release.size))
 				throw std::runtime_error("Update check cancelled.");
 			Log("stable release " + version + " found (" +
 				std::to_string(release.size) + " bytes)");
+
+			// The signature is small, so a release this build will not take is
+			// refused before the package is downloaded.
+			release.signature = DownloadSignature(session, release, cancelled);
+			PackageSignature signature;
+			if (!ParsePackageSignature(release.signature, signature))
+				throw std::runtime_error("The release signature is malformed.");
+			if (signature.keyId != key.keyId)
+				throw std::runtime_error("The release is signed by a key this build does not trust.");
 
 			const std::filesystem::path directory = LocalUpdateRoot() /
 				Utf8ToWide(version);
@@ -633,7 +749,7 @@ void Updater::RunCheck(uint64_t checkRevision)
 			const std::filesystem::path package = directory /
 				Utf8ToWide(release.packageName);
 			bool downloaded = false;
-			if (!FileMatches(package, release.size, release.digestBytes))
+			if (!VerifyPackage(package, release, key).empty())
 			{
 				const std::filesystem::path part = package.wstring() + L".part";
 				std::error_code ignored;
@@ -646,11 +762,11 @@ void Updater::RunCheck(uint64_t checkRevision)
 							"Downloading QuestCalibrator " + version,
 							version, bytes, release.size);
 					});
-				if (!FileMatches(part, release.size, release.digestBytes))
+				const std::string failure = VerifyPackage(part, release, key);
+				if (!failure.empty())
 				{
 					std::filesystem::remove(part, ignored);
-					throw std::runtime_error(
-						"The downloaded package failed SHA-256 verification.");
+					throw std::runtime_error(failure);
 				}
 				std::filesystem::remove(package, ignored);
 				std::error_code renameError;
@@ -676,7 +792,7 @@ void Updater::RunCheck(uint64_t checkRevision)
 				version, release.size, release.size))
 			{
 				Log(std::string(downloaded ? "downloaded package " : "cached package ") +
-					version + "; size and SHA-256 verified; ready to install");
+					version + "; size, SHA-256 and signature verified; ready to install");
 			}
 		}
 	}
@@ -714,8 +830,14 @@ bool Updater::LaunchInstaller(std::string &error)
 
 	try
 	{
-		if (!FileMatches(package, release.size, release.digestBytes))
-			throw std::runtime_error("The downloaded update no longer passes SHA-256 verification.");
+		// The signature is the copy downloaded with the check, held in memory;
+		// the package beside it is in a folder the user can write to.
+		const std::string failure = VerifyPackage(package, release, ReleaseKey());
+		if (!failure.empty())
+		{
+			Log("installer handoff refused for " + VersionString(release.version) + ": " + failure);
+			throw std::runtime_error("The downloaded update no longer passes verification.");
+		}
 
 		const std::filesystem::path script = package.parent_path() / L"ApplyUpdate.ps1";
 		std::ofstream output(script, std::ios::binary | std::ios::trunc);
@@ -756,7 +878,7 @@ bool Updater::LaunchInstaller(std::string &error)
 		CloseHandle(process.hThread);
 		CloseHandle(process.hProcess);
 		Log("installer handoff started for " + VersionString(release.version) +
-			" after SHA-256 re-verification");
+			" after SHA-256 and signature re-verification");
 		return true;
 	}
 	catch (const std::exception &failure)
