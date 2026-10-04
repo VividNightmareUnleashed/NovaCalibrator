@@ -162,6 +162,10 @@ inline bool ParseSha256Digest(const std::string &digest,
 	return true;
 }
 
+// A minisign signature is a few hundred bytes; its trusted comment is the
+// package name.
+constexpr uint64_t MaxSignatureBytes = 4096;
+
 struct ReleaseCandidate
 {
 	Version version;
@@ -172,6 +176,11 @@ struct ReleaseCandidate
 	std::string digest;
 	std::array<unsigned char, 32> digestBytes{};
 	uint64_t size = 0;
+	// The package's .minisig asset. The updater fills `signature` once it has
+	// downloaded it, and checks the package against it before installing.
+	std::string signatureUrl;
+	uint64_t signatureSize = 0;
+	std::string signature;
 };
 
 template<typename T>
@@ -185,7 +194,8 @@ inline bool JsonField(const picojson::object &object, const char *key, T &out)
 }
 
 // The feed is untrusted input. Select the newest published stable release,
-// then require its one canonical package to be complete and consistent. Never
+// then require its one canonical package, and that package's one signature, to
+// be complete and consistent. Never
 // fall back to an older package when the newest release is malformed: that
 // would hide a broken or partially published release. `current` is always a
 // final release: Updater::CheckNow stops a prerelease build before this.
@@ -268,14 +278,18 @@ inline bool SelectReleaseCandidate(const std::string &json,
 		return false;
 	}
 	parsed.packageName = CanonicalPackageName(bestVersion);
+	const std::string signatureName = parsed.packageName + ".minisig";
 	const picojson::object *package = nullptr;
+	const picojson::object *signature = nullptr;
 	for (const auto &assetValue : assets)
 	{
 		if (!assetValue.is<picojson::object>())
 			continue;
 		const auto &asset = assetValue.get<picojson::object>();
 		std::string name;
-		if (JsonField(asset, "name", name) && name == parsed.packageName)
+		if (!JsonField(asset, "name", name))
+			continue;
+		if (name == parsed.packageName)
 		{
 			if (package)
 			{
@@ -284,10 +298,26 @@ inline bool SelectReleaseCandidate(const std::string &json,
 			}
 			package = &asset;
 		}
+		else if (name == signatureName)
+		{
+			if (signature)
+			{
+				error = "The newest release contains duplicate signatures.";
+				return false;
+			}
+			signature = &asset;
+		}
 	}
 	if (!package)
 	{
 		error = "The newest release does not contain " + parsed.packageName + ".";
+		return false;
+	}
+	// Installed copies take only signed packages, so an unsigned release is
+	// refused, never passed over for an older signed one.
+	if (!signature)
+	{
+		error = "The newest release is not signed.";
 		return false;
 	}
 
@@ -314,7 +344,22 @@ inline bool SelectReleaseCandidate(const std::string &json,
 		error = "The newest release package points outside the QuestCalibrator repository.";
 		return false;
 	}
+	double signatureSize = 0.0;
+	if (!JsonField(*signature, "browser_download_url", parsed.signatureUrl) ||
+		!JsonField(*signature, "size", signatureSize) ||
+		std::floor(signatureSize) != signatureSize || signatureSize < 1.0 ||
+		signatureSize > static_cast<double>(MaxSignatureBytes))
+	{
+		error = "The newest release signature has invalid metadata.";
+		return false;
+	}
+	if (parsed.signatureUrl != expectedDownloadUrl + ".minisig")
+	{
+		error = "The newest release signature points outside the QuestCalibrator repository.";
+		return false;
+	}
 	parsed.size = static_cast<uint64_t>(size);
+	parsed.signatureSize = static_cast<uint64_t>(signatureSize);
 	candidate = std::move(parsed);
 	return true;
 }
