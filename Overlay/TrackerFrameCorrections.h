@@ -4,8 +4,10 @@
 #include "ProfileRecord.h"
 #include "FrameRecovery.h"
 
+#include <algorithm>
 #include <array>
 #include <string>
+#include <vector>
 
 namespace questcal
 {
@@ -146,15 +148,132 @@ public:
 	bool Align(uint32_t id, uint32_t source)
 	{
 		if (id >= frames.size() || source >= frames.size() || id == source ||
-			(restoredKeys[id] != 0 && serials[id].empty()) || frames[id] == frames[source])
+			Parked(id) || frames[id] == frames[source])
 			return false;
 		frames[id] = frames[source];
 		return true;
 	}
+
+	// One device Join gave another's correction.
+	struct Joined
+	{
+		uint32_t id = 0;
+		uint32_t source = 0;
+		bool fromHeadsetTracker = false;
+		// How many devices in the frame shared the correction it took.
+		size_t sharedBy = 0;
+		protocol::FrameCorrection before;
+	};
+	struct JoinResult
+	{
+		std::vector<Joined> joined;
+		// Why nothing was taken, for the detailed log; null when something was.
+		const char *kept = nullptr;
+	};
+
+	// The same rule between recalibrations. A device that came into a frame
+	// with no move its correction followed (LighthouseFrameWatch::Switch)
+	// carries a correction made for the frame it left: live 2026-10-03, a body
+	// tracker bootstrapped from S-13 while SteamVR moved S-3 under every other
+	// device, came back into S-3's frame 7.4 cm off them and stayed so for 92
+	// minutes. It takes the correction of the calibrated devices already in its
+	// frame: the headset tracker's when that is one of them, since the
+	// continuous loop holds that one to the headset, otherwise theirs when they
+	// all agree; alone, or among devices that disagree, it keeps its own. The
+	// headset tracker coming into a frame gives its correction to the devices
+	// there instead, and never takes one. `member` says which devices are
+	// calibrated, `keep` is one whose correction stays put (a measurement's
+	// target), and a change still being read off other devices' moves
+	// (LighthouseFrameWatch::Settled) waits for its own switch.
+	template <class Member>
+	JoinResult Join(const LighthouseFrameWatch::Switch &change, const LighthouseFrameWatch &watch,
+		uint32_t headsetTracker, uint32_t keep, Member member)
+	{
+		JoinResult result;
+		const uint32_t id = change.id;
+		Eigen::Quaterniond frameRotation;
+		Eigen::Vector3d frameTranslation;
+		if (id >= frames.size() || !member(id))
+			result.kept = "it is not calibrated";
+		else if (Parked(id))
+			result.kept = "its recovered correction is not bound to it yet";
+		else if (!watch.LastFrame(id, frameRotation, frameTranslation))
+			result.kept = "it has no frame any more";
+		else if (!watch.Settled(id))
+			result.kept = "a later change of its frame is still being read";
+		if (result.kept)
+			return result;
+		std::vector<uint32_t> mates;
+		for (uint32_t other = 0; other < frames.size(); ++other)
+			if (other != id && member(other) && !Parked(other) && watch.Settled(other) &&
+				watch.InFrame(other, frameRotation, frameTranslation))
+				mates.push_back(other);
+		if (mates.empty())
+		{
+			result.kept = "no other calibrated device is in that frame";
+			return result;
+		}
+		auto take = [&](uint32_t to, uint32_t from, bool fromHeadsetTracker, size_t sharedBy)
+		{
+			if (to == keep || Agree(frames[to], frames[from]))
+				return;
+			result.joined.push_back({ to, from, fromHeadsetTracker, sharedBy, frames[to] });
+			frames[to] = frames[from];
+		};
+		if (id == headsetTracker)
+		{
+			for (const uint32_t mate : mates)
+				take(mate, id, true, 1);
+			if (result.joined.empty())
+				result.kept = "the devices in that frame already have its correction";
+			return result;
+		}
+		if (std::find(mates.begin(), mates.end(), headsetTracker) != mates.end())
+		{
+			take(id, headsetTracker, true, 1);
+		}
+		else
+		{
+			for (const uint32_t mate : mates)
+				if (!Agree(frames[mate], frames[mates.front()]))
+				{
+					result.kept = "the devices in that frame disagree";
+					return result;
+				}
+			take(id, mates.front(), false, mates.size());
+		}
+		if (result.joined.empty())
+		{
+			result.kept = id == keep ? "it is being measured" : "it already has their correction";
+			return result;
+		}
+		// Samples from before the change are from the frame it left.
+		usableAfter[id] = (std::max)(usableAfter[id], change.time);
+		return result;
+	}
 	const std::string &Serial(uint32_t id) const { return serials.at(id); }
 	uint64_t IdentityKey(uint32_t id) const { return restoredKeys.at(id); }
 
+	// Two corrections within what counts as one frame (WorldFromDriverChanged):
+	// the same moves followed in another order differ by rounding alone.
+	static bool Agree(const protocol::FrameCorrection &a, const protocol::FrameCorrection &b)
+	{
+		return !questcal::WorldFromDriverChanged(
+			Eigen::Quaterniond(a.rotation.w, a.rotation.x, a.rotation.y, a.rotation.z), Eigen::Vector3d(a.translation.v),
+			Eigen::Quaterniond(b.rotation.w, b.rotation.x, b.rotation.y, b.rotation.z), Eigen::Vector3d(b.translation.v));
+	}
+
+	// Where a correction puts a raw world position.
+	static Eigen::Vector3d Apply(const protocol::FrameCorrection &frame, const Eigen::Vector3d &position)
+	{
+		return Eigen::Quaterniond(frame.rotation.w, frame.rotation.x, frame.rotation.y, frame.rotation.z) * position +
+			Eigen::Vector3d(frame.translation.v);
+	}
+
 private:
+	// A recovered correction whose device has not been identified in its slot yet.
+	bool Parked(uint32_t id) const { return restoredKeys[id] != 0 && serials[id].empty(); }
+
 	Frames frames{};
 	FrameSerialKeys restoredKeys{};
 	std::array<std::string, vr::k_unMaxTrackedDeviceCount> serials{};

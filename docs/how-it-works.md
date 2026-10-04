@@ -109,7 +109,12 @@ Runtime alignment maintenance uses the timestamped pose ring and calibration sol
   frames keep their alignment. This works with either continuous method or
   with continuous calibration off. A returning tracker receives a correction
   only when its frame change can be established from observed station moves;
-  any additional change in its own local tracking remains visible. The
+  any additional change in its own local tracking remains visible. A tracker
+  that comes into a station's frame without such a move (after a new solution
+  from another station, for example) takes the correction of the devices
+  already reported in that frame, the headset tracker's when it is one of
+  them: devices in one station's frame share SteamVR's geometry. Alone in a
+  frame, or among devices whose corrections disagree, it keeps its own. The
   correction is applied before the shared calibration and spatial field, and
   continuous calibration uses the same corrected target space. Recalibrating an
   active profile retains these relative frame corrections while measuring the new shared

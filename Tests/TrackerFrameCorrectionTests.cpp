@@ -14,9 +14,12 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <initializer_list>
 #include <limits>
+#include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -733,6 +736,333 @@ void DeferredFrameLog(Check check)
 		pass && first != std::string::npos && written.find("frame applied", first + 1) == std::string::npos,
 		written.c_str());
 }
+
+// Devices coming into a frame with no move to follow (TrackerFrameCorrections::
+// Join), replayed against the truth. SteamVR's estimate of each station's pose
+// carries an error, which a frame move multiplies by its delta; a device in a
+// station's frame reports its true pose under that error. Every error starts
+// as the identity, as at a calibration, so a device's correction is right when
+// it undoes the error of the frame it is in, and Error() measures how far the
+// corrected pose is from the truth.
+struct JoinRig
+{
+	struct Pose
+	{
+		Q rotation = Q::Identity();
+		V translation = V::Zero();
+	};
+	struct Device
+	{
+		int station = 0;      // whose frame it is in; -1 when it does not track
+		V truth = V::Zero();
+		bool connected = true;
+	};
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections frames;
+	std::vector<Pose> stations;   // the true poses
+	std::vector<Pose> estimates;  // SteamVR's
+	std::map<uint32_t, Device> devices;
+	uint32_t headset = vr::k_unTrackedDeviceIndexInvalid;
+	uint32_t keep = vr::k_unTrackedDeviceIndexInvalid;
+	bool join = true;
+	double time = 10.0;
+	std::vector<LighthouseFrameWatch::Switch> switches;
+	std::vector<questcal::TrackerFrameCorrections::Joined> joined;
+	std::vector<std::string> kept;
+	size_t moves = 0;
+
+	JoinRig(std::initializer_list<Pose> poses) : stations(poses), estimates(poses) {}
+
+	// Where the device's true pose sits in its station's true frame.
+	Pose Local(const Device &d) const
+	{
+		const Pose &b = stations[static_cast<size_t>(d.station)];
+		return { b.rotation.conjugate(), b.rotation.conjugate() * (d.truth - b.translation) };
+	}
+
+	void Tick()
+	{
+		time += 0.05;
+		for (size_t k = 0; k < estimates.size(); ++k)
+			watch.Note(Sample(1 + static_cast<uint32_t>(k), time, V::Zero(), estimates[k].rotation,
+				estimates[k].translation), TickScale, true);
+		for (const auto &[id, d] : devices)
+		{
+			protocol::DevicePoseSample s;
+			if (d.station < 0)
+			{
+				s = Sample(id, time, V::Zero());
+				s.poseIsValid = false;
+				s.trackingResult = vr::TrackingResult_Running_OutOfRange;
+			}
+			else
+			{
+				const Pose local = Local(d);
+				const Pose &w = estimates[static_cast<size_t>(d.station)];
+				s = Sample(id, time, local.translation, w.rotation, w.translation);
+				s.rotation = questcal::WireQuaternion(local.rotation);
+			}
+			s.deviceIsConnected = d.connected;
+			watch.Note(s, TickScale, false);
+		}
+		auto handed = watch.TakeMoves();
+		std::sort(handed.begin(), handed.end(), [](const auto &a, const auto &b) { return a.time < b.time; });
+		for (const auto &move : handed)
+			moves += frames.Follow(move) ? 1 : 0;
+		for (const auto &change : watch.TakeSwitches())
+		{
+			switches.push_back(change);
+			if (!join)
+				continue;
+			const auto result = frames.Join(change, watch, headset, keep,
+				[this](uint32_t id) { return devices.count(id) > 0; });
+			joined.insert(joined.end(), result.joined.begin(), result.joined.end());
+			if (result.kept)
+				kept.emplace_back(result.kept);
+		}
+	}
+
+	void RunUntil(double until)
+	{
+		while (time < until - 1e-9)
+			Tick();
+	}
+
+	// SteamVR moves a station by `delta` (new world = delta * old world).
+	void MoveStation(size_t k, const Pose &delta)
+	{
+		estimates[k].rotation = (delta.rotation * estimates[k].rotation).normalized();
+		estimates[k].translation = delta.rotation * estimates[k].translation + delta.translation;
+	}
+
+	double Error(uint32_t id) const
+	{
+		const Device &d = devices.at(id);
+		const Pose &e = estimates[static_cast<size_t>(d.station)];
+		const Pose &b = stations[static_cast<size_t>(d.station)];
+		// The raw pose under SteamVR's error, then the device's correction.
+		const V raw = e.rotation * (b.rotation.conjugate() * (d.truth - b.translation)) + e.translation;
+		return (questcal::TrackerFrameCorrections::Apply(frames.Snapshot()[id], raw) - d.truth).norm();
+	}
+};
+
+// The world delta between two frames the session log printed for one move.
+JoinRig::Pose LoggedMove(const Q &from, const V &fromT, const Q &to, const V &toT)
+{
+	const Q rotation = (to * from.conjugate()).normalized();
+	return { rotation, toT - rotation * fromT };
+}
+
+// Two of the live log's stations (2026-10-03, rc.5): S-3 (9BC4FA08), the
+// frame every device was in, and S-13 (3E3828F4).
+JoinRig::Pose StationS3() { return { Q(0.224784, -0.008968, -0.958357, -0.175906).normalized(), V(-2.3537, -0.0951, -3.7054) }; }
+JoinRig::Pose StationS13() { return { Q(-0.943541, 0.240049, 0.209179, 0.091385).normalized(), V(-2.6639, 0.0517, 0.1031) }; }
+
+// 00:45:11, S-3: "Moving base 9BC4FA08 44mm and 0.4 deg ... Setting universe
+// tilt from 9BC4FA08", 7.4 cm at every device in its frame.
+JoinRig::Pose S3MoveAt0045()
+{
+	return LoggedMove(Q(0.225687, -0.004539, -0.958011, -0.176807), V(-2.3442, -0.1250, -3.6944),
+		Q(-0.224575, 0.004334, 0.958272, 0.176813), V(-2.3582, -0.0580, -3.7213));
+}
+
+void FrameJoins(Check check)
+{
+	// 00:44:48 the chest tracker (hidden by Standable, so a tracking loss is a
+	// device away) bootstrapped from S-13; 00:45:11 SteamVR moved S-3 under
+	// every other device ("Moving base 9BC4FA08 44mm ... Setting universe
+	// tilt", 7.4 cm at the tracker); 00:48:38 it bootstrapped back into S-3.
+	const auto chest = [](bool join)
+	{
+		JoinRig rig{ StationS3(), StationS13() };
+		rig.join = join;
+		rig.headset = 9;
+		rig.devices[9] = { 0, V(-1.530, -0.433, -1.262), true };
+		rig.devices[16] = { 0, V(-1.483, -0.805, -1.293), false };
+		rig.devices[17] = { 0, V(-1.305, -1.140, -1.453), false };
+		rig.devices[18] = { 0, V(-1.387, -2.081, -1.639), false };
+		rig.RunUntil(12.0);
+		rig.devices[16].station = -1;
+		rig.RunUntil(13.0);
+		rig.devices[16].station = 1;
+		rig.RunUntil(20.0);
+		rig.MoveStation(0, S3MoveAt0045());
+		rig.RunUntil(24.0);
+		rig.devices[16].station = -1;
+		rig.RunUntil(25.0);
+		rig.devices[16].station = 0;
+		rig.RunUntil(32.0);
+		return rig;
+	};
+	{
+		const JoinRig old = chest(false), fixed = chest(true);
+		int returns = 0;
+		for (const auto &s : fixed.switches)
+			returns += s.id == 16 && s.cause == LighthouseFrameWatch::Switch::Cause::Returned ? 1 : 0;
+		const bool took = fixed.joined.size() == 1 && fixed.joined[0].id == 16 && fixed.joined[0].source == 9 &&
+			fixed.joined[0].fromHeadsetTracker;
+		const bool aloneFirst = std::find(fixed.kept.begin(), fixed.kept.end(),
+			std::string("no other calibrated device is in that frame")) != fixed.kept.end();
+		double worst = 0;
+		for (const uint32_t id : { 9u, 16u, 17u, 18u })
+			worst = (std::max)(worst, fixed.Error(id));
+		char detail[192];
+		snprintf(detail, sizeof detail, "without the join %.1f cm off; with it %.3g m worst, %d returns, %zu joined, "
+			"alone in S-13 %d", old.Error(16) * 100.0, worst, returns, fixed.joined.size(), aloneFirst);
+		check("frame join: a body tracker back in the headset tracker's moved frame takes its correction (live 00:45)",
+			old.Error(16) > 0.07 && old.Error(16) < 0.08 && worst < 1e-9 && returns == 2 && took && aloneFirst &&
+			fixed.moves == old.moves, detail);
+	}
+
+	// 02:06:20 the left Knuckles (connected) jumped into S-13's frame with a
+	// new solution; S-13 then moved under it (tilt only: SteamVR re-levelled the
+	// universe from S-3) and S-3 moved 28.5 cm under the rest; by 02:08:16 it
+	// was back in S-3's frame, its correction S-13's history.
+	const auto knuckles = [](bool join)
+	{
+		JoinRig rig{ StationS3(), StationS13() };
+		rig.join = join;
+		rig.headset = 9;
+		rig.devices[9] = { 0, V(-1.530, -0.433, -1.262), true };
+		rig.devices[14] = { 0, V(-1.463, -1.426, -1.018), true };
+		rig.devices[19] = { 0, V(-1.474, -2.080, -1.271), false };
+		rig.RunUntil(12.0);
+		rig.devices[14] = { 1, V(-1.433, -1.426, -1.018), true };
+		rig.RunUntil(20.0);
+		rig.MoveStation(1, LoggedMove(Q(-0.943073, 0.245764, 0.208891, 0.081107), V(-2.6881, 0.0553, 0.0754),
+			Q(-0.939716, 0.258069, 0.209051, 0.081436), V(-2.6877, 0.0739, 0.0741)));
+		rig.RunUntil(22.0);
+		rig.MoveStation(0, LoggedMove(Q(-0.226086, 0.004613, 0.957916, 0.176806), V(-2.4654, 0.0453, -3.7428),
+			Q(0.229020, -0.005155, -0.957219, -0.176791), V(-2.3216, -0.1581, -3.6161)));
+		rig.RunUntil(26.0);
+		rig.devices[14] = { 0, V(-1.433, -1.446, -1.018), true };
+		rig.RunUntil(33.0);
+		return rig;
+	};
+	{
+		const JoinRig old = knuckles(false), fixed = knuckles(true);
+		int jumps = 0;
+		for (const auto &s : fixed.switches)
+			jumps += s.id == 14 && s.cause == LighthouseFrameWatch::Switch::Cause::OwnJump ? 1 : 0;
+		const bool took = fixed.joined.size() == 1 && fixed.joined[0].id == 14 && fixed.joined[0].source == 9;
+		double worst = 0;
+		for (const uint32_t id : { 9u, 14u, 19u })
+			worst = (std::max)(worst, fixed.Error(id));
+		char detail[160];
+		snprintf(detail, sizeof detail, "without the join %.1f cm off; with it %.3g m worst, %d own-jump switches, %zu joined",
+			old.Error(14) * 100.0, worst, jumps, fixed.joined.size());
+		check("frame join: a controller back from another station's moving frame takes the headset tracker's correction (live 02:06)",
+			old.Error(14) > 0.05 && worst < 1e-9 && jumps == 2 && took, detail);
+	}
+
+	// Without a headset tracker a device takes the correction its new frame's
+	// devices share, keeps its own when they disagree, and alone keeps it too.
+	// Two body trackers stay in S-3's frame through its move; a third, away in
+	// S-13's meanwhile, comes back into it.
+	const auto shared = [](bool disagree)
+	{
+		JoinRig rig{ StationS3(), StationS13() };
+		rig.devices[15] = { 0, V(-1.587, -1.140, -1.448), false };
+		rig.devices[16] = { 0, V(-1.483, -0.805, -1.293), false };
+		rig.devices[17] = { 0, V(-1.305, -1.140, -1.453), false };
+		rig.RunUntil(12.0);
+		rig.devices[17].station = -1;
+		rig.RunUntil(13.0);
+		rig.devices[17].station = 1;
+		rig.RunUntil(20.0);
+		rig.MoveStation(0, S3MoveAt0045());
+		rig.RunUntil(21.0);
+		if (disagree)
+		{
+			LighthouseFrameWatch::Move stray;
+			stray.id = 16;
+			stray.time = rig.time;
+			stray.rotation = Q(Eigen::AngleAxisd(0.01, V::UnitY()));
+			rig.frames.Follow(stray);
+		}
+		rig.devices[17].station = -1;
+		rig.RunUntil(24.0);
+		rig.devices[17].station = 0;
+		rig.RunUntil(31.0);
+		return rig;
+	};
+	{
+		const JoinRig agree = shared(false), apart = shared(true);
+		auto keptFor = [](const JoinRig &rig, const char *why)
+		{
+			return std::find(rig.kept.begin(), rig.kept.end(), std::string(why)) != rig.kept.end();
+		};
+		const bool took = agree.joined.size() == 1 && agree.joined[0].id == 17 && !agree.joined[0].fromHeadsetTracker &&
+			agree.joined[0].sharedBy == 2 && agree.Error(17) < 1e-9;
+		const bool held = apart.joined.empty() && keptFor(apart, "the devices in that frame disagree") &&
+			apart.Error(17) > 0.07;
+		check("frame join: without a headset tracker a device takes the correction its frame's devices share, else keeps its own",
+			took && held && keptFor(agree, "no other calibrated device is in that frame"), "");
+	}
+
+	// The headset tracker coming into a frame gives its correction to the
+	// devices there and never takes one; a device being measured keeps its own.
+	const auto headsetInto = [](uint32_t keep)
+	{
+		JoinRig rig{ StationS3(), StationS13() };
+		rig.headset = 9;
+		rig.keep = keep;
+		rig.devices[9] = { 0, V(-1.530, -0.433, -1.262), true };
+		rig.devices[14] = { 1, V(-1.463, -1.426, -1.018), true };
+		rig.RunUntil(12.0);
+		rig.MoveStation(0, S3MoveAt0045());
+		rig.RunUntil(14.0);
+		const auto before = rig.frames.Snapshot()[9];
+		rig.devices[9] = { 1, V(-1.500, -0.433, -1.262), true };
+		rig.RunUntil(21.0);
+		return std::make_pair(rig, before);
+	};
+	{
+		const auto [gives, headBefore] = headsetInto(vr::k_unTrackedDeviceIndexInvalid);
+		const auto [measured, measuredHead] = headsetInto(14);
+		const bool gave = gives.joined.size() == 1 && gives.joined[0].id == 14 && gives.joined[0].source == 9 &&
+			gives.frames.Snapshot()[14] == gives.frames.Snapshot()[9] && gives.frames.Snapshot()[9] == headBefore;
+		const bool keptMeasured = measured.joined.empty() &&
+			measured.frames.Snapshot()[14] == protocol::FrameCorrection{} && measured.frames.Snapshot()[9] == measuredHead;
+		check("frame join: the headset tracker gives its correction to the frame it comes into and never takes one",
+			gave && keptMeasured, "");
+	}
+
+	// A device first seen in the headset tracker's frame after SteamVR moved it
+	// takes the headset tracker's correction rather than none. A device whose
+	// own pose jumps as its frame moves under it is still handed the move once,
+	// with no switch: the headset tracker reported the move first.
+	{
+		const auto late = [](bool join)
+		{
+			JoinRig rig{ StationS3(), StationS13() };
+			rig.join = join;
+			rig.headset = 9;
+			rig.devices[9] = { 0, V(-1.530, -0.433, -1.262), true };
+			rig.devices[17] = { 0, V(-1.305, -1.140, -1.453), true };
+			rig.RunUntil(12.0);
+			rig.MoveStation(0, S3MoveAt0045());
+			rig.devices[17].truth.x() += 0.04;
+			rig.RunUntil(14.0);
+			rig.devices[19] = { 0, V(-1.474, -2.080, -1.271), false };
+			rig.RunUntil(15.0);
+			return rig;
+		};
+		const JoinRig old = late(false), fixed = late(true);
+		int jumpSwitches = 0;
+		for (const auto &s : fixed.switches)
+			jumpSwitches += s.id == 17 && s.cause != LighthouseFrameWatch::Switch::Cause::Appeared ? 1 : 0;
+		const bool appeared = fixed.joined.size() == 1 && fixed.joined[0].id == 19 && fixed.Error(19) < 1e-9 &&
+			old.Error(19) > 0.07;
+		const bool followedOnce = fixed.Error(17) < 1e-9 && jumpSwitches == 0 && fixed.moves == 2 &&
+			fixed.frames.Snapshot()[17] == fixed.frames.Snapshot()[9];
+		char detail[128];
+		snprintf(detail, sizeof detail, "first seen: %.3g m with the join, %.1f cm without; moves %zu, jump switches %d",
+			fixed.Error(19), old.Error(19) * 100.0, fixed.moves, jumpSwitches);
+		check("frame join: a device first seen in the headset tracker's moved frame takes its correction; a move that leads there is followed once",
+			appeared && followedOnce, detail);
+	}
+}
 } // namespace
 
 // Where a calibration samples (CollectionSource.h): the raw channel when it
@@ -834,6 +1164,7 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	RestartRecovery(check);
 	RecoveryProtocolGate(check);
 	PausedMonitorAndRecalibration(check);
+	FrameJoins(check);
 	DeferredFrameLog(check);
 	CollectionFallback(check);
 }
