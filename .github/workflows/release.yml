@@ -16,6 +16,11 @@ name: Release
 #                            release is never tested on less than a local one.
 #   VT_API_KEY               VirusTotal API key. Without it the scan is skipped
 #                            and the release notes say so.
+#   MINISIGN_SECRET_KEY      the release signing key: the text of its minisign
+#                            .key file. Installed copies update only to a
+#                            package it signed, so a stable tag fails without it
+#                            (docs/releasing.md, Signing).
+#   MINISIGN_PASSWORD        that key's password.
 # The release is written with the workflow's own token.
 on:
   push:
@@ -38,6 +43,8 @@ env:
   TAG: ${{ inputs.tag || github.ref_name }}
   TLA2TOOLS_URL: https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
   TLA2TOOLS_SHA256: 936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88
+  MINISIGN_URL: https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-win64.zip
+  MINISIGN_SHA256: 37b600344e20c19314b2e82813db2bfdcc408b77b876f7727889dbd46d539479
 
 # Jobs: check refuses what must not be built, in seconds; build tests,
 # packages and scans, and keeps the result with the run; beside it, traces
@@ -66,12 +73,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VQ_KEY_SET: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY != '' }}
+          SIGNING_KEY_SET: ${{ secrets.MINISIGN_SECRET_KEY != '' }}
         run: |
           if ($env:GITHUB_REPOSITORY -ne $env:RELEASE_REPO) {
             throw "Releases are made only in $env:RELEASE_REPO, where installed copies look for updates; this is $env:GITHUB_REPOSITORY."
           }
           if ($env:VQ_KEY_SET -ne 'true') {
             throw 'The VIRTUALQUEST_DEPLOY_KEY secret is not set; a release needs the full test suite.'
+          }
+          # A prerelease tag has a suffix after the version.
+          if ($env:TAG -notmatch '^questcalibrator-v\d+\.\d+\.\d+-' -and $env:SIGNING_KEY_SET -ne 'true') {
+            throw 'The MINISIGN_SECRET_KEY secret is not set; installed copies take only a stable release the release key signed.'
           }
           # Only "release not found" means there is none; anything else (no
           # access, a network error) must stop the run here rather than after
@@ -121,18 +133,40 @@ jobs:
       # Code signing of the exe and driver DLL goes here, once a certificate is
       # set up, so the package and its hashes cover the signed files.
 
+      # Only stable releases are signed, and only they see the key: the
+      # updater never offers a prerelease. A prerelease tag has a suffix.
+      - name: Tell a stable release from a prerelease
+        id: kind
+        shell: pwsh
+        run: |
+          "stable=$(($env:TAG -notmatch '^questcalibrator-v\d+\.\d+\.\d+-').ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Install minisign
+        if: steps.kind.outputs.stable == 'true'
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'minisign.zip'
+          Invoke-WebRequest -Uri $env:MINISIGN_URL -OutFile $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne $env:MINISIGN_SHA256) { throw "The minisign archive has SHA-256 $hash, not the pinned one." }
+          Expand-Archive $archive -DestinationPath (Join-Path $env:RUNNER_TEMP 'minisign')
+
       # The packaging install\release.ps1 shares: the version against the tag,
-      # VirtualQuest against its pin, BUILD-INFO.txt, the package, the
-      # VirusTotal scan (skipped, and the notes say so, without the key) and
-      # the release notes in install\out\notes.md.
-      - name: Package, scan and write the notes
+      # VirtualQuest against its pin, BUILD-INFO.txt, the package, a stable
+      # release's signature, the VirusTotal scan (skipped, and the notes say
+      # so, without the key) and the release notes in install\out\notes.md.
+      - name: Package, sign, scan and write the notes
         timeout-minutes: 40
         id: package
         shell: pwsh
         env:
           VT_API_KEY: ${{ secrets.VT_API_KEY }}
+          MINISIGN_SECRET_KEY: ${{ steps.kind.outputs.stable == 'true' && secrets.MINISIGN_SECRET_KEY || '' }}
+          MINISIGN_PASSWORD: ${{ steps.kind.outputs.stable == 'true' && secrets.MINISIGN_PASSWORD || '' }}
         run: |
-          $release = install\package-release.ps1 -Tag $env:TAG -Scenarios ${{ steps.build.outputs.scenarios }} -BuildInfo @(
+          $minisign = Join-Path $env:RUNNER_TEMP 'minisign\minisign-win64\x86_64\minisign.exe'
+          $release = install\package-release.ps1 -Tag $env:TAG -Scenarios ${{ steps.build.outputs.scenarios }} -Minisign $minisign -BuildInfo @(
             "runner_image=$env:ImageOS $env:ImageVersion"
             "workflow_run=$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID")
           "version=$($release.Version)" >> $env:GITHUB_OUTPUT
@@ -146,6 +180,7 @@ jobs:
           path: |
             install/out/*.zip
             install/out/*.sha256
+            install/out/*.minisig
             install/out/*.virustotal.md
             install/out/notes.md
           if-no-files-found: error
@@ -246,21 +281,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $zip = (Get-Item package/*.zip).FullName
+          $assets = @($zip, "$zip.sha256")
+          # Packaging refuses a stable release it could not sign.
+          if (Test-Path -LiteralPath "$zip.minisig") { $assets += "$zip.minisig" }
+          elseif ('${{ needs.build.outputs.prerelease }}' -ne 'true') { throw 'The stable package has no signature.' }
           # The check job refused an existing release, so a draft here is this
           # run's own, left by an attempt that failed partway: finish its
           # uploads instead of creating a second one.
           $draft = gh release view $env:TAG --repo $env:GITHUB_REPOSITORY --json isDraft --jq .isDraft 2>$null
           if ($LASTEXITCODE -eq 0) {
             if ($draft -ne 'true') { throw "$env:TAG is already published in $env:GITHUB_REPOSITORY." }
-            gh release upload $env:TAG $zip "$zip.sha256" --repo $env:GITHUB_REPOSITORY --clobber
+            gh release upload $env:TAG @assets --repo $env:GITHUB_REPOSITORY --clobber
             if ($LASTEXITCODE -ne 0) { throw 'Uploading to the existing draft failed.' }
             Write-Host "::notice::Finished the existing draft for $env:TAG."
             exit 0
           }
           $global:LASTEXITCODE = 0
 
-          $arguments = @(
-            'release', 'create', $env:TAG, $zip, "$zip.sha256",
+          $arguments = @('release', 'create', $env:TAG) + $assets + @(
             '--repo', $env:GITHUB_REPOSITORY,
             '--verify-tag',
             '--draft',
