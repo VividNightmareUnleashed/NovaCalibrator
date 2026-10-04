@@ -927,12 +927,30 @@ en: The update folder could not be created (system error %d).
 ja: アップデートフォルダーを作成できませんでした（システムエラー {0}）。
 en: The downloaded package failed SHA-256 verification.
 ja: ダウンロードしたパッケージが SHA-256 検証に失敗しました。
+en: This build has no release signing key, so it cannot verify updates.
+ja: このビルドにはリリース署名鍵がないため、アップデートを検証できません。
+en: The release signature is larger than GitHub reported.
+ja: リリース署名が GitHub の報告より大きいです。
+en: The release signature download was incomplete.
+ja: リリース署名のダウンロードが不完全です。
+en: The release signature is malformed.
+ja: リリース署名の形式が正しくありません。
+en: The release is signed by a key this build does not trust.
+ja: このリリースは、このビルドが信頼していない鍵で署名されています。
+en: The update package could not be opened.
+ja: アップデートパッケージを開けませんでした。
+en: The update package is not the size GitHub reported.
+ja: アップデートパッケージのサイズが GitHub の報告と一致しません。
+en: The update package could not be read.
+ja: アップデートパッケージを読み取れませんでした。
+en: The downloaded package's signature does not verify against the release key.
+ja: ダウンロードしたパッケージの署名をリリース鍵で検証できません。
 en: The verified update package could not be saved (system error %d).
 ja: 検証済みのアップデートパッケージを保存できませんでした（システムエラー {0}）。
 en: No verified update is ready to install.
 ja: インストールできる検証済みのアップデートがありません。
-en: The downloaded update no longer passes SHA-256 verification.
-ja: ダウンロードしたアップデートが SHA-256 検証に通らなくなりました。
+en: The downloaded update no longer passes verification.
+ja: ダウンロードしたアップデートが検証に通らなくなりました。
 en: The update helper could not be created.
 ja: アップデートヘルパーを作成できませんでした。
 en: The newest release has no trusted release page.
@@ -951,6 +969,14 @@ en: The newest release package has no valid SHA-256 digest.
 ja: 最新リリースのパッケージに有効な SHA-256 ダイジェストがありません。
 en: The newest release package points outside the QuestCalibrator repository.
 ja: 最新リリースのパッケージが QuestCalibrator のリポジトリ外を指しています。
+en: The newest release contains duplicate signatures.
+ja: 最新リリースの署名が重複しています。
+en: The newest release is not signed.
+ja: 最新リリースは署名されていません。
+en: The newest release signature has invalid metadata.
+ja: 最新リリースの署名情報が無効です。
+en: The newest release signature points outside the QuestCalibrator repository.
+ja: 最新リリースの署名が QuestCalibrator のリポジトリ外を指しています。
 
 # ---- Lighthouse tab ----
 en: No Lighthouse devices
