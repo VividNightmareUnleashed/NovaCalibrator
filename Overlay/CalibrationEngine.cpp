@@ -472,6 +472,9 @@ bool JointRefine(const std::vector<AlignedSample> &samples, const EngineConfig &
 	R = Eigen::Quaterniond(R).normalized().toRotationMatrix();
 
 	double after = robustCost(R, t, d, C, s);
+	// A NaN cost compares false both ways, so it is refused by name. The
+	// regression in Tests/main.cpp produced one through an infinite kRot, which
+	// IsValidEngineConfig now refuses, so no scenario reaches this any more.
 	if (!std::isfinite(after) || after >= before)
 		return false;
 	rotInOut = R;
