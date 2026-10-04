@@ -21,9 +21,10 @@ Contents
   8.  Yoga 3.2.1 (Meta) .......................... MIT
   9.  MinHook and Hacker Disassembler Engine ..... BSD-2-Clause
   10. picojson ................................... BSD-2-Clause
-  11. gl3w ....................................... Public domain
-  12. Khronos OpenGL headers ..................... MIT-style (Khronos)
-  13. Guidance image models ...................... CC BY 4.0, CC BY 3.0, MIT
+  11. Monocypher 4.0.3 ........................... BSD-2-Clause or CC0-1.0
+  12. gl3w ....................................... Public domain
+  13. Khronos OpenGL headers ..................... MIT-style (Khronos)
+  14. Guidance image models ...................... CC BY 4.0, CC BY 3.0, MIT
 
 
 ================================================================================
@@ -409,7 +410,47 @@ POSSIBILITY OF SUCH DAMAGE.
 
 
 ================================================================================
-11. gl3w
+11. Monocypher 4.0.3
+    https://monocypher.org/
+================================================================================
+
+Monocypher checks the signature on update packages. It is dual-licensed, at
+the user's choice, under the 2-clause BSD licence below or CC0 1.0; the full
+licence file is THIRD-PARTY-NOTICES/Monocypher-LICENCE.txt.
+
+Copyright (c) 2017-2023, Loup Vaillant
+Copyright (c) 2017-2019, Michael Savage
+Copyright (c) 2017-2023, Fabio Scotoni
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the
+   distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+
+================================================================================
+12. gl3w
     https://github.com/skaslev/gl3w
 ================================================================================
 
@@ -438,7 +479,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 
 ================================================================================
-12. Khronos OpenGL headers (glcorearb.h, khrplatform.h)
+13. Khronos OpenGL headers (glcorearb.h, khrplatform.h)
     https://registry.khronos.org
 ================================================================================
 
@@ -466,7 +507,7 @@ MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
 
 
 ================================================================================
-13. Models in the calibration guidance images
+14. Models in the calibration guidance images
 ================================================================================
 
 The guidance images are renders made for QuestCalibrator from these models.
