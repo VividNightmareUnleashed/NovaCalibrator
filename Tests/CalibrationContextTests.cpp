@@ -44,6 +44,14 @@ bool DiagnosticsExportScenario()
 	capture.poseStream.devices[16].received = 1;
 	capture.poseStream.devices[16].latest.deviceId = 16;
 	capture.poseStream.devices[16].latest.position[1] = -0.25;
+	// 16 is in the headset tracker's frame without its correction; 17 has it.
+	ctx.continuousEnabled = true;
+	ctx.continuousTrackerId = 9;
+	for (const uint32_t id : { 9u, 16u, 17u })
+	{
+		ctx.targetDeviceMask[id] = true;
+		capture.frameGroup[id] = 9;
+	}
 	// Eleven older reports: writing the twelfth keeps the newest ten.
 	const auto reports = root / L"QuestCalibrator" / L"diagnostics";
 	std::filesystem::create_directories(reports);
@@ -92,7 +100,12 @@ bool DiagnosticsExportScenario()
 		report.find("SHA-256: unavailable") == std::string::npos &&
 		report.find("[driver synchronization]") != std::string::npos &&
 		report.find("[tracker frame corrections]") != std::string::npos &&
-		report.find("device 16 test-tracker: rotation (w x y z) 1 0 0 0, translation (unscaled m) -0.25 0 0") != std::string::npos &&
+		report.find("device 16 test-tracker: rotation (w x y z) 1 0 0 0, translation (unscaled m) -0.25 0 0; "
+			"frame 9 (the headset tracker's), correction differs from device 9's\n") != std::string::npos &&
+		report.find("device 17 : rotation (w x y z) 1 0 0 0, translation (unscaled m) 0 0 0; "
+			"frame 9 (the headset tracker's)\n") != std::string::npos &&
+		report.find("devices whose correction differs from their frame's: 1\n") != std::string::npos &&
+		report.find("frame corrections taken from the devices in a frame a device came into: 0\n") != std::string::npos &&
 		report.find("scale identifiable: off, condition 0.0001") != std::string::npos &&
 		report.find("mount rotation (w x y z)") != std::string::npos &&
 		report.find("device 16: received 1") != std::string::npos &&

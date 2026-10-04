@@ -97,6 +97,8 @@ DiagnosticCapture CaptureCalibrationDiagnostics()
 {
 	DiagnosticCapture capture{ PoseHub.ReadDiagnostics(), questcal::CaptureDriverSyncDiagnostics() };
 	capture.sampleClock = QpcNowSeconds();
+	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+		capture.frameGroup[id] = FrameWatch.FrameGroup(id);
 	char runtimePath[4096]{};
 	uint32_t needed = 0;
 	if (vr::VR_GetRuntimePath(runtimePath, sizeof runtimePath, &needed))
