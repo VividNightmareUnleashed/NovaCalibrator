@@ -13,14 +13,16 @@ public.
 ## Branches
 
 Work lands on `alpha`, and prereleases are tagged there. `stable` is the default
-branch and holds the last stable release, so visitors and anything that reads the
-default branch get released code. It moves only when a stable release is
-published, by a fast-forward to that release's tag, and nothing is committed to it
-directly:
+branch and holds the latest release candidate or stable release, so visitors and
+anything that reads the default branch get released code. It moves only when one of
+those is published, by a fast-forward to the commit on `alpha` that points the
+README's VirusTotal badge at it, and nothing is committed to it directly:
 
 ```powershell
-git push origin "questcalibrator-vMAJOR.MINOR.PATCH^{commit}:refs/heads/stable"
+git push origin <badge commit>:refs/heads/stable
 ```
+
+An alpha prerelease leaves `stable` where it is.
 
 Scheduled workflows start from the default branch; the weekly fuzz run checks out
 `alpha` so it searches the code still changing.
