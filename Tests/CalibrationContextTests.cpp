@@ -398,6 +398,18 @@ bool DiagnosticsAnonymisationScenario()
 		AnonymiseDiagnosticsText("j", "", "j", "") == "j";
 }
 
+// Empty slots are named as ranges, so a report lists them in one line.
+bool DiagnosticsSlotRangesScenario()
+{
+	using questcal::diagnostics::SlotRanges;
+	std::vector<uint32_t> all;
+	for (uint32_t id = 2; id < 64; ++id)
+		if (id != 7)
+			all.push_back(id);
+	return SlotRanges({}).empty() && SlotRanges({ 5 }) == "5" && SlotRanges({ 0, 1, 2, 4 }) == "0-2, 4" &&
+		SlotRanges(all) == "2-6, 8-63";
+}
+
 // A long session keeps its first lines and its latest, with a line saying how
 // many in between were left out, and the file stays within its budget.
 bool SessionLogTrimScenario()

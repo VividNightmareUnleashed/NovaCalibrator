@@ -192,12 +192,13 @@ void DescribeRawPoses(std::ostream &out, const PoseStreamHub::Diagnostics &strea
 		<< ", gap markers " << stream.gapMarkers << ", reported loss " << stream.reportedLoss
 		<< " (includes one marker per boundary)\n";
 	out << "Latest pre-calibration samples on the QPC capture clock; missing slots are unobserved, not evidence of absence or frame agreement. Counts include all input, even while continuous mode is off.\n";
+	std::vector<uint32_t> unobserved;
 	for (uint32_t id = 0; id < stream.devices.size(); ++id)
 	{
 		const auto &device = stream.devices[id];
 		if (!device.received)
 		{
-			out << "device " << id << ": unobserved in this raw stream; presence and frame unknown\n";
+			unobserved.push_back(id);
 			continue;
 		}
 		const auto &s = device.latest;
@@ -225,6 +226,9 @@ void DescribeRawPoses(std::ostream &out, const PoseStreamHub::Diagnostics &strea
 			out << ", composed position (m) " << composed.pos.transpose();
 		out << "\n";
 	}
+	if (!unobserved.empty())
+		out << "unobserved in this raw stream, presence and frame unknown: devices "
+			<< questcal::diagnostics::SlotRanges(unobserved) << "\n";
 	out << "\n";
 }
 
@@ -244,12 +248,13 @@ void DescribeRuntimePoses(std::ostream &out, const CalibrationContext &ctx, vr::
 	for (const auto &row : floor.m)
 		out << row[0] << " " << row[1] << " " << row[2] << " " << row[3] << "\n";
 	out << "Runtime poses include the active driver calibration and hiding. This query is a separate snapshot from the raw capture; it cannot establish a simultaneous transition. Standing Y is height above SteamVR's floor.\n";
+	std::vector<uint32_t> absent;
 	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
 	{
 		const auto &pose = poses[id];
 		if (!pose.bDeviceIsConnected && !pose.bPoseIsValid && !ctx.targetDeviceMask[id])
 		{
-			out << "device " << id << ": no connected runtime pose; may be absent, disconnected or hidden\n";
+			absent.push_back(id);
 			continue;
 		}
 		auto property = [&](vr::ETrackedDeviceProperty key) {
@@ -277,6 +282,9 @@ void DescribeRuntimePoses(std::ostream &out, const CalibrationContext &ctx, vr::
 		}
 		out << "\n";
 	}
+	if (!absent.empty())
+		out << "no connected runtime pose (absent, disconnected or hidden): devices "
+			<< questcal::diagnostics::SlotRanges(absent) << "\n";
 	out << "\n";
 }
 
