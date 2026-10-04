@@ -13,20 +13,28 @@ A job then runs when the change touches one of its public inputs. Any job runs
 when the VirtualQuest pin moves (its harnesses and models changed), or when
 the workflows or the tools that run the checks change. A base
 that cannot be compared (a new branch, a force push, a manual run) runs all of
-them. An input this misses is still checked by the release workflow, which
-runs the whole suite on the tag.
+them.
+
+In CI each job is compared with the last commit where it ran and passed
+(--last-green), found in this repository's validation and release runs, not
+with the previous push: a run cancelled by a newer push never proved its
+change, so the push after it must not count it as proved. A release skips a
+job the same way. With no such run, or no way to ask, the job runs.
 
   python tools/ci/formal-scope.py --base <commit>       # what the change needs
+  python tools/ci/formal-scope.py --last-green          # as CI decides (GITHUB_TOKEN)
   python tools/ci/formal-scope.py --list core           # a job's public inputs
 
 With GITHUB_OUTPUT set it also writes <job>=true|false lines there. Needs
 VirtualQuest checked out at the pinned commit.
 """
 import argparse
+import json
 import os
 import re
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -45,6 +53,15 @@ JOBS = {
     # no public input: it runs when VirtualQuest or the tools below change.
     'core': {'folders': [], 'exclude': [], 'scripts': []},
 }
+
+# The workflow jobs that prove each formal job on a commit, by name prefix:
+# every one of them must have run and passed. validation.yml's and
+# release.yml's (through formal-assurance.yml) both count.
+PROVING = {
+    'input_validation': ('input-validation (', 'formal-assurance / numeric ('),
+    'core': ('private-core / private-core (', 'formal-assurance / private-core ('),
+}
+PROVING_WORKFLOWS = ('validation.yml', 'release.yml')
 
 # A change to any of these reruns every job: they run or judge the checks.
 SHARED = [re.compile(p) for p in (
@@ -159,9 +176,65 @@ def changed(base, head='HEAD'):
     return diff.stdout.split() if diff.returncode == 0 else None
 
 
+def github(path):
+    """One GitHub API read for this repository, or None when it fails."""
+    token = os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_TOKEN')
+    repo = os.environ.get('GITHUB_REPOSITORY', 'VividNightmareUnleashed/QuestCalibrator')
+    if not token:
+        return None
+    request = urllib.request.Request(f'https://api.github.com/repos/{repo}/{path}', headers={
+        'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json'})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.load(response)
+    except (OSError, ValueError):
+        return None
+
+
+def last_green():
+    """For each job, the newest commit where every workflow job proving it ran
+    and passed, from the latest completed validation and release runs."""
+    runs = []
+    for workflow in PROVING_WORKFLOWS:
+        page = github(f'actions/workflows/{workflow}/runs?status=completed&per_page=30')
+        runs += (page or {}).get('workflow_runs', [])
+    runs.sort(key=lambda run: run['created_at'], reverse=True)
+    found = {}
+    for run in runs:
+        if len(found) == len(JOBS):
+            break
+        jobs = (github(f'actions/runs/{run["id"]}/jobs?per_page=100') or {}).get('jobs', [])
+        for job, prefixes in PROVING.items():
+            proving = [j for j in jobs if j['name'].startswith(prefixes)]
+            if job not in found and proving and all(j['conclusion'] == 'success' for j in proving):
+                found[job] = run['head_sha']
+    return found
+
+
+def fetch(commit):
+    """Make a commit's tree available in a shallow checkout; False if it can't be."""
+    if subprocess.run(['git', 'cat-file', '-e', commit + '^{commit}'], cwd=ROOT,
+                      capture_output=True).returncode == 0:
+        return True
+    return subprocess.run(['git', 'fetch', '--no-tags', '--depth=1', 'origin', commit], cwd=ROOT,
+                          capture_output=True).returncode == 0
+
+
+def reason_to_run(job, files):
+    """Why the job must run given the files changed since its base, or ''."""
+    shared = next((f for f in files if any(p.search(f) for p in SHARED)), None)
+    if shared:
+        return f'{shared} changed'
+    read = set(inputs(job))
+    hit = next((f for f in files if f in read), None)
+    return f'{hit} changed' if hit else ''
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--base', default='')
+    # Each job against the last commit where it passed, as CI decides.
+    parser.add_argument('--last-green', action='store_true')
     # Another commit than HEAD, to see what a past change would have run.
     parser.add_argument('--head', default='HEAD')
     parser.add_argument('--list', choices=sorted(JOBS))
@@ -172,22 +245,26 @@ def main():
         print('\n'.join(inputs(args.list)))
         return
 
-    files = changed(args.base, args.head)
     verdict = {}
-    if files is None:
-        verdict = {job: 'the base cannot be compared, so every job runs' for job in JOBS}
-    else:
-        shared = next((f for f in files if any(p.search(f) for p in SHARED)), None)
+    if args.last_green:
+        bases = last_green()
         for job in JOBS:
-            if shared:
-                verdict[job] = f'{shared} changed'
+            base = bases.get(job)
+            files = changed(base, args.head) if base and fetch(base) else None
+            if files is None:
+                verdict[job] = (f'its last green commit {base[:8]} cannot be compared' if base
+                                else 'no run where it passed was found'), ''
             else:
-                read = set(inputs(job))
-                hit = next((f for f in files if f in read), None)
-                verdict[job] = f'{hit} changed' if hit else ''
+                verdict[job] = reason_to_run(job, files), base
+    else:
+        files = changed(args.base, args.head)
+        for job in JOBS:
+            verdict[job] = ('the base cannot be compared, so every job runs' if files is None
+                            else reason_to_run(job, files)), args.base
     lines = []
-    for job, reason in verdict.items():
-        print(f'{job}: ' + (f'runs ({reason})' if reason else 'skipped, none of its inputs changed'))
+    for job, (reason, base) in verdict.items():
+        since = f' since {base[:8]}, where it passed' if args.last_green and base else ''
+        print(f'{job}: ' + (f'runs ({reason})' if reason else f'skipped, none of its inputs changed{since}'))
         lines.append(f'{job}={"true" if reason else "false"}')
     if os.environ.get('GITHUB_OUTPUT'):
         with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
