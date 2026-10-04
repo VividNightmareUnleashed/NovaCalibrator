@@ -76,6 +76,7 @@ bool ContinuousInputDiagnosticsScenario();
 bool PoseStreamDiagnosticsScenario();
 bool DiagnosticsExportScenario();
 bool DiagnosticsAnonymisationScenario();
+bool DiagnosticsSlotRangesScenario();
 bool SessionLogTrimScenario();
 bool ContinuousWindowDiagnosticsScenario();
 bool ContinuousPairingDiagnosticsScenario();
@@ -1488,6 +1489,8 @@ void RunPoseSampleScenarios()
 		"reach the on-disk report; the newest ten reports are kept");
 	Check("diagnostics: names are anonymised as whole words", DiagnosticsAnonymisationScenario(),
 		"a short account or computer name never rewrites the words it occurs in");
+	Check("diagnostics: empty device slots are listed as ranges", DiagnosticsSlotRangesScenario(),
+		"one line names every slot with nothing to report");
 	Check("diagnostics: a long session log keeps its start and its end", SessionLogTrimScenario(),
 		"past its budget the log is the first lines, a count of those left out, and the latest");
 	Check("pose stream diagnostics: passive snapshot", PoseStreamDiagnosticsScenario(),
