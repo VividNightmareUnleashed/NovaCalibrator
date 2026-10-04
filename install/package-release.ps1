@@ -3,10 +3,18 @@
 # same way for the release workflow and install\release.ps1: checks the built
 # version against the tag and VirtualQuest against the commit the tag pins,
 # records how the package was built in BUILD-INFO.txt, packages it with
-# build-package.ps1, scans it on VirusTotal when $env:VT_API_KEY is set, and
-# writes the release notes to install\out\notes.md. Run it after the build and
-# the full solver suite passed; it returns the version, whether it is a
-# prerelease, and the package and notes paths.
+# build-package.ps1, signs a stable release with the release key, scans it on
+# VirusTotal when $env:VT_API_KEY is set, and writes the release notes to
+# install\out\notes.md. Run it after the build and the full solver suite
+# passed; it returns the version, whether it is a prerelease, and the package,
+# signature (none for a prerelease) and notes paths.
+#
+# Signing (install\sign-package.ps1): the secret key comes from
+# -SecretKeyFile or $env:MINISIGN_SECRET_KEY, its password from
+# $env:MINISIGN_PASSWORD. A stable release is refused unsigned, and refused
+# unless the public key built into it (Overlay/UpdateSigningKey.h) verifies
+# the signature: installed copies take only updates that key signed. The
+# updater never offers a prerelease, so prereleases are not signed.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string]$Tag,
@@ -18,6 +26,9 @@ param(
     # Download and VirusTotal sections follow it. Without it the notes start
     # with a Changes section taken from the tag message.
     [string]$NotesFile = '',
+    [string]$SecretKeyFile = '',
+    # minisign.exe; by default the one on PATH.
+    [string]$Minisign = '',
     [switch]$SkipScan
 )
 
@@ -63,6 +74,17 @@ try {
     & install\build-package.ps1 -BuildInfoPath $info | Out-Host
     $zip = Join-Path $repoRoot "install\out\QuestCalibrator-$version.zip"
     if (-not (Test-Path -LiteralPath $zip)) { throw "Expected package $zip was not produced." }
+    $zipName = Split-Path -Leaf $zip
+
+    # --- Signature -------------------------------------------------------------
+    # Only stable releases: the updater never offers a prerelease.
+    $signature = $null
+    $publicKey = $null
+    if (-not $version.Contains('-')) {
+        $signed = & install\sign-package.ps1 -Package $zip -SecretKeyFile $SecretKeyFile -Minisign $Minisign
+        $signature = $signed.Signature
+        $publicKey = $signed.PublicKey
+    }
 
     # --- VirusTotal ------------------------------------------------------------
     $scan = [IO.Path]::ChangeExtension($zip, '.virustotal.md')
@@ -76,7 +98,6 @@ try {
     }
 
     # --- Release notes ---------------------------------------------------------
-    $zipName = Split-Path -Leaf $zip
     $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
     $message = (git tag -l --format='%(contents:body)' $Tag) -join "`n"
     $top = if ($NotesFile) {
@@ -101,6 +122,12 @@ try {
         ('Check it with `Get-FileHash .\' + $zipName + ' -Algorithm SHA256`. ' +
             '`SHA256SUMS.txt` in the package lists every file inside it.')
         ''
+        $(if ($signature -and $publicKey) {
+            ('`' + $zipName + '.minisig` is the release key''s signature, which installed copies check ' +
+                'before they update. Check it by hand with [minisign](https://jedisct1.github.io/minisign/): ' +
+                '`minisign -Vm ' + $zipName + ' -P ' + $publicKey + '`.')
+            ''
+        })
         '## VirusTotal'
         ''
         $(if (Test-Path -LiteralPath $scan) { Get-Content -LiteralPath $scan } else { '_Not scanned._' })
@@ -110,6 +137,7 @@ try {
         Version    = $version
         Prerelease = $version.Contains('-')
         Zip        = $zip
+        Signature  = $signature
         Notes      = $notes
     }
 } finally {

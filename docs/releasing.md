@@ -32,15 +32,17 @@ builds with the full solver suite (including the VirtualQuest scenarios and the
 formal-model links), and in parallel jobs replays the pose hub traces through their
 TLA+ model, runs the duplicate scan as an advisory gate, and runs Clang-Tidy over every
 translation unit (`clang-tidy.yml`, where any first-party finding stops the release).
-It checks the version against the tag and packages, scans and writes the notes with
-`install\package-release.ps1` (which runs `install\build-package.ps1` and
-`install\virustotal-scan.ps1`), creates a **draft** release with the zip, its
-`.sha256` and notes carrying the hash and the VirusTotal table, and then runs the
-install test on that draft. It refuses to run if the tag already has a release. The
-release is written with the workflow's own token; its secrets are
-`VIRTUALQUEST_DEPLOY_KEY` (a read-only deploy key on VirtualQuest; required, so a
-release is never tested on less than a local build) and `VT_API_KEY` (without it the
-scan is skipped and the notes say so). A run that failed before it created the draft
+It checks the version against the tag and packages, signs, scans and writes the notes
+with `install\package-release.ps1` (which runs `install\build-package.ps1`,
+`install\sign-package.ps1` and `install\virustotal-scan.ps1`), creates a **draft**
+release with the zip, its `.sha256`, a stable release's `.minisig` and notes carrying the hash and
+the VirusTotal table, and then runs the install test on that draft. It refuses to run
+if the tag already has a release. The release is written with the workflow's own
+token; its secrets are `VIRTUALQUEST_DEPLOY_KEY` (a read-only deploy key on
+VirtualQuest; required, so a release is never tested on less than a local build),
+`VT_API_KEY` (without it the scan is skipped and the notes say so), and
+`MINISIGN_SECRET_KEY` and `MINISIGN_PASSWORD`, the release signing key (Signing,
+below; a stable tag fails without them). A run that failed before it created the draft
 can be repeated for its tag from the Actions tab (`workflow_dispatch`); once the tag
 has a draft the check refuses, and the way on is a new version.
 
@@ -56,7 +58,7 @@ push from starting the workflow, put `[skip release]` in the message of the comm
 the tag points to (the version bump). It checks that the working tree is clean and
 that the tag is at HEAD and pushed; `-DryRun` stops before creating the release. Its
 VirusTotal key comes from `$env:VT_API_KEY` or the git-ignored `.env` at the
-repository root. Package output in `install/out/` and `install/test-out/` is never
+repository root, and a stable release needs `-SigningKey <path to the .key file>`. Package output in `install/out/` and `install/test-out/` is never
 committed.
 
 The hosted release also proves the tag against VirtualQuest's formal suite on
@@ -141,7 +143,7 @@ inputs to this workflow and must not be committed.
 - The release workflow runs on the pushed tag. The package's `BUILD-INFO.txt`
   records the tag, commit, the VirtualQuest commit, the scenario count, UTC build
   time, runner image, Visual Studio version, the packaging script's SHA-256 and the
-  workflow run. The run keeps the zip, its `.sha256` and the VirusTotal table as an
+  workflow run. The run keeps the zip, its `.sha256`, any `.minisig` and the VirusTotal table as an
   artifact for 90 days; copy them into the private release record. The default package name is
   `QuestCalibrator-MAJOR.MINOR.PATCH.zip`, from the executable's version resource.
 - `build-package.ps1` writes the SHA-256 of every packaged file to `SHA256SUMS.txt`
@@ -157,16 +159,18 @@ inputs to this workflow and must not be committed.
   on a clean supported Windows environment, using the package from the draft.
   Confirm the original Space Calibrator driver is disabled so transforms are not
   applied twice.
-- If artifacts are signed, verify the signatures on the packaged files and record
-  their signer and timestamp details.
+- The zip's `.minisig` is the release key's signature (Signing, below). Packaging
+  checks it against the key built into the release; check it once more by hand with
+  the command the notes give before publishing.
 
 ## Publish the GitHub Release
 
 - Open the draft the release workflow created. Replace the **Changes** section
   with the user-visible changes; it starts from the tag message. Keep the SHA-256
   and VirusTotal sections as generated.
-- The draft carries only the package ZIP and its `.sha256`. Never add, replace or
-  delete assets by hand; if the package must change, tag a new version.
+- The draft carries only the package ZIP, its `.sha256` and, if stable, its `.minisig`. Never
+  add, replace or delete assets by hand; if the package must change, tag a new
+  version.
 - Publish only when the install test passed. The release workflow runs it on the
   draft; run it again by hand to test against another earlier release, or after a
   local `release.ps1`:
@@ -202,12 +206,57 @@ Keep these names exact or the release deliberately fails closed:
   `Install.ps1`, `Uninstall.ps1`, `app/QuestCalibrator.exe`, and the driver DLL.
 - The published asset must expose GitHub's `sha256:` digest. Verify that digest against
   the provenance record before publishing.
+- Exactly one signature asset, `QuestCalibrator-MAJOR.MINOR.PATCH.zip.minisig`, made
+  with the release key, its trusted comment the package name.
 
-Drafts, prereleases, inherited `v*` tags, packages without a SHA-256 digest, duplicate
-canonical assets, and download URLs outside this repository are not eligible. The
+Drafts, prereleases, inherited `v*` tags, packages without a SHA-256 digest or a
+signature, duplicate canonical assets or signatures, and download URLs outside this
+repository are not eligible. A newest release that is not eligible is refused, never
+passed over for an older one. The updater checks the signature before it offers the
+package and again before the installer starts. The
 updater checks and downloads only after the user opts in; applying the package remains
 an explicit action because Steam must be fully closed and Windows must approve the
 elevated installer.
+
+### Signing
+
+Installed copies install only a package the release key signed. The updater reads
+`<package>.minisig` with the release, checks it against the public key built into
+the app (`Overlay/UpdateSigningKey.h`), and requires its signed trusted comment to be
+the package name, so a release cannot carry an older package's genuine signature
+under a newer name. The verifier is `Overlay/UpdateSignature.cpp`, on Monocypher.
+`install\sign-package.ps1` signs with [minisign](https://jedisct1.github.io/minisign/),
+for both release paths, and refuses a stable release that is unsigned or that the key
+built into it does not verify. Prereleases are not signed, and their runs never see
+the key: the updater never offers a prerelease.
+
+The key lives in two places: offline with you, and in this repository's secrets for
+the release workflow. Anyone who can change a workflow here can use it, so the
+signature guards against a package replaced on GitHub or altered on the way, not
+against a compromised account. Setting it up, once:
+
+1. Install minisign (`winget install jedisct1.minisign`) and make the key pair:
+   `minisign -G -p questcalibrator.pub -s questcalibrator.key`. Choose a password.
+2. Keep `questcalibrator.key` and its password backed up offline. Never commit them.
+3. Add the secrets: `gh secret set MINISIGN_SECRET_KEY < questcalibrator.key` and
+   `gh secret set MINISIGN_PASSWORD` (it asks for the value).
+4. Put the second line of `questcalibrator.pub` in `ReleaseSigningPublicKey` in
+   `Overlay/UpdateSigningKey.h`, and commit it. Until then a build takes no update
+   and a stable tag fails at packaging.
+
+Versions before the first signed release ignore the `.minisig` and update to it as
+before; from then on each version checks the next. A build trusts exactly the key it
+was built with, so the key is for good: a release signed with another key reaches no
+installed copy, and everyone installs it by hand. If the key is lost or leaks, make a
+new pair, put its public key in the header, release with it, and say in the notes
+that this version must be installed by hand.
+
+Turn on release immutability (Settings, General, Releases, Enable release
+immutability). Once a release is published, its tag and assets can then no longer be
+changed or deleted, so a published package cannot be swapped for another with a
+stolen token. GitHub applies it to every release published after it is turned on,
+prereleases included; it has no per-release choice. Drafts are still edited freely,
+and the rules above never change a published release's assets anyway.
 
 ### Prerelease builds
 

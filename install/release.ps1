@@ -10,7 +10,9 @@
 #   .\install\release.ps1 -DryRun   # build, package and scan only
 #
 # The VirusTotal key comes from $env:VT_API_KEY, or from VT_API_KEY or
-# VIRUSTOTAL_API_KEY in the git-ignored .env at the repository root.
+# VIRUSTOTAL_API_KEY in the git-ignored .env at the repository root. A stable
+# release is signed with the release key, -SigningKey (its minisign .key
+# file); minisign asks for its password unless $env:MINISIGN_PASSWORD holds it.
 [CmdletBinding()]
 param(
     [string]$Tag = '',
@@ -20,7 +22,8 @@ param(
     # Markdown for the top of the release notes (title line, changes, limits,
     # validation). The generated Download and VirusTotal sections follow it.
     # Without it the notes start with a Changes section taken from the tag message.
-    [string]$NotesFile = ''
+    [string]$NotesFile = '',
+    [string]$SigningKey = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -106,7 +109,7 @@ try {
         if (-not $env:VT_API_KEY) { throw 'No VirusTotal key. Set $env:VT_API_KEY or add it to .env, or pass -SkipScan.' }
     }
     $release = & install\package-release.ps1 -Tag $Tag -Scenarios ([int]$passed.Groups[1].Value) `
-        -NotesFile $NotesFile -SkipScan:$SkipScan -BuildInfo @('built_by=install\release.ps1')
+        -NotesFile $NotesFile -SkipScan:$SkipScan -SecretKeyFile $SigningKey -BuildInfo @('built_by=install\release.ps1')
 
     if ($DryRun) {
         Write-Host ''
@@ -117,8 +120,9 @@ try {
 
     # --verify-tag: without it gh would make the tag itself, on the default
     # branch, if the release repository did not have it.
-    $arguments = @(
-        'release', 'create', $Tag, $release.Zip, "$($release.Zip).sha256",
+    $assets = @($release.Zip, "$($release.Zip).sha256")
+    if ($release.Signature) { $assets += $release.Signature }
+    $arguments = @('release', 'create', $Tag) + $assets + @(
         '--repo', $releaseRepo,
         '--verify-tag',
         '--draft',
