@@ -57,6 +57,12 @@
 // its new one, that frame moved under it and the delta is exact; back in
 // another station's frame it is not, and nothing is handed out.
 //
+// A device that came into a frame without a move its correction can follow
+// (back in another station's frame, re-expressed, or first seen) is handed
+// out as a switch instead (TakeSwitches): its correction belongs to the
+// frame it left, and the caller gives it the one of the devices already in
+// the new frame (TrackerFrameCorrections::Join).
+//
 // A device another driver hides from applications is watched all the same:
 // Standable hooks the body trackers it republishes as its own and passes the
 // physical ones on as not connected while they track (live 2026-09-26: four
@@ -119,6 +125,26 @@ public:
 		Eigen::Vector3d toTrans{ 0, 0, 0 };
 	};
 
+	// A device, not a base station, in a frame its correction did not follow
+	// it into: the same pose put in another station's frame, a frame change
+	// its own pose jumped with or one it came back from a tracking loss in,
+	// with no move reported anywhere leading there within inferSeconds (live
+	// 2026-10-03: a body tracker bootstrapped from S-13 while SteamVR moved
+	// S-3, then back into S-3's moved frame), or its first tracked sample
+	// since the watch started, was reset or forgot it.
+	struct Switch
+	{
+		enum class Cause { Appeared, ReExpressed, OwnJump, Returned };
+		uint32_t id = 0;
+		double time = 0.0;   // when its frame changed
+		Cause cause = Cause::Appeared;
+		// The frame before (identity for one that appeared) and after.
+		Eigen::Quaterniond fromRot{ 1, 0, 0, 0 };
+		Eigen::Vector3d fromTrans{ 0, 0, 0 };
+		Eigen::Quaterniond toRot{ 1, 0, 0, 0 };
+		Eigen::Vector3d toTrans{ 0, 0, 0 };
+	};
+
 	LighthouseFrameWatch() = default;
 	explicit LighthouseFrameWatch(const Config &c) : config(c) {}
 
@@ -163,6 +189,7 @@ public:
 		latestTime = (std::max)(latestTime, now.time);
 		if (!baseStation && trackingSince > 1e299)
 			trackingSince = now.time;
+		const bool appeared = !d.valid && !d.away;
 		const bool changed = (d.valid || d.away) &&
 			questcal::WorldFromDriverChanged(d.wfdRot, d.wfdTrans, now.wfdRot, now.wfdTrans);
 		if (changed && d.valid)
@@ -182,11 +209,21 @@ public:
 			{
 				Infer(s.deviceId, d, now, /*returned=*/false);
 			}
+			else if (c.kind == Kind::ReExpressed && !baseStation)
+			{
+				Switched(s.deviceId, now.time, Switch::Cause::ReExpressed,
+					d.wfdRot, d.wfdTrans, now.wfdRot, now.wfdTrans);
+			}
 			Add(c);
 		}
 		else if (changed && !baseStation)
 		{
 			Infer(s.deviceId, d, now, /*returned=*/true);
+		}
+		else if (appeared && !baseStation)
+		{
+			Switched(s.deviceId, now.time, Switch::Cause::Appeared,
+				Eigen::Quaterniond::Identity(), Eigen::Vector3d::Zero(), now.wfdRot, now.wfdTrans);
 		}
 		d = now;
 		ExpireInferences();
@@ -211,12 +248,72 @@ public:
 		return true;
 	}
 
+	// Whether the device's last frame (LastFrame) is the given one.
+	bool InFrame(uint32_t id, const Eigen::Quaterniond &rotation, const Eigen::Vector3d &translation) const
+	{
+		Eigen::Quaterniond r;
+		Eigen::Vector3d t;
+		return LastFrame(id, r, t) && !questcal::WorldFromDriverChanged(r, t, rotation, translation);
+	}
+
+	// The device has a last frame and no change of it is still waiting to be
+	// read off other devices' moves: whatever it is handed next is about a
+	// later change.
+	bool Settled(uint32_t id) const
+	{
+		Eigen::Quaterniond r;
+		Eigen::Vector3d t;
+		if (!LastFrame(id, r, t))
+			return false;
+		for (const auto &f : inferences)
+			if (f.move.id == id)
+				return false;
+		return true;
+	}
+
+	// Where the device last was: its local position in its last frame.
+	bool LastPosition(uint32_t id, Eigen::Vector3d &position) const
+	{
+		Eigen::Quaterniond r;
+		Eigen::Vector3d t;
+		if (!LastFrame(id, r, t))
+			return false;
+		position = r * devices[id].drvPos + t;
+		return true;
+	}
+
+	// The devices, base stations aside, last seen in the same frame share a
+	// group, named by the lowest id among them; -1 for a device with no frame.
+	int FrameGroup(uint32_t id) const
+	{
+		Eigen::Quaterniond r;
+		Eigen::Vector3d t;
+		if (!LastFrame(id, r, t))
+			return -1;
+		for (uint32_t other = 0; other < id; ++other)
+			if (InFrame(other, r, t))
+				return static_cast<int>(other);
+		return static_cast<int>(id);
+	}
+
 	// The moved devices since the last call, in the order they moved. Bounded:
 	// once MaxPendingMoves wait untaken, later ones are dropped.
 	std::vector<Move> TakeMoves()
 	{
 		std::vector<Move> out;
 		out.swap(moves);
+		return out;
+	}
+
+	// The switches since the last call, in the order they were settled: at
+	// once for a re-expressed or newly seen device, once no move led to its
+	// new frame for one that jumped into it or came back in it. Bounded like
+	// the moves; a switch past the bound is dropped, which leaves the device
+	// with the correction it had, as before switches were reported.
+	std::vector<Switch> TakeSwitches()
+	{
+		std::vector<Switch> out;
+		out.swap(switches);
 		return out;
 	}
 
@@ -243,6 +340,7 @@ public:
 		closed.clear();
 		moves.clear();
         moveOverflow = false;
+		switches.clear();
 		transitions.clear();
 		inferences.clear();
 		latestTime = -1e300;
@@ -257,6 +355,8 @@ public:
 			devices[id] = Device{};
 		moves.erase(std::remove_if(moves.begin(), moves.end(),
 			[id](const Move &m) { return m.id == id; }), moves.end());
+		switches.erase(std::remove_if(switches.begin(), switches.end(),
+			[id](const Switch &s) { return s.id == id; }), switches.end());
 		inferences.erase(std::remove_if(inferences.begin(), inferences.end(),
 			[id](const Inference &i) { return i.move.id == id; }), inferences.end());
 	}
@@ -518,6 +618,32 @@ private:
 			Hand(f.move);
 		else if (inferences.size() < MaxInferences)
 			inferences.push_back(f);
+		else
+			Settle(f);
+	}
+
+	// No move led to the inferred change's new frame: the device switched.
+	void Settle(const Inference &f)
+	{
+		Switched(f.move.id, f.move.time, f.move.returned ? Switch::Cause::Returned : Switch::Cause::OwnJump,
+			f.fromRot, f.fromTrans, f.toRot, f.toTrans);
+	}
+
+	void Switched(uint32_t id, double time, Switch::Cause cause,
+		const Eigen::Quaterniond &fromRot, const Eigen::Vector3d &fromTrans,
+		const Eigen::Quaterniond &toRot, const Eigen::Vector3d &toTrans)
+	{
+		if (switches.size() >= MaxPendingMoves)
+			return;
+		Switch s;
+		s.id = id;
+		s.time = time;
+		s.cause = cause;
+		s.fromRot = fromRot;
+		s.fromTrans = fromTrans;
+		s.toRot = toRot;
+		s.toTrans = toTrans;
+		switches.push_back(s);
 	}
 
 	static void SetFrames(Move &m, const Device &was, const Device &is)
@@ -539,6 +665,9 @@ private:
 	void ExpireInferences()
 	{
 		const double cutoff = latestTime - config.inferSeconds;
+		for (const auto &f : inferences)
+			if (f.move.time < cutoff)
+				Settle(f);
 		inferences.erase(std::remove_if(inferences.begin(), inferences.end(),
 			[cutoff](const Inference &f) { return f.move.time < cutoff; }), inferences.end());
 	}
@@ -553,6 +682,7 @@ private:
 	std::vector<Report> closed;
 	std::vector<Move> moves;
     bool moveOverflow = false;
+	std::vector<Switch> switches;
 	std::vector<Transition> transitions;
 	std::vector<Inference> inferences;
 	uint64_t nextTransition = 0;

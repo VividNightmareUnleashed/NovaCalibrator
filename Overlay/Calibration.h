@@ -309,6 +309,11 @@ struct CalibrationContext : CalibrationProfileState
 	// with or without the continuous loop, and the last one's log line.
 	uint32_t frameMovesFollowed = 0;
 	std::string lastFrameMoveFollowed;
+	// Devices given the frame correction of the devices in a frame they came
+	// into with no move to follow (TrackerFrameCorrections::Join), and the
+	// last one's log line.
+	uint32_t frameJoins = 0;
+	std::string lastFrameJoin;
 	// Moves either of those would have acted on, left alone because SteamVR
 	// was setting up its universe (LighthouseVisibility.h).
 	uint32_t frameMovesInSetup = 0;

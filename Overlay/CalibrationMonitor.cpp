@@ -374,6 +374,99 @@ static void CompensateTrackerFrameMoves(CalibrationContext &ctx)
 	}
 }
 
+static const char *SwitchCause(LighthouseFrameWatch::Switch::Cause cause)
+{
+	switch (cause)
+	{
+	case LighthouseFrameWatch::Switch::Cause::Appeared: return "first seen";
+	case LighthouseFrameWatch::Switch::Cause::ReExpressed: return "re-expressed";
+	case LighthouseFrameWatch::Switch::Cause::OwnJump: return "its own pose jumped too, no move leads there";
+	case LighthouseFrameWatch::Switch::Cause::Returned: return "back from a tracking loss, no move leads there";
+	}
+	return "";
+}
+
+// A device that came into a station's frame with no move to follow takes
+// the correction of the calibrated devices already there, and the headset
+// tracker gives its own to the devices in the frame it came into
+// (TrackerFrameCorrections::Join). Moves are followed first, so a frame
+// that moved in the same drain is compared as it is now.
+static void JoinTrackerFrames(CalibrationContext &ctx)
+{
+	const auto switches = FrameWatch.TakeSwitches();
+	if (switches.empty())
+		return;
+	const uint32_t headsetTracker = ctx.ContinuousArmed() ? ctx.continuousTrackerId : vr::k_unTrackedDeviceIndexInvalid;
+	// A measurement keeps its target's correction as the run began with it: the
+	// run checks at its end that the correction followed its frame moves only.
+	const uint32_t measured = ctx.state != CalibrationState::None ? ctx.run.targetId : vr::k_unTrackedDeviceIndexInvalid;
+	auto member = [&ctx](uint32_t id) { return id < vr::k_unMaxTrackedDeviceCount && ctx.targetDeviceMask[id]; };
+	bool changed = false;
+	for (const auto &change : switches)
+	{
+		if (!member(change.id))
+			continue;
+		const auto result = ctx.trackerFrames.Join(change, FrameWatch, headsetTracker, measured, member);
+		char line[1024];
+		if (result.joined.empty())
+		{
+			snprintf(line, sizeof line,
+				"lighthouse device %u %s changed frame (%s); kept its frame correction: %s; "
+				"from q(%.6f,%.6f,%.6f,%.6f) t(%.4f,%.4f,%.4f) to q(%.6f,%.6f,%.6f,%.6f) t(%.4f,%.4f,%.4f)",
+				change.id, DeviceSerials[change.id].c_str(), SwitchCause(change.cause), result.kept,
+				change.fromRot.w(), change.fromRot.x(), change.fromRot.y(), change.fromRot.z(),
+				change.fromTrans.x(), change.fromTrans.y(), change.fromTrans.z(),
+				change.toRot.w(), change.toRot.x(), change.toRot.y(), change.toRot.z(),
+				change.toTrans.x(), change.toTrans.y(), change.toTrans.z());
+			ctx.Diag(line);
+			continue;
+		}
+		changed = true;
+		for (const auto &joined : result.joined)
+		{
+			const auto &after = ctx.trackerFrames.Snapshot()[joined.id];
+			Eigen::Vector3d position;
+			double shiftM = 0.0;
+			if (FrameWatch.LastPosition(joined.id, position))
+				shiftM = (questcal::TrackerFrameCorrections::Apply(after, position) -
+					questcal::TrackerFrameCorrections::Apply(joined.before, position)).norm();
+			const double angleDeg = Eigen::Quaterniond(after.rotation.w, after.rotation.x, after.rotation.y, after.rotation.z)
+				.angularDistance(Eigen::Quaterniond(joined.before.rotation.w, joined.before.rotation.x,
+					joined.before.rotation.y, joined.before.rotation.z)) * 180.0 / questcal::Pi;
+			char took[96];
+			if (joined.id != change.id)
+				snprintf(took, sizeof took, "its frame correction");
+			else if (joined.fromHeadsetTracker)
+				snprintf(took, sizeof took, "the headset tracker's frame correction");
+			else
+				snprintf(took, sizeof took, "the frame correction %zu other device(s) there share", joined.sharedBy);
+			snprintf(line, sizeof line,
+				"lighthouse device %u %s %s (%s); took %s: %.1f cm, %.2f deg at the device; "
+				"normalization q(%.6f,%.6f,%.6f,%.6f) t(%.4f,%.4f,%.4f)",
+				joined.id, DeviceSerials[joined.id].c_str(),
+				joined.id == change.id ? "changed frame" : "is in the frame the headset tracker changed to",
+				SwitchCause(change.cause), took, shiftM * 100.0, angleDeg,
+				after.rotation.w, after.rotation.x, after.rotation.y, after.rotation.z,
+				after.translation.v[0], after.translation.v[1], after.translation.v[2]);
+			++ctx.frameJoins;
+			ctx.lastFrameJoin = line;
+			const bool notable = LighthouseFrameWatch::NotableMove(shiftM, angleDeg, 0.0);
+			if (notable && ctx.detailedLogging && !FrameCapturePending)
+			{
+				FrameCapturePending = true;
+				FrameCaptureDue = (std::max)(ctx.timeLastTick + 0.15, LastFrameCapture + 2.0);
+			}
+			if (notable) ctx.Log(std::string(line) + "\n");
+			else ctx.Diag(line);
+		}
+	}
+	if (changed)
+	{
+		DispatchStreamEvent(ctx, questcal::StreamEvent::FrameMoved);
+		SynchronizeCalibrationDriver(ctx);
+	}
+}
+
 void calibration_internal::RuntimeMonitorTick(CalibrationContext &ctx, double now)
 {
 	const uint64_t boundary = PoseHub.StreamBoundaries();
@@ -482,6 +575,7 @@ void calibration_internal::RuntimeMonitorTick(CalibrationContext &ctx, double no
 	}
 	const bool jumped = idle && questcal::FinishUniverseObservations(ctx, now);
 	CompensateTrackerFrameMoves(ctx);
+	JoinTrackerFrames(ctx);
 
 	if (!idle)
 	{
