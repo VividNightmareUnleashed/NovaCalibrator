@@ -33,6 +33,8 @@
 #include "../../Overlay/LighthouseLog.h"
 #include "../../Overlay/ProfileRecordJson.h"
 #include "../../Overlay/UpdatePolicy.h"
+#include "../../Overlay/UpdateSignature.h"
+#include "../SignatureFixture.h"
 
 #include <cmath>
 #include <cstdint>
@@ -220,6 +222,38 @@ inline std::string CheckReleaseFeed(const uint8_t *data, size_t size)
 		return "the offered package has no digest";
 	if (candidate.size < 128u * 1024u || candidate.size > 64u * 1024u * 1024u)
 		return "the offered package size is out of range";
+	if (candidate.signatureUrl != candidate.downloadUrl + ".minisig")
+		return "the offered signature is not the package's";
+	if (candidate.signatureSize < 1 || candidate.signatureSize > MaxSignatureBytes)
+		return "the offered signature size is out of range";
+	return "";
+}
+
+// ---------------------------------------------------------------------------
+// Update package signature (.minisig)
+
+// The input is a .minisig file for the fixture's signed file. Whatever parses
+// and verifies must be the genuine signature, comment and comment signature:
+// no other spelling of them passes.
+inline std::string CheckPackageSignature(const uint8_t *data, size_t size)
+{
+	using namespace questcal::update;
+	PackageSignature signature;
+	if (!ParsePackageSignature(Text(data, size), signature))
+		return "";
+	SigningPublicKey key;
+	PackageSignature genuine;
+	if (!ParseSigningPublicKey(questcalfixture::SigningKey, key) ||
+		!ParsePackageSignature(questcalfixture::Signature, genuine))
+		return "the fixture no longer parses";
+	Blake2b512 hash;
+	hash.Update(questcalfixture::SignedFile, std::strlen(questcalfixture::SignedFile));
+	if (!VerifyPackageSignature(key, signature, hash.Final(), questcalfixture::SignedComment))
+		return "";
+	if (signature.keyId != genuine.keyId || signature.signature != genuine.signature ||
+		signature.trustedComment != genuine.trustedComment ||
+		signature.commentSignature != genuine.commentSignature)
+		return "a signature other than the genuine one verifies";
 	return "";
 }
 
@@ -538,7 +572,10 @@ inline std::vector<std::string> FeedSeeds()
 		"\"html_url\":\"https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/tag/questcalibrator-v2.1.0\","
 		"\"assets\":[{\"name\":\"QuestCalibrator-2.1.0.zip\",\"size\":1048576,\"digest\":\"" + digest + "\","
 		"\"browser_download_url\":\"https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/download/"
-		"questcalibrator-v2.1.0/QuestCalibrator-2.1.0.zip\"}]}";
+		"questcalibrator-v2.1.0/QuestCalibrator-2.1.0.zip\"},"
+		"{\"name\":\"QuestCalibrator-2.1.0.zip.minisig\",\"size\":302,"
+		"\"browser_download_url\":\"https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/download/"
+		"questcalibrator-v2.1.0/QuestCalibrator-2.1.0.zip.minisig\"}]}";
 	const std::string others =
 		",{\"draft\":true,\"prerelease\":false,\"tag_name\":\"questcalibrator-v9.0.0\"}"
 		",{\"draft\":false,\"prerelease\":true,\"tag_name\":\"questcalibrator-v3.0.0\"}"
@@ -546,6 +583,11 @@ inline std::vector<std::string> FeedSeeds()
 	return { std::string("\x01\x00\x00", 3) + "[" + release + others + "]",
 		std::string("\x02\x01\x00", 3) + "[" + release + "]",
 		"questcalibrator-v1.20.3", digest };
+}
+
+inline std::vector<std::string> SignatureSeeds()
+{
+	return { questcalfixture::Signature, questcalfixture::LegacySignature, questcalfixture::OtherSignature };
 }
 
 inline std::vector<std::string> LighthouseSeeds()
@@ -679,6 +721,7 @@ inline const std::vector<Target> &Targets()
 		{ "profile", CheckProfileRecord, ProfileSeeds },
         { "settings", CheckSettingsRecord, SettingsSeeds },
 		{ "feed", CheckReleaseFeed, FeedSeeds },
+		{ "signature", CheckPackageSignature, SignatureSeeds },
 		{ "lighthouse", CheckLighthouseLine, LighthouseSeeds },
 		{ "request", CheckDriverRequest, RequestSeeds },
 		{ "frame-recovery", CheckFrameRecovery, FrameRecoverySeeds },

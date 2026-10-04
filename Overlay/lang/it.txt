@@ -935,12 +935,30 @@ en: The update folder could not be created (system error %d).
 it: Impossibile creare la cartella dell'aggiornamento (errore di sistema {0}).
 en: The downloaded package failed SHA-256 verification.
 it: Il pacchetto scaricato non ha superato la verifica SHA-256.
+en: This build has no release signing key, so it cannot verify updates.
+it: Questa build non ha una chiave di firma delle versioni, quindi non può verificare gli aggiornamenti.
+en: The release signature is larger than GitHub reported.
+it: La firma della versione è più grande di quanto indicato da GitHub.
+en: The release signature download was incomplete.
+it: Il download della firma della versione è incompleto.
+en: The release signature is malformed.
+it: La firma della versione ha un formato non valido.
+en: The release is signed by a key this build does not trust.
+it: La versione è firmata con una chiave di cui questa build non si fida.
+en: The update package could not be opened.
+it: Impossibile aprire il pacchetto di aggiornamento.
+en: The update package is not the size GitHub reported.
+it: Il pacchetto di aggiornamento non ha la dimensione indicata da GitHub.
+en: The update package could not be read.
+it: Impossibile leggere il pacchetto di aggiornamento.
+en: The downloaded package's signature does not verify against the release key.
+it: La firma del pacchetto scaricato non risulta valida con la chiave delle versioni.
 en: The verified update package could not be saved (system error %d).
 it: Impossibile salvare il pacchetto verificato (errore di sistema {0}).
 en: No verified update is ready to install.
 it: Nessun aggiornamento verificato pronto da installare.
-en: The downloaded update no longer passes SHA-256 verification.
-it: L'aggiornamento scaricato non supera più la verifica SHA-256.
+en: The downloaded update no longer passes verification.
+it: L'aggiornamento scaricato non supera più la verifica.
 en: The update helper could not be created.
 it: Impossibile creare l'assistente di aggiornamento.
 en: The newest release has no trusted release page.
@@ -959,6 +977,14 @@ en: The newest release package has no valid SHA-256 digest.
 it: Il pacchetto della versione più recente non ha un'impronta SHA-256 valida.
 en: The newest release package points outside the QuestCalibrator repository.
 it: Il pacchetto della versione più recente punta fuori dal repository di QuestCalibrator.
+en: The newest release contains duplicate signatures.
+it: La versione più recente contiene firme duplicate.
+en: The newest release is not signed.
+it: La versione più recente non è firmata.
+en: The newest release signature has invalid metadata.
+it: La firma della versione più recente ha metadati non validi.
+en: The newest release signature points outside the QuestCalibrator repository.
+it: La firma della versione più recente punta fuori dal repository di QuestCalibrator.
 
 # ---- Lighthouse tab ----
 en: No Lighthouse devices

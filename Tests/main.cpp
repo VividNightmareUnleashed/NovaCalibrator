@@ -85,6 +85,7 @@ void RunHookInjectorScenarios(void (*check)(const char *, bool, const char *));
 void RunUniverseVerdictScenarios(void (*check)(const char *, bool, const char *));
 void RunPoseHubHoleScenarios(void (*check)(const char *, bool, const char *));
 void RunPoseRingScenarios(void (*check)(const char *, bool, const char *));
+void RunUpdateSignatureScenarios(void (*check)(const char *, bool, const char *));
 void RunCalibrationSpaceScenarios(void (*check)(const char *, bool, const char *));
 void RunPoseMathScenarios(void (*check)(const char *, bool, const char *));
 void RunQualityBandsScenarios(void (*check)(const char *, bool, const char *));
@@ -7097,22 +7098,35 @@ void RunGuideScenarios()
 // every rule that decides whether a remote asset is executable input is pure.
 // ---------------------------------------------------------------------------
 
+// `signatureFault` says how the package's .minisig asset is wrong, if it is:
+// "missing", "foreign", "oversized" or "duplicate".
 picojson::value UpdateReleaseValue(const std::string &tag, bool draft,
 	bool prerelease, const std::string &assetName, const std::string &digest,
-	bool duplicate = false)
+	bool duplicate = false, const std::string &signatureFault = std::string())
 {
+	const std::string downloads =
+		"https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/download/" + tag + "/";
 	picojson::object asset;
 	asset["name"] = picojson::value(assetName);
 	asset["size"] = picojson::value(1329433.0);
 	asset["digest"] = picojson::value(digest);
-	asset["browser_download_url"] = picojson::value(
-		"https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/download/" +
-		tag + "/" + assetName);
+	asset["browser_download_url"] = picojson::value(downloads + assetName);
 	picojson::value assetValue(asset);
 	picojson::array assets;
 	assets.push_back(assetValue);
 	if (duplicate)
 		assets.push_back(assetValue);
+
+	picojson::object signature;
+	signature["name"] = picojson::value(assetName + ".minisig");
+	signature["size"] = picojson::value(signatureFault == "oversized" ? 4097.0 : 302.0);
+	signature["browser_download_url"] = picojson::value(
+		(signatureFault == "foreign" ? std::string("https://example.com/") : downloads) +
+		assetName + ".minisig");
+	if (signatureFault != "missing")
+		assets.push_back(picojson::value(signature));
+	if (signatureFault == "duplicate")
+		assets.push_back(picojson::value(signature));
 
 	picojson::object release;
 	release["tag_name"] = picojson::value(tag);
@@ -7210,7 +7224,10 @@ void RunUpdatePolicyScenarios()
 		selected && available && error.empty() &&
 		VersionString(candidate.version) == "1.2.0" &&
 		candidate.packageName == "QuestCalibrator-1.2.0.zip" &&
-		candidate.size == 1329433, error.c_str());
+		candidate.size == 1329433 &&
+		candidate.signatureUrl == "https://github.com/VividNightmareUnleashed/QuestCalibrator/"
+			"releases/download/questcalibrator-v1.2.0/QuestCalibrator-1.2.0.zip.minisig" &&
+		candidate.signatureSize == 302, error.c_str());
 
 	ReleaseCandidate none;
 	bool newerAvailable = true;
@@ -7247,6 +7264,28 @@ void RunUpdatePolicyScenarios()
 		UpdateVersion(1, 1, 0), candidate, available, error);
 	Check("updates: duplicate canonical packages fail closed",
 		!acceptedDuplicate && available && !error.empty(), error.c_str());
+
+	// Installed copies take only signed packages, and a newest release they
+	// cannot take is never passed over for the older signed one below it.
+	bool signatureFaultsRefused = true;
+	std::string signatureDetail;
+	for (const char *fault : { "missing", "foreign", "oversized", "duplicate" })
+	{
+		available = false;
+		error.clear();
+		const bool accepted = SelectReleaseCandidate(UpdateFeed({
+				UpdateReleaseValue("questcalibrator-v2.0.0", false, false, "QuestCalibrator-2.0.0.zip", digest,
+					false, fault),
+				UpdateReleaseValue("questcalibrator-v1.5.0", false, false, "QuestCalibrator-1.5.0.zip", digest) }),
+			UpdateVersion(1, 1, 0), candidate, available, error);
+		if (accepted || !available || error.empty())
+		{
+			signatureFaultsRefused = false;
+			signatureDetail = fault;
+		}
+	}
+	Check("updates: an unsigned or badly signed newest release fails closed",
+		signatureFaultsRefused, signatureDetail.c_str());
 
 	// picojson recurses once per bracket; a feed this deep would overflow the
 	// stack, which no catch sees, instead of failing like any bad feed.
@@ -7799,6 +7838,7 @@ DOCTEST_TEST_CASE("base slew") { Group([] { RunBaseSlewScenarios(); }); }
 DOCTEST_TEST_CASE("continuous calibration") { Group([] { RunContinuousScenarios(); }); }
 DOCTEST_TEST_CASE("guide") { Group([] { RunGuideScenarios(); }); }
 DOCTEST_TEST_CASE("update policy") { Group([] { RunUpdatePolicyScenarios(); }); }
+DOCTEST_TEST_CASE("update signature") { Group([] { RunUpdateSignatureScenarios(Check); }); }
 DOCTEST_TEST_CASE("review regressions") { Group([] { RunReviewRegressionScenarios(Check); }); }
 DOCTEST_TEST_CASE("tracker frame corrections") { Group([] { RunTrackerFrameCorrectionScenarios(Check); }); }
 DOCTEST_TEST_CASE("persistence") { Group([] { RunPersistenceScenarios(); }); }

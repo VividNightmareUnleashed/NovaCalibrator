@@ -29,7 +29,7 @@ jobs:
       matrix:
         # The same list as Targets() in Tests/Fuzz/FuzzTargets.h; the
         # validation build fails when they differ.
-        target: [profile, settings, feed, lighthouse, request, frame-recovery]
+        target: [profile, settings, feed, signature, lighthouse, request, frame-recovery]
 
     steps:
       - name: Check out the source

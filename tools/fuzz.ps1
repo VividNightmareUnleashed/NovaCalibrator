@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     One executable per target in Tests/Fuzz/FuzzTargets.h (profile, settings,
-    feed, lighthouse, request, frame-recovery), built with MSVC's
+    feed, signature, lighthouse, request, frame-recovery), built with MSVC's
     /fsanitize=fuzzer,address into x64\fuzz\. Each run starts from the target's
     seeds and the corpus earlier runs grew (x64\fuzz\<target>\corpus), and stops
     at the time limit or at the first failure: a crash, a sanitizer report, an
@@ -23,7 +23,7 @@
 #>
 param(
     [int]$Seconds = 60,
-    [string[]]$Targets = @('profile', 'settings', 'feed', 'lighthouse', 'request', 'frame-recovery')
+    [string[]]$Targets = @('profile', 'settings', 'feed', 'signature', 'lighthouse', 'request', 'frame-recovery')
 )
 
 # Continue, not Stop: cl and the fuzzers write progress to stderr, which
@@ -45,7 +45,8 @@ foreach ($line in (& cmd.exe /c "`"$vcvars`" >nul 2>nul && set"))
     if ($line -match '^([^=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process') }
 }
 
-$sources = @('Tests\Fuzz\FuzzMain.cpp', 'Driver\AlignmentField.cpp', 'Overlay\LighthouseLog.cpp') |
+$sources = @('Tests\Fuzz\FuzzMain.cpp', 'Driver\AlignmentField.cpp', 'Overlay\LighthouseLog.cpp',
+    'Overlay\UpdateSignature.cpp', 'lib\monocypher\monocypher.c', 'lib\monocypher\monocypher-ed25519.c') |
     ForEach-Object { Join-Path $root $_ }
 
 # Tokens the fuzzer may splice in whole: edge numbers and the grammar of each
@@ -61,8 +62,9 @@ $dictionaries = @{
         'rot_rms_deg', 'pos_rms_m', 'field_anchors', 'position', 'field_enabled', 'continuous_enabled',
         'continuous_tracker_serial', 'continuous_mode', 'legacy', 'calibration_speed', 'true', 'false', 'null')
     feed       = $numbers + @('draft', 'prerelease', 'tag_name', 'questcalibrator-v', 'html_url', 'assets', 'name',
-        'size', 'digest', 'sha256:', 'browser_download_url', 'QuestCalibrator-', '.zip',
+        'size', 'digest', 'sha256:', 'browser_download_url', 'QuestCalibrator-', '.zip', '.minisig',
         'https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/', 'tag/', 'download/', 'true', 'false')
+    signature  = @('untrusted comment: ', 'trusted comment: ', 'QuestCalibrator-9.9.9.zip', 'RUQ', 'RWQ', '==', '=')
     lighthouse = $numbers + @('lighthouse: LHR-', ' C: ', 'SOB: add ', 'SOB: drop ', 'S-', '(generation changed)',
         'also seeing ', 'seeing ', 'No base stations seen', 'BOOTSTRAPPED base ', 'Trying to start tracking from base ',
         'lighthouse: Selected existing universe ', 'lighthouse: Creating new universe ',

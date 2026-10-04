@@ -21,6 +21,14 @@ namespace update
 // streaming SHA-256 implementation used for verified downloads.
 bool HashFileSha256(const std::filesystem::path &path, std::array<unsigned char, 32> &digest);
 
+#ifdef QUESTCAL_UPDATER_TEST_SEAM
+struct SigningPublicKey;
+// The check a package passes before it is offered and again before the
+// installer starts: empty when it passes, otherwise why not.
+std::string VerifyPackageForTest(const std::filesystem::path &path,
+	const ReleaseCandidate &release, const SigningPublicKey &key);
+#endif
+
 enum class State
 {
 	Disabled,
