@@ -16,7 +16,7 @@ Work lands on `alpha`, and prereleases are tagged there. `stable` is the default
 branch and holds the last stable release, so visitors and anything that reads the
 default branch get released code. It moves only when a stable release is
 published, by a fast-forward to that release's tag, and nothing is committed to it
-directly; protect it on GitHub so only those fast-forwards land:
+directly:
 
 ```powershell
 git push origin "questcalibrator-vMAJOR.MINOR.PATCH^{commit}:refs/heads/stable"
