@@ -34,6 +34,8 @@ import os
 import re
 import subprocess
 import sys
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -176,19 +178,30 @@ def changed(base, head='HEAD'):
     return diff.stdout.split() if diff.returncode == 0 else None
 
 
-def github(path):
-    """One GitHub API read for this repository, or None when it fails."""
+def github(path, attempts=3):
+    """One GitHub API read for this repository, or None when it fails. A
+    failed read is retried: one that fails for good makes the search look
+    further back, which runs more checks than needed rather than fewer."""
     token = os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_TOKEN')
     repo = os.environ.get('GITHUB_REPOSITORY', 'VividNightmareUnleashed/QuestCalibrator')
     if not token:
         return None
     request = urllib.request.Request(f'https://api.github.com/repos/{repo}/{path}', headers={
         'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json'})
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return json.load(response)
-    except (OSError, ValueError):
-        return None
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            failure = f'HTTP {error.code}'
+            if error.code == 404:
+                break
+        except (OSError, ValueError) as error:
+            failure = str(error) or type(error).__name__
+        print(f'Reading {path} from GitHub failed ({failure}), attempt {attempt} of {attempts}.')
+        if attempt < attempts:
+            time.sleep(2 * attempt)
+    return None
 
 
 def last_green():
@@ -203,11 +216,16 @@ def last_green():
     for run in runs:
         if len(found) == len(JOBS):
             break
-        jobs = (github(f'actions/runs/{run["id"]}/jobs?per_page=100') or {}).get('jobs', [])
+        listing = github(f'actions/runs/{run["id"]}/jobs?per_page=100')
+        if listing is None:
+            print(f'The jobs of {run["name"]} run {run["id"]} could not be read; looking further back.')
+            continue
+        jobs = listing.get('jobs', [])
         for job, prefixes in PROVING.items():
             proving = [j for j in jobs if j['name'].startswith(prefixes)]
             if job not in found and proving and all(j['conclusion'] == 'success' for j in proving):
                 found[job] = run['head_sha']
+                print(f'{job}: last passed in {run["name"]} run {run["id"]}, at {run["head_sha"][:8]}')
     return found
 
 
@@ -264,7 +282,7 @@ def main():
     lines = []
     for job, (reason, base) in verdict.items():
         since = f' since {base[:8]}, where it passed' if args.last_green and base else ''
-        print(f'{job}: ' + (f'runs ({reason})' if reason else f'skipped, none of its inputs changed{since}'))
+        print(f'{job}: ' + (f'runs ({reason}{since})' if reason else f'skipped, none of its inputs changed{since}'))
         lines.append(f'{job}={"true" if reason else "false"}')
     if os.environ.get('GITHUB_OUTPUT'):
         with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
