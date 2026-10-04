@@ -40,9 +40,10 @@ JOBS = {
     'input_validation': {'folders': [FORMAL / 'input-validation'], 'exclude': [],
                          'scripts': [FORMAL / 'check.ps1']},
     # formal-assurance.yml on a push: check.ps1 -Core, TLC, Lean and
-    # GenMC over VirtualQuest's own models.
-    'core': {'folders': [FORMAL], 'exclude': [FORMAL / 'input-validation'],
-             'scripts': [FORMAL / 'check.ps1', ROOT / 'tools' / 'ci' / 'run-private-check.py']},
+    # GenMC over VirtualQuest's own models. It compiles no public source, and
+    # check.ps1 only hashes the headers the numeric harnesses name, so it has
+    # no public input: it runs when VirtualQuest or the tools below change.
+    'core': {'folders': [], 'exclude': [], 'scripts': []},
 }
 
 # A change to any of these reruns every job: they run or judge the checks.
