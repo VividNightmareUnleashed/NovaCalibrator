@@ -259,7 +259,7 @@ static bool DescribeFrameMove(const LighthouseFrameWatch::Move &move, double &ya
 // While SteamVR sets up its universe (LighthouseVisibility.h) a frame move
 // places a station it guessed at startup: the calibration belongs to the
 // universe, not to the guess, and is left where it is (live 2026-09-27: the
-// census followed one such move 30.5 deg and 63 cm off). With no word from
+// calibration followed one such move 30.5 deg and 63 cm off). With no word from
 // the log, the first seconds after the lighthouse devices start tracking
 // stand in for it: the universe was chosen 1.1 and 4.6 s after the first
 // new solution on 2026-09-26 and -27, and its stations placed within 5 s.

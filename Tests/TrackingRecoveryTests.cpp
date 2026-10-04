@@ -903,20 +903,19 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 				nothing.moves.empty(), buf);
 		}
 
-		// Without a headset tracker the calibration follows a frame that holds
-		// more of the calibrated trackers than it leaves out. Trackers 10 and
-		// 11 are in station 1's frame, reported not connected while they track
-		// (as Standable passes on the body trackers it hides), 12 is in it
-		// normally and 13 is in station 2's. Station 1 is re-solved at 4 s and
-		// station 2 at 7 s. 12 and 13 publish at 125 Hz on alternate ticks, so
-		// 12 reports station 1's move a tick after 10 and 11 do.
+		// Every tracker in a re-solved station's frame is handed the move,
+		// hidden ones included. Trackers 10 and 11 are in station 1's frame,
+		// reported not connected while they track (as Standable passes on the
+		// body trackers it hides), 12 is in it normally and 13 is in station 2's.
+		// Station 1 is re-solved at 4 s and station 2 at 7 s. 12 and 13 publish
+		// at 125 Hz on alternate ticks, so 12 reports station 1's move a tick
+		// after 10 and 11 do.
 		{
 			const Pose resolve(rot(0.5, 1.3), Eigen::Vector3d(0.09, 0.01, -0.05));
 			LighthouseFrameWatch watch;
 			const Pose local(Eigen::Quaterniond::Identity(), Eigen::Vector3d(-0.4, -1.8, 2.2));
 			std::vector<LighthouseFrameWatch::Move> moves;
-			std::vector<LighthouseFrameWatch::Census> followed, left;
-			int firsts = 0, hiddenMoves = 0;
+			int hiddenMoves = 0;
 			for (int i = 0; i <= 9 * 250; ++i)
 			{
 				const double time = 1.0 + i / 250.0;
@@ -941,14 +940,18 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 					moves.push_back(m);
 					if (m.id == 10 || m.id == 11)
 						++hiddenMoves;
-					if (!watch.FirstOfFrameMove(m))
-						continue;
-					++firsts;
-					const auto census = watch.FrameCensus(m, [](uint32_t id) { return id >= 10 && id <= 13; });
-					(census.members > census.others ? followed : left).push_back(census);
 				}
 				watch.Flush();
 			}
+			auto movedAt = [&moves](uint32_t id, double from, double to)
+			{
+				for (const auto &m : moves)
+					if (m.id == id && m.time >= from && m.time < to)
+						return true;
+				return false;
+			};
+			const bool stationOne = movedAt(10, 4.0, 4.001) && movedAt(11, 4.0, 4.001) && movedAt(12, 4.003, 4.005);
+			const bool stationTwo = movedAt(13, 7.0, 7.001);
 			// When the trackers started, for the case the log cannot say when
 			// SteamVR set up its universe: the first tracking device, hidden
 			// ones included and base stations aside, until a reset.
@@ -957,17 +960,12 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 			const bool clearedByReset = watch.TrackingSince() > 1e299;
 			watch.Note(sample(1, 20.0, stations[0], identity, Eigen::Vector3d::Zero()), QpcSeconds, true);
 			const bool stationAside = watch.TrackingSince() > 1e299;
-			char buf[240];
-			snprintf(buf, sizeof buf, "moves %zu (hidden %d), frame moves %d; followed %zu (%d in / %d out), left %zu (%d in / %d out); "
+			char buf[160];
+			snprintf(buf, sizeof buf, "moves %zu (hidden %d), station 1's %d, station 2's %d; "
 				"tracking since %.3f, reset %d, station aside %d",
-				moves.size(), hiddenMoves, firsts, followed.size(),
-				followed.empty() ? -1 : followed[0].members, followed.empty() ? -1 : followed[0].others,
-				left.size(), left.empty() ? -1 : left[0].members, left.empty() ? -1 : left[0].others,
-				since, clearedByReset, stationAside);
-			check("lighthouse frame: a move is followed without a headset tracker when most calibrated trackers are in its frame",
-				moves.size() == 4 && hiddenMoves == 2 && firsts == 2 &&
-				followed.size() == 1 && followed[0].members == 3 && followed[0].others == 1 &&
-				left.size() == 1 && left[0].members == 1 && left[0].others == 3 &&
+				moves.size(), hiddenMoves, stationOne, stationTwo, since, clearedByReset, stationAside);
+			check("lighthouse frame: every tracker in a re-solved station's frame is handed the move, hidden ones included",
+				moves.size() == 4 && hiddenMoves == 2 && stationOne && stationTwo &&
 				std::abs(since - 1.0) < 1e-6 && clearedByReset && stationAside, buf);
 		}
 	}

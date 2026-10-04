@@ -63,7 +63,6 @@
 // trackers at 400 Hz, every sample "not connected", all of them in the frame
 // of the station SteamVR kept moving). A pose that says it tracks counts here
 // whatever the connection flag says; only one that does not is a device gone.
-// FrameCensus then says how many of the calibrated devices a move carried.
 //
 // Every move is reported, the ones SteamVR makes while it sets up its
 // universe included (LighthouseVisibility.h); those place a station guessed
@@ -113,26 +112,11 @@ public:
 		bool returned = false;
 		bool ownJump = false;
 		// The frame before and after (worldFromDriver): every device in the
-		// frame reports the same pair, which is what makes them one move.
+		// frame reports the same pair.
 		Eigen::Quaterniond fromRot{ 1, 0, 0, 0 };
 		Eigen::Vector3d fromTrans{ 0, 0, 0 };
 		Eigen::Quaterniond toRot{ 1, 0, 0, 0 };
 		Eigen::Vector3d toTrans{ 0, 0, 0 };
-
-		bool SameFrameMove(const Move &other) const
-		{
-			return !questcal::WorldFromDriverChanged(fromRot, fromTrans, other.fromRot, other.fromTrans) &&
-				!questcal::WorldFromDriverChanged(toRot, toTrans, other.toRot, other.toTrans);
-		}
-	};
-
-	// The devices, base stations aside, a move's frame holds (in it before or
-	// after the move: some report it a moment later) against those in another
-	// frame, counting only the devices `counts` accepts.
-	struct Census
-	{
-		int members = 0;
-		int others = 0;
 	};
 
 	LighthouseFrameWatch() = default;
@@ -240,36 +224,6 @@ public:
     // profile until recalibration, rather than silently use partial frames.
     bool TakeMoveOverflow() { const bool out = moveOverflow; moveOverflow = false; return out; }
 
-	// True the first time a frame move is asked about: its devices report it
-	// one by one, often across two ticks, and it is acted on once.
-	bool FirstOfFrameMove(const Move &move)
-	{
-		for (const auto &seen : frameMoves)
-			if (seen.SameFrameMove(move))
-				return false;
-		if (frameMoves.size() >= MaxFrameMoves)
-			frameMoves.erase(frameMoves.begin());
-		frameMoves.push_back(move);
-		return true;
-	}
-
-	template <class Counts>
-	Census FrameCensus(const Move &move, Counts counts) const
-	{
-		Census census;
-		for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
-		{
-			const Device &d = devices[id];
-			if (!d.valid || d.baseStation || !counts(id))
-				continue;
-			const bool member =
-				!questcal::WorldFromDriverChanged(d.wfdRot, d.wfdTrans, move.fromRot, move.fromTrans) ||
-				!questcal::WorldFromDriverChanged(d.wfdRot, d.wfdTrans, move.toRot, move.toTrans);
-			(member ? census.members : census.others)++;
-		}
-		return census;
-	}
-
 	// Reports whose group has closed: a sample arrived more than
 	// groupSeconds after its first change.
 	std::vector<Report> Flush()
@@ -291,7 +245,6 @@ public:
         moveOverflow = false;
 		transitions.clear();
 		inferences.clear();
-		frameMoves.clear();
 		latestTime = -1e300;
 		trackingSince = 1e300;
 	}
@@ -593,7 +546,6 @@ private:
 	static constexpr size_t MaxPendingMoves = 256;
 	static constexpr size_t MaxTransitions = 512;
 	static constexpr size_t MaxInferences = 64;
-	static constexpr size_t MaxFrameMoves = 32;
 
 	Config config;
 	Device devices[vr::k_unMaxTrackedDeviceCount];
@@ -603,7 +555,6 @@ private:
     bool moveOverflow = false;
 	std::vector<Transition> transitions;
 	std::vector<Inference> inferences;
-	std::vector<Move> frameMoves;
 	uint64_t nextTransition = 0;
 	double latestTime = -1e300;
 	double trackingSince = 1e300;
