@@ -168,6 +168,47 @@ void Warm(questcal::ContinuousAlignment &aligner, double offset)
 void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *))
 {
 	using CA = questcal::ContinuousAlignment;
+	// A slot SteamVR hands to another device starts over: ForgetDevice drops
+	// what the watch knew of the old device, so the new one's frame is not
+	// taken for a move, and drops only that device's pending moves.
+	{
+		LighthouseFrameWatch watch;
+		watch.Note(Sample(1, 10.0, 0.0), QpcSeconds, false);
+		watch.Note(Sample(2, 10.0, 0.0), QpcSeconds, false);
+		auto moved1 = Sample(1, 10.1, 0.0), moved2 = Sample(2, 10.1, 0.0);
+		moved1.worldFromDriverTranslation[0] = moved2.worldFromDriverTranslation[0] = 0.5;
+		watch.Note(moved1, QpcSeconds, false);
+		watch.Note(moved2, QpcSeconds, false);
+		watch.ForgetDevice(1);
+		const auto pending = watch.TakeMoves();
+		auto other = Sample(1, 10.2, 0.0);
+		other.worldFromDriverTranslation[0] = -0.4;
+		watch.Note(other, QpcSeconds, false);
+		const auto after = watch.TakeMoves();
+		check("lighthouse frame: a reused slot neither keeps nor makes the old device's moves",
+			pending.size() == 1 && pending[0].id == 2 && after.empty(), "");
+	}
+	// Moves nobody takes are bounded: past the limit they are dropped, and the
+	// overflow is reported once, so the caller stops trusting partial frames.
+	{
+		LighthouseFrameWatch watch;
+		watch.Note(Sample(1, 10.0, 0.0), QpcSeconds, false);
+		int noted = 0;
+		for (int i = 1; i <= 300; ++i)
+		{
+			auto s = Sample(1, 10.0 + 0.01 * i, 0.0);
+			s.worldFromDriverTranslation[0] = (i & 1) ? 0.5 : 0.0;
+			watch.Note(s, QpcSeconds, false);
+			++noted;
+		}
+		const bool overflowed = watch.TakeMoveOverflow();
+		const bool reportedOnce = !watch.TakeMoveOverflow();
+		const size_t kept = watch.TakeMoves().size();
+		char detail[96];
+		snprintf(detail, sizeof detail, "%d frame changes noted, %zu moves kept", noted, kept);
+		check("lighthouse frame: an untaken move queue overflows once and stays bounded",
+			overflowed && reportedOnce && kept > 0 && kept < 300, detail);
+	}
 	Deltas r = Replay([](int f, uint32_t) { return f >= 150 ? .15 : 0.; }, {0, 1});
 	check("recovery: 15 cm HMD/controller reset, no mounted tracker",
 		r.count == 1 && std::abs(r.last.translation.x() - .15) < 1e-8, "matching persistent pose steps, unchanged WFD");
