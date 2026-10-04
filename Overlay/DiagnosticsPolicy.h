@@ -1,7 +1,9 @@
 #pragma once
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <string>
+#include <vector>
 
 // Explicit byte-wise substitutions. Unicode case equivalence and discovery
 // of arbitrary secrets are outside this policy. Callers bound report inputs.
@@ -86,6 +88,26 @@ inline std::string AnonymiseDiagnosticsText(const std::string &text,
 		ReplaceWordNoCase(out, userName, "<user>");
 	if (computerName.size() >= 2)
 		ReplaceWordNoCase(out, computerName, "<pc>");
+	return out;
+}
+
+// Device slots as ranges in ascending order ("0-3, 5, 9-63"), so a report
+// names the slots it has nothing on in one line rather than one line each.
+inline std::string SlotRanges(const std::vector<uint32_t> &slots)
+{
+	std::string out;
+	for (size_t i = 0; i < slots.size();)
+	{
+		size_t last = i;
+		while (last + 1 < slots.size() && slots[last + 1] == slots[last] + 1)
+			++last;
+		if (!out.empty())
+			out += ", ";
+		out += std::to_string(slots[i]);
+		if (last > i)
+			out += "-" + std::to_string(slots[last]);
+		i = last + 1;
+	}
 	return out;
 }
 
