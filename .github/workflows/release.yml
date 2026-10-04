@@ -50,8 +50,10 @@ env:
 # packages and scans, and keeps the result with the run; beside it, traces
 # replays the pose hub traces through their model and runs the duplicate scan,
 # and clang-tidy analyzes the tagged source (clang-tidy.yml), where any
-# first-party finding stops the release; publish creates the draft from the
-# kept package once all three passed. A failed publish is repeated with
+# first-party finding stops the release; formal-scope picks the formal jobs
+# whose inputs changed since the last commit where each passed, and
+# formal-assurance runs those; publish creates the draft from the kept package
+# once all of them passed. A failed publish is repeated with
 # "Re-run failed jobs" in a minute, without building again.
 #
 # A tag on a commit whose message contains [skip release] starts nothing
@@ -249,17 +251,56 @@ jobs:
     secrets:
       VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
 
-  formal-assurance:
+  # The formal jobs are deterministic, so one whose inputs are unchanged since
+  # the last commit where it passed (in validation or an earlier release) would
+  # pass again; tools/ci/formal-scope.py says which still need to run.
+  formal-scope:
     needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      input_validation: ${{ steps.scope.outputs.input_validation }}
+      core: ${{ steps.scope.outputs.core }}
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          persist-credentials: false
+      - name: Check out VirtualQuest
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
+        run: tools/ci/checkout-virtualquest.ps1
+      - name: Work out which formal jobs the tag needs
+        id: scope
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python tools/ci/formal-scope.py --last-green
+
+  formal-assurance:
+    needs: [check, formal-scope]
+    if: needs.formal-scope.outputs.core == 'true' || needs.formal-scope.outputs.input_validation == 'true'
     uses: ./.github/workflows/formal-assurance.yml
     with:
       ref: refs/tags/${{ inputs.tag || github.ref_name }}
-      release: true
+      core: ${{ needs.formal-scope.outputs.core == 'true' }}
+      numeric: ${{ needs.formal-scope.outputs.input_validation == 'true' }}
     secrets:
       VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
 
+  # formal-assurance is skipped when every formal job's inputs are proved
+  # already, so publish asks for each result rather than plain needs.
   publish:
-    needs: [build, traces, clang-tidy, formal-assurance]
+    needs: [build, traces, clang-tidy, formal-scope, formal-assurance]
+    if: >-
+      always() && needs.build.result == 'success' && needs.traces.result == 'success' &&
+      needs.clang-tidy.result == 'success' && needs.formal-scope.result == 'success' &&
+      (needs.formal-assurance.result == 'success' || needs.formal-assurance.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

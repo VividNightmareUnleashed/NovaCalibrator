@@ -64,12 +64,13 @@ committed.
 The hosted release also proves the tag against VirtualQuest's formal suite on
 Linux (`formal-assurance.yml`), all at once: the private core (TLC, Lean and
 GenMC) on four runners and the complete numeric suite on four, and the draft waits
-for them. This repository is public, so those jobs keep the private checks'
-output off the log; a failure names the checks that failed, and is investigated
-locally. The local release path does not run them, so let validation pass on the
-release commit first. It runs the same checks, each only for a change that can
-affect it (`tools/ci/formal-scope.py`): a check it skips has the same inputs as
-when it last passed.
+for them. Like validation, it runs each only when the tag changes that job's
+inputs since the last commit where the job passed (`tools/ci/formal-scope.py`);
+a job it skips would pass again, since its checks are deterministic. This
+repository is public, so those jobs keep the private checks' output off the log;
+a failure names the checks that failed, and is investigated locally. The local
+release path does not run them, so let validation pass on the release commit
+first.
 
 ## Source preflight
 

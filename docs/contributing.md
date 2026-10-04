@@ -162,11 +162,12 @@ so after such a change run
 `python VirtualQuest/formal/check-pins.py`. It checks every pin in about a second
 and names any that moved and where to.
 
-Validation runs each formal job only for a change that can affect it:
-`tools/ci/formal-scope.py` works out each job's inputs from the harnesses it
-compiles and the scripts it runs. `python tools/ci/formal-scope.py --list <job>`
-prints them, and `--base <commit>` says which jobs a change since that commit
-needs. The release workflow runs every formal check on the tag regardless.
+Validation and the release workflow run each formal job only for a change
+that can affect it: `tools/ci/formal-scope.py` works out each job's inputs from
+the harnesses it compiles and the scripts it runs, and compares them with the
+last commit where that job ran and passed. `python tools/ci/formal-scope.py
+--list <job>` prints a job's inputs, and `--base <commit>` says which jobs a
+change since that commit needs.
 
 The formal suite's scope is settled: add an obligation only when a defect
 shows that the tests could not have caught it, and prefer a harness test when

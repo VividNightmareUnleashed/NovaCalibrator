@@ -42,8 +42,10 @@ name: Validation
 # public log; a failure names the checks that failed, to be run locally.
 #
 # Those two formal jobs run only for a change that can affect them (the
-# formal-scope job below); a push that touches none of their inputs skips them,
-# and the checks list shows them as skipped.
+# formal-scope job below). Each is compared with the last commit where it ran
+# and passed, not with the previous push, so a run cancelled by a newer push
+# never counts as proof. A push that touches none of a job's inputs since then
+# skips it, and the checks list shows it as skipped.
 on:
   push:
     branches: [alpha, stable]
@@ -277,6 +279,10 @@ jobs:
     if: github.repository == 'VividNightmareUnleashed/QuestCalibrator' && github.event.pull_request.head.repo.fork != true
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # actions: read finds the last runs where each formal job passed.
+    permissions:
+      contents: read
+      actions: read
     outputs:
       input_validation: ${{ steps.scope.outputs.input_validation }}
       core: ${{ steps.scope.outputs.core }}
@@ -293,11 +299,8 @@ jobs:
       - name: Work out which formal jobs this change needs
         id: scope
         env:
-          BASE: ${{ github.event_name == 'push' && github.event.before || github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
-        run: |
-          # A base that cannot be fetched counts as one that cannot be compared.
-          if [ -n "$BASE" ]; then git fetch --no-tags --depth=1 origin "$BASE" || true; fi
-          python tools/ci/formal-scope.py --base "$BASE"
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python tools/ci/formal-scope.py --last-green
 
   input-validation:
     name: input-validation (${{ matrix.shard }}/6)

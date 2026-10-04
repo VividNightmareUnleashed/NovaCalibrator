@@ -2,8 +2,9 @@ name: Formal assurance
 
 # VirtualQuest's private formal suite, run here because the private repository
 # has no hosted Actions: TLC, Lean and GenMC (check.ps1 -Core) on four runners.
-# For a release it also runs the complete numeric suite (ESBMC and Gappa) on
-# four runners of its own, at the same time.
+# A release can also run the complete numeric suite (ESBMC and Gappa) on four
+# runners of its own, at the same time. The caller says which of the two to
+# run (tools/ci/formal-scope.py decides for both workflows).
 #
 # This repository is public, so anyone can read its logs and artifacts. Each
 # private check writes its output to the runner's temp folder, never to the log
@@ -17,8 +18,12 @@ on:
         description: The commit, branch or tag to check; the caller's own by default
         type: string
         default: ''
-      release:
-        description: Also run the complete numeric suite, as a release does
+      core:
+        description: Run the private core
+        type: boolean
+        default: true
+      numeric:
+        description: Also run the complete numeric suite, as a release whose numeric inputs changed does
         type: boolean
         default: false
     secrets:
@@ -44,6 +49,7 @@ jobs:
   # image is cached by its Dockerfile's hash; a run from a tag cannot read the
   # caches a branch saved, and without this job every share would build it.
   images:
+    if: inputs.core || inputs.numeric
     runs-on: ubuntu-24.04
     timeout-minutes: 90
 
@@ -63,6 +69,7 @@ jobs:
 
       - name: Find the GenMC image
         id: genmc
+        if: inputs.core
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/questcal-genmc.tar
@@ -70,14 +77,14 @@ jobs:
           lookup-only: true
 
       - name: Build the GenMC image
-        if: steps.genmc.outputs.cache-hit != 'true'
+        if: inputs.core && steps.genmc.outputs.cache-hit != 'true'
         timeout-minutes: 60
         run: |
           docker build -q -t questcal-genmc VirtualQuest/formal/seqlock > /dev/null 2>&1 || { echo 'Building the GenMC image failed.'; exit 1; }
           docker save -o "$RUNNER_TEMP/questcal-genmc.tar" questcal-genmc
 
       - name: Save the GenMC image
-        if: steps.genmc.outputs.cache-hit != 'true'
+        if: inputs.core && steps.genmc.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/questcal-genmc.tar
@@ -85,7 +92,7 @@ jobs:
 
       - name: Find the ESBMC image
         id: esbmc
-        if: inputs.release
+        if: inputs.numeric
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/questcal-esbmc.tar
@@ -93,14 +100,14 @@ jobs:
           lookup-only: true
 
       - name: Build the ESBMC image
-        if: inputs.release && steps.esbmc.outputs.cache-hit != 'true'
+        if: inputs.numeric && steps.esbmc.outputs.cache-hit != 'true'
         timeout-minutes: 30
         run: |
           docker build -q -t questcal-esbmc VirtualQuest/formal/input-validation > /dev/null 2>&1 || { echo 'Building the ESBMC image failed.'; exit 1; }
           docker save -o "$RUNNER_TEMP/questcal-esbmc.tar" questcal-esbmc
 
       - name: Save the ESBMC image
-        if: inputs.release && steps.esbmc.outputs.cache-hit != 'true'
+        if: inputs.numeric && steps.esbmc.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ runner.temp }}/questcal-esbmc.tar
@@ -111,6 +118,7 @@ jobs:
   # should take about twelve, still well inside the input-validation proofs a
   # push waits for, with two runners fewer.
   private-core:
+    if: inputs.core
     name: private-core (${{ matrix.shard }}/4)
     needs: images
     runs-on: ubuntu-24.04
@@ -211,7 +219,7 @@ jobs:
   # Every numeric obligation: the expanded 64-frame checks need one
   # memory-heavy process per runner.
   numeric:
-    if: inputs.release
+    if: inputs.numeric
     name: numeric (${{ matrix.shard }}/4)
     needs: images
     runs-on: ubuntu-24.04
