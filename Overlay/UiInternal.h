@@ -170,13 +170,6 @@ struct RowCard
 // than a tooltip, which would cover the controls it describes.
 static const float kRowSubLineH = 22.0f;
 
-struct StatusRowData
-{
-	IconFn icon;
-	ImVec4 color;
-	std::string text;
-};
-
 // Unknown is not a severity, it is the absence of one: nothing has been
 // measured to rate. Sorting it below Good keeps every "bad enough to say
 // something" test (>= Rating_Poor) reading false for it with no special case.
@@ -223,24 +216,32 @@ static const float kCountdownSeconds = 3.0f;
 // Exceed the four-row scroll threshold and exercise several battery states.
 static const int kPreviewManyTrackerCount = 6;
 
-// The top-level tabs. Lighthouse and Smoothing are optional modules
-// (CalCtx.modules); a tab whose module is not installed stays greyed out.
-enum class MainTab { Calibration = 0, Lighthouse, Smoothing };
+// The pages the sidebar switches between. Lighthouse and Smoothing are
+// optional modules (CalCtx.modules); a page whose module is not installed
+// stays greyed out in the sidebar.
+enum class Page { Calibration = 0, Lighthouse, Settings };
+
+// What covers the page: one sheet at a time, and a dialog that may sit over
+// it. Both live at the window's root (UiSheets.cpp), so anything can open
+// them.
+enum class Sheet { None, Pair, Calibrate, Chaperone, Anchors, Activity, Editor };
+enum class Dialog { None, ClearCalibration, ClearAnchors, ChaperoneWarning };
+
+// The sidebar's width; pages lay out in what is left of the window.
+static const float kSidebarW = 248.0f;
 
 // Shared state, each owned by one file.
 extern IdentifyPulseState g_identifyPulse;
-extern MainTab s_mainTab;
-extern bool s_showSettings;extern double g_chapWarnOpenedAt;
+extern Page g_page;
+extern double g_chapWarnOpenedAt;
 extern GuideState s_guide;
 extern bool s_modalDetails;
-extern float s_bottomReserve;
 
 // Functions shared across the Ui*.cpp files.
 void LinkText(const char *label, const char *url);
 float LetterSpacedWidth(ImFont *font, const char *text, float spacing);
 void LetterSpacedTextAt(ImDrawList *dl, ImFont *font, ImVec2 pos, ImU32 col, const char *text, float spacing);
 void SectionLabel(const char *text);
-void IconLogo(ImDrawList *dl, ImVec2 c, float s, ImU32 col);
 void IconHMD(ImDrawList *dl, ImVec2 c, float s, ImU32 col);
 void IconController(ImDrawList *dl, ImVec2 c, float s, ImU32 col, bool leftHand);
 void IconTracker(ImDrawList *dl, ImVec2 c, float s, ImU32 col);
@@ -278,14 +279,7 @@ bool EscapePressed();
 void ShowTip(const char *text, bool leftOfCursor = false);
 bool NestedToggle(const char *id, ImVec2 pos, float width, const char *label, bool &value, const char *tooltip);
 int Segmented(const char *id, int value, const char *const items[], int count, float itemW, float h);
-// The tab switch (UiWidgets.cpp). disabledMask bit i greys item i out and
-// shows disabledTips[i] over it; the cell widths follow the labels.
-float SegmentedTabsWidth(const char *const items[], int count);
-float SegmentedTabsHeight();
-int SegmentedTabs(const char *id, int value, const char *const items[], int count,
-	unsigned disabledMask, const char *const disabledTips[]);
 void BuildLighthouseScreen(const VRState &state);
-void DrawStatusCard(const std::vector<StatusRowData> &rows);
 std::string FormatString(const char *fmt, ...);
 bool PoseChannelDown();
 ContinuousStatus ContinuousStatusNow();
@@ -299,33 +293,81 @@ const char *RecalibrationNudge(CalRating rating);
 std::optional<std::string> FormatUnixAge(double unixTime);
 std::optional<std::string> FormatAlignmentAge();
 bool ProtectChaperone();
-void BuildStatusBand(const VRState &state);
-void BuildMainScreen();
 void DeviceIcon(ImDrawList *dl, const VRDevice &dev, ImVec2 c, float s, ImU32 col);
-void RowDeviceIcon(ImDrawList *dl, const VRDevice &dev, ImVec2 c, ImU32 fallback);
 const std::string *FindDeviceName(const std::string &serial);
 std::string DeviceDisplayName(const VRDevice &dev);
 void CommitDeviceName(const VRDevice &dev, const char *text);
-bool DeviceRow(const VRDevice &dev, bool selected, float w, bool first, bool last);
 void EnsureDeviceSelection(const VRState &state, uint32_t &selected, const std::string &system);
-void BuildDeviceList(const VRState &state, uint32_t &selected, const std::string &system, float paneW);
 std::string FriendlySystemName(const std::string &raw);
-void PickTrackingSystem(const char *id, const std::vector<std::string> &candidates, int fallback, float width, std::string &selection);
-void BuildSpacesSection(const VRState &state);
-void IdentifyButton(ImVec2 size);
+// The tracking systems the pair is picked from: the reference (the headset's)
+// and every other one; settles the pending picks onto systems that exist.
+void SettlePairSystems(const VRState &state);
+void StartIdentifyPulse(uint32_t targetId, uint32_t referenceId);
 void OpenGuide(bool anchor, bool mountRun);
 void StartMountSetup(const VRState &state);
 bool BeginGuidedRun();
-void DrawGuideAnimation(ImDrawList *dl, ImVec2 origin, ImVec2 size, double t, GuideDemo demo);
-void DrawGuideIndicators(ImDrawList *dl, ImVec2 origin, float width, const questcal::GuideMetrics &m, bool mountRun);
-void BuildMenu(const VRState &state);
+// The motion demonstration in box, with its caption along the bottom unless
+// caption is false.
+void DrawGuideAnimation(ImDrawList *dl, const FlexRect &box, double t, GuideDemo demo, bool caption = true);
+void ReleaseGuideTexture();
 void BuildSettingsScreen(const VRState &state);
 void SeedTransformEditorDraft();
 bool BuildProfileEditor();
 void SaveProfileEditorDraft();
 std::string PreviewIconPath(const char *driverRelative);
+// What the updater reports (UiPreview.cpp fakes a ready update for a preview).
+questcal::update::Snapshot CurrentUpdate();
 void UpdateIdentifyPulse(double now);
-void BuildHeader();
-void BuildFooter(bool runningInOverlay);
 VRState LoadVRState();
 VRState PreviewVRState();
+
+// The window's pages, each laid out from origin across width; each returns
+// the height it took so the page can scroll.
+float BuildHomePage(const VRState &state, ImVec2 origin, float width);
+
+// Sheets and dialogs (UiSheets.cpp). Opening one from anywhere takes effect
+// at the window's root on the next frame.
+void OpenSheet(Sheet sheet);
+void CloseSheet();
+Sheet CurrentSheet();
+void OpenDialog(Dialog dialog);
+void CloseDialog();
+void BuildOverlays(const VRState &state);
+bool DialogOpen();
+// A sheet's or dialog's panel, centred and drawn; the rectangle inside its
+// padding is returned for the content.
+FlexRect SheetPanel(float width, float height);
+FlexRect DialogPanel(float width, float height);
+// The title row every sheet starts with: its title (translated by the
+// caller) and the close button. Returns true when the close button was
+// pressed, or Escape with no dialog over the sheet.
+bool SheetHeader(const FlexRect &content, const char *title);
+// Each sheet sizes and draws its own panel.
+void BuildPairSheet(const VRState &state);
+void BuildCalibrateSheet(const VRState &state);
+void BuildChaperoneSheet();
+void BuildAnchorsSheet();
+void BuildActivitySheet();
+void BuildEditorSheet();
+void BuildClearCalibrationDialog();
+void BuildClearAnchorsDialog();
+void BuildChaperoneWarningDialog();
+// Picks the guide's motion demo for the devices about to be calibrated.
+void ChooseGuideDemo(const VRState &state);
+// The calibration sheet's own size, which its stages share.
+static const float kCalibrateSheetW = 880.0f;
+static const float kCalibrateSheetH = 626.0f;
+
+// The banner for CalCtx.uiError across the top of a page; returns its height
+// (zero when there is nothing to say).
+float BuildErrorBanner(ImVec2 origin, float width);
+// An activity entry's local time, as "HH:MM".
+std::string ActivityClock(double unixTime);
+// CalCtx.activity's indices in the order the feed is read: newest first.
+std::vector<size_t> ActivityNewestFirst();
+
+// Pictures (UiWidgets.cpp): a built-in PNG resource as a texture, loaded once.
+const DeviceIconTex *ArtTexture(const char *resource);
+// A device's picture fitted into box: SteamVR's own art for it, or its vector
+// glyph when there is none.
+void DrawDeviceArt(ImDrawList *dl, const VRDevice &dev, const FlexRect &box, ImU32 fallbackInk);

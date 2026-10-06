@@ -449,6 +449,7 @@
     <ClCompile Include="UiWidgets.cpp" />
     <ClCompile Include="UiKit.cpp" />
     <ClCompile Include="UiControls.cpp" />
+    <ClCompile Include="UiSheets.cpp" />
     <ClCompile Include="UiMainScreen.cpp" />
     <ClCompile Include="UiDevices.cpp" />
     <ClCompile Include="UiLayout.cpp" />
@@ -465,6 +466,7 @@
     <ResourceCompile Include="Guidance.rc" />
     <ResourceCompile Include="Translations.rc" />
     <ResourceCompile Include="Fonts.rc" />
+    <ResourceCompile Include="Art.rc" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="lang\ja.txt" />

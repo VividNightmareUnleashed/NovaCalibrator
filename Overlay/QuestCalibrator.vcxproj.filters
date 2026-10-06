@@ -278,6 +278,9 @@
     <ClCompile Include="UiControls.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UiSheets.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="UiMainScreen.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -400,6 +403,9 @@
       <Filter>Resource Files</Filter>
     </ResourceCompile>
     <ResourceCompile Include="Fonts.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
+    <ResourceCompile Include="Art.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
   </ItemGroup>

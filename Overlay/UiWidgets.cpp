@@ -45,7 +45,8 @@ void ApplyTheme()
 	c[ImGuiCol_TextDisabled]         = Pal::Faint;
 	c[ImGuiCol_WindowBg]             = Pal::Bg;
 	c[ImGuiCol_ChildBg]              = ImVec4(0, 0, 0, 0);
-	c[ImGuiCol_PopupBg]              = ImVec4(0.060f, 0.064f, 0.075f, 1.0f);
+	// Tooltips and combo lists: the colour of the sheets' panels.
+	c[ImGuiCol_PopupBg]              = ImGui::ColorConvertU32ToFloat4(ui::Rgba(52, 55, 62, 0.98f));
 	c[ImGuiCol_Border]               = Pal::Border;
 	c[ImGuiCol_BorderShadow]         = ImVec4(0, 0, 0, 0);
 	c[ImGuiCol_FrameBg]              = Pal::Card;
@@ -54,10 +55,10 @@ void ApplyTheme()
 	// The window is a fixed 1200x800 and the settings screen overflows it, so
 	// the scrollbar is the only sign that more exists below the fold. It has
 	// to be visible at rest.
-	c[ImGuiCol_ScrollbarBg]          = ImVec4(1, 1, 1, 0.04f);
-	c[ImGuiCol_ScrollbarGrab]        = ImVec4(1, 1, 1, 0.40f);  // 3.4:1 on the track
-	c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(1, 1, 1, 0.50f);
-	c[ImGuiCol_ScrollbarGrabActive]  = ImVec4(1, 1, 1, 0.60f);
+	c[ImGuiCol_ScrollbarBg]          = ImVec4(1, 1, 1, 0.0f);
+	c[ImGuiCol_ScrollbarGrab]        = ImVec4(1, 1, 1, 0.34f);
+	c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(1, 1, 1, 0.46f);
+	c[ImGuiCol_ScrollbarGrabActive]  = ImVec4(1, 1, 1, 0.56f);
 	c[ImGuiCol_CheckMark]            = Pal::Accent;
 	c[ImGuiCol_SliderGrab]           = Pal::Accent;
 	c[ImGuiCol_SliderGrabActive]     = Pal::AccentHov;
@@ -71,9 +72,10 @@ void ApplyTheme()
 	c[ImGuiCol_PlotHistogram]        = Pal::Accent;
 	c[ImGuiCol_PlotHistogramHovered] = Pal::AccentHov;
 	c[ImGuiCol_TextSelectedBg]       = ImVec4(Pal::Accent.x, Pal::Accent.y, Pal::Accent.z, 0.35f);
-	// Dark enough that the coloured status rows behind a modal stop competing
-	// with it for attention.
-	c[ImGuiCol_ModalWindowDimBg] = ImVec4(0, 0, 0, 0.80f);
+	// The scrim behind sheets and dialogs: the page stays legible as context
+	// but stops competing for attention.
+	c[ImGuiCol_ModalWindowDimBg] = ImGui::ColorConvertU32ToFloat4(ui::col::Scrim);
+	c[ImGuiCol_Border]           = ImGui::ColorConvertU32ToFloat4(ui::col::SheetEdge);
 	c[ImGuiCol_NavHighlight]         = Pal::Accent;
 }
 
@@ -131,12 +133,6 @@ void SectionLabel(const char *english)
 // ---------------------------------------------------------------------------
 // Icons (line style, s = half-extent in pixels)
 // ---------------------------------------------------------------------------
-
-void IconLogo(ImDrawList *dl, ImVec2 c, float s, ImU32 col)
-{
-	dl->AddCircle(c, s * 0.78f, col, 24, 2.2f);
-	dl->AddCircleFilled(c, s * 0.26f, col, 12);
-}
 
 void IconHMD(ImDrawList *dl, ImVec2 c, float s, ImU32 col)
 {
@@ -408,10 +404,10 @@ bool LoadTextureFromFile(const char *path, GLuint *outTex, int *outW, int *outH)
 	return DecodeTexture(factory.Get(), decoder.Get(), outTex, outW, outH, false);
 }
 
-bool LoadGuideTexture(GuideDemo demo, GLuint *outTex)
+// A built-in PNG (an RCDATA resource) decoded into a texture: a guide atlas,
+// whose layout is checked, or a small piece of art.
+static bool LoadResourceTexture(const char *name, bool guide, GLuint *outTex, int *outW, int *outH)
 {
-	const char *name = demo == GuideDemo::Mounted ? "GUIDE_HEADSET"
-		: demo == GuideDemo::HeadsetContact ? "GUIDE_CONTACT" : "GUIDE_HANDHELD";
 	HRSRC resource = FindResourceA(nullptr, name, MAKEINTRESOURCEA(10));
 	if (!resource)
 		return false;
@@ -434,8 +430,45 @@ bool LoadGuideTexture(GuideDemo demo, GLuint *outTex)
 	if (FAILED(factory->CreateDecoderFromStream(stream.Get(), nullptr,
 		WICDecodeMetadataCacheOnDemand, decoder.Put())))
 		return false;
+	return DecodeTexture(factory.Get(), decoder.Get(), outTex, outW, outH, guide);
+}
+
+bool LoadGuideTexture(GuideDemo demo, GLuint *outTex)
+{
+	const char *name = demo == GuideDemo::Mounted ? "GUIDE_HEADSET"
+		: demo == GuideDemo::HeadsetContact ? "GUIDE_CONTACT" : "GUIDE_HANDHELD";
 	int width = 0, height = 0;
-	return DecodeTexture(factory.Get(), decoder.Get(), outTex, &width, &height, true);
+	return LoadResourceTexture(name, true, outTex, &width, &height);
+}
+
+// Kept for the life of the process, like the device icons; loaded lazily on
+// the render thread (GL context current).
+const DeviceIconTex *ArtTexture(const char *resource)
+{
+	static std::map<std::string, DeviceIconTex> cache;
+	auto it = cache.find(resource);
+	if (it == cache.end())
+	{
+		DeviceIconTex t;
+		if (!LoadResourceTexture(resource, false, &t.tex, &t.w, &t.h))
+			t.failed = true;
+		it = cache.emplace(resource, t).first;
+	}
+	return it->second.failed ? nullptr : &it->second;
+}
+
+void DrawDeviceArt(ImDrawList *dl, const VRDevice &dev, const FlexRect &box, ImU32 fallbackInk)
+{
+	const DeviceIconTex *tex = GetDeviceIconTex(dev.iconPath);
+	if (!tex)
+	{
+		DeviceIcon(dl, dev, box.Center(), std::min(box.W(), box.H()) * 0.32f, fallbackInk);
+		return;
+	}
+	const float scale = std::min(box.W() / static_cast<float>(tex->w), box.H() / static_cast<float>(tex->h));
+	const ImVec2 half(static_cast<float>(tex->w) * scale * 0.5f, static_cast<float>(tex->h) * scale * 0.5f);
+	const ImVec2 c = box.Center();
+	dl->AddImage(static_cast<ImTextureID>(tex->tex), ImVec2(c.x - half.x, c.y - half.y), ImVec2(c.x + half.x, c.y + half.y));
 }
 
 const std::string &GuideModelCredits()
@@ -777,137 +810,6 @@ bool NestedToggle(const char *id, ImVec2 pos, float width, const char *label, bo
 	return changed;
 }
 
-// ---------------------------------------------------------------------------
-// Segmented tabs
-// ---------------------------------------------------------------------------
-
-// The top-level tab switch: a translucent track, a thumb that slides to the
-// chosen cell, and labels going from muted to primary. Every measure below is
-// the design reference's times kTabScale, so its 14 px text becomes the body
-// face and a cell is big enough for a laser pointer.
-static const float kTabScale = 1.5f;
-
-static float TabCellWidth(const char *label)
-{
-	const float px = 12.0f * kTabScale;
-	return g_fontBody->CalcTextSizeA(g_fontBody->LegacySize,
-		std::numeric_limits<float>::max(), 0.0f, Tr(label)).x + px * 2.0f;
-}
-
-float SegmentedTabsWidth(const char *const items[], int count)
-{
-	float w = 1.0f * kTabScale * 2.0f;
-	for (int i = 0; i < count; ++i)
-		w += TabCellWidth(items[i]);
-	return w;
-}
-
-float SegmentedTabsHeight()
-{
-	return 28.0f * kTabScale;
-}
-
-int SegmentedTabs(const char *id, int value, const char *const items[], int count,
-	unsigned disabledMask, const char *const disabledTips[])
-{
-	const float h = 28.0f * kTabScale;
-	const float pad = 1.0f * kTabScale;
-	const float px = 12.0f * kTabScale;
-	const float rTrack = 7.0f * kTabScale;
-	const float rThumb = 6.0f * kTabScale;
-	const float rCell = 5.0f * kTabScale;
-	const float ring = 1.0f * kTabScale;
-	if (count > 16)
-		count = 16;
-
-	ImGui::PushID(id);
-	ImDrawList *dl = ImGui::GetWindowDrawList();
-	const ImVec2 p = ImGui::GetCursorScreenPos();
-	float widths[16];
-	float total = pad * 2.0f;
-	for (int i = 0; i < count; ++i)
-	{
-		widths[i] = TabCellWidth(items[i]);
-		total += widths[i];
-	}
-	const ImVec2 b = ImVec2(p.x + total, p.y + h);
-
-	dl->AddRectFilled(p, b, Pal::U32(ImVec4(1, 1, 1, 0.05f)), rTrack);
-
-	// The thumb eases to the chosen cell; its position lives in the window's
-	// storage so the slide survives frames.
-	float targetX = pad;
-	for (int i = 0; i < value && i < count; ++i)
-		targetX += widths[i];
-	const float targetW = value >= 0 && value < count ? widths[value] : 0.0f;
-	ImGuiStorage *storage = ImGui::GetStateStorage();
-	const ImGuiID keyX = ImGui::GetID("thumb.x");
-	const ImGuiID keyW = ImGui::GetID("thumb.w");
-	float tx = storage->GetFloat(keyX, -1.0f);
-	float tw = storage->GetFloat(keyW, targetW);
-	if (tx < 0.0f)
-	{
-		tx = targetX;
-		tw = targetW;
-	}
-	else
-	{
-		// Exponential approach with a 45 ms time constant: within a pixel
-		// in about 160 ms, the ease-out the reference transitions with.
-		const float k = 1.0f - std::exp(-ImGui::GetIO().DeltaTime / 0.045f);
-		tx += (targetX - tx) * k;
-		tw += (targetW - tw) * k;
-	}
-	storage->SetFloat(keyX, tx);
-	storage->SetFloat(keyW, tw);
-	const ImVec2 t0 = ImVec2(p.x + tx, p.y + pad);
-	const ImVec2 t1 = ImVec2(p.x + tx + tw, b.y - pad);
-	// Shadow, fill, then a 1 px inset ring.
-	dl->AddRectFilled(ImVec2(t0.x, t0.y + ring), ImVec2(t1.x, t1.y + ring),
-		Pal::U32(ImVec4(0, 0, 0, 0.05f)), rThumb);
-	dl->AddRectFilled(t0, t1, Pal::U32(ImVec4(1, 1, 1, 0.10f)), rThumb);
-	dl->AddRect(ImVec2(t0.x + ring * 0.5f, t0.y + ring * 0.5f),
-		ImVec2(t1.x - ring * 0.5f, t1.y - ring * 0.5f),
-		Pal::U32(ImVec4(1, 1, 1, 0.10f)), rThumb - ring * 0.5f, ImDrawFlags_RoundCornersAll, ring);
-
-	float x = p.x + pad;
-	for (int i = 0; i < count; ++i)
-	{
-		ImGui::PushID(i);
-		const ImVec2 c0 = ImVec2(x, p.y + pad);
-		const ImVec2 c1 = ImVec2(x + widths[i], b.y - pad);
-		const bool disabled = ((disabledMask >> i) & 1u) != 0;
-		bool hov = false;
-		ImGui::SetCursorScreenPos(c0);
-		if (!disabled)
-		{
-			if (ImGui::InvisibleButton("cell", ImVec2(widths[i], c1.y - c0.y), ImGuiButtonFlags_EnableNav))
-				value = i;
-			hov = ImGui::IsItemHovered();
-			DrawFocusRing(dl, c0, c1, rCell);
-		}
-		else
-		{
-			ImGui::Dummy(ImVec2(widths[i], c1.y - c0.y));
-			if (disabledTips[i] && ImGui::IsItemHovered())
-				ShowTip(disabledTips[i]);
-		}
-		ImVec4 col = (i == value || hov) ? Pal::TabTextOn : Pal::TabTextOff;
-		if (disabled)
-			col.w = 0.4f;
-		dl->AddText(g_fontBody, g_fontBody->LegacySize,
-			ImVec2(x + px, c0.y + (c1.y - c0.y - g_fontBody->LegacySize) * 0.5f),
-			Pal::U32(col), Tr(items[i]));
-		x += widths[i];
-		ImGui::PopID();
-	}
-
-	ImGui::SetCursorScreenPos(ImVec2(p.x, b.y));
-	ImGui::Dummy(ImVec2(total, 0.0f));
-	ImGui::PopID();
-	return value;
-}
-
 int Segmented(const char *id, int value, const char *const items[], int count, float itemW, float h)
 {
 	ImGui::PushID(id);
@@ -951,33 +853,6 @@ int Segmented(const char *id, int value, const char *const items[], int count, f
 	ImGui::Dummy(ImVec2(0, 0));
 	ImGui::PopID();
 	return value;
-}
-
-// ---------------------------------------------------------------------------
-// Status rows
-// ---------------------------------------------------------------------------
-
-void DrawStatusCard(const std::vector<StatusRowData> &rows)
-{
-	const float rowH = 34.0f, padY = 12.0f, padX = 16.0f;
-	float h = padY * 2.0f + rowH * (float)rows.size();
-	ImVec2 p = BeginRowCard(h);
-	ImDrawList *dl = ImGui::GetWindowDrawList();
-
-	for (size_t i = 0; i < rows.size(); ++i)
-	{
-		const StatusRowData &r = rows[i];
-		float cy = p.y + padY + rowH * (float)i + rowH * 0.5f;
-		ImVec2 c = ImVec2(p.x + padX + 13.0f, cy);
-		ImVec4 bg = r.color; bg.w = 0.15f;
-		dl->AddCircleFilled(c, 13.0f, Pal::U32(bg), 20);
-		r.icon(dl, c, 8.5f, Pal::U32(r.color));
-		dl->AddText(g_fontBody, g_fontBody->LegacySize,
-			ImVec2(c.x + 23.0f, cy - g_fontBody->LegacySize * 0.5f),
-			Pal::U32(r.color), Tr(r.text.c_str()));
-	}
-
-	EndRowCard(p, h);
 }
 
 std::string FormatString(const char *fmt, ...)

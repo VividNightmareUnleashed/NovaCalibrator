@@ -60,9 +60,10 @@ A manual install has no installer to ask; the install readme gives the
 
 ## What the player sees
 
-- A module's tab is greyed out until it is installed. Hovering it says the
-  module is not installed and to select it during installation; a module
-  that is not built says "Work in progress".
+- A module's page in the sidebar is greyed out until it is installed.
+  Hovering it says the module is not installed and to select it during
+  installation; a module that is not built is marked "Soon" and says "Work in
+  progress".
 - A diagnostics export has a `[modules]` section with each module's
   status (`installed`, `not installed`, `not built`).
 - The preview never reads the registry: every module is off except in
@@ -73,8 +74,9 @@ A manual install has no installer to ask; the install readme gives the
 1. A `ModuleStatus` field in `questcal::Modules` (`Overlay/Modules.h`),
    `NotBuilt` until it ships.
 2. Read its registry value in `ReadInstalledModules`.
-3. Gate what it owns on `Modules::On(CalCtx.modules.<name>)`; a tab goes in
-   `moduleTabs` in `BuildHeader` (`Overlay/UserInterface.cpp`) with its
-   not-installed tooltip, translated in every table.
+3. Gate what it owns on `Modules::On(CalCtx.modules.<name>)`; a page gets a
+   `Page` value (`Overlay/UiInternal.h`) and a `ui::NavRow` in `BuildSidebar`
+   (`Overlay/UserInterface.cpp`) with its not-installed tooltip, translated in
+   every table.
 4. A question and a switch in `Install.ps1`, a line in the install readme,
    a line in the `[modules]` diagnostics section, and a row above.

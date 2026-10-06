@@ -251,13 +251,17 @@ namespace ui
 		const ImU32 ink = disabled ? col::Disabled : active ? col::White : Rgba(236, 238, 244, 0.80f);
 		DrawIcon(dl, icon, ImVec2(r.min.x + 14.0f + 11.0f, r.Center().y), 22.0f, ink);
 		const TextStyle style{ active ? Weight::SemiBold : Weight::Medium, 17.0f, r.H() };
-		DrawLine(dl, style, ImVec2(r.min.x + 14.0f + 22.0f + 12.0f, r.min.y), ink, Tr(english));
+		const float labelX = r.min.x + 14.0f + 22.0f + 12.0f;
+		float labelEnd = r.max.x - 12.0f;
 		if (badgeEnglish)
 		{
 			const float w = BadgeWidth(badgeEnglish);
+			labelEnd -= w + 8.0f;
 			BadgePill(dl, ImVec2(r.max.x - 12.0f - w, r.Center().y - 12.0f), badgeEnglish,
 				Rgba(236, 238, 244, 0.58f), Rgba(255, 255, 255, 0.07f), 24.0f);
 		}
+		// A long translation gives way to the badge rather than running under it.
+		DrawLine(dl, style, ImVec2(labelX, r.min.y), ink, Ellipsize(style, Tr(english), labelEnd - labelX).c_str());
 		if (!disabled)
 			FocusRing(dl, r.min, r.max, 14.0f);
 		return clicked;
@@ -280,13 +284,13 @@ namespace ui
 		const ImVec2 badge(r.min.x + 18.0f, r.min.y + 16.0f);
 		FillRounded(dl, badge, ImVec2(badge.x + 40.0f, badge.y + 40.0f), disabled ? Rgba(255, 255, 255, 0.06f) : col::LinkTint, 12.0f);
 		DrawIcon(dl, icon, ImVec2(badge.x + 20.0f, badge.y + 20.0f), 22.0f, disabled ? Rgba(236, 238, 244, 0.40f) : col::Link);
+		// One line each, cut with an ellipsis rather than wrapped out of the tile.
 		const float textW = r.W() - 36.0f;
 		DrawLine(dl, type::Strong, ImVec2(r.min.x + 18.0f, r.min.y + 16.0f + 40.0f + 8.0f),
-			disabled ? col::Faint : col::Text, Tr(english));
-		const TextLines lines = WrapText(type::Footnote, sub, textW);
-		if (!lines.lines.empty())
+			disabled ? col::Faint : col::Text, Ellipsize(type::Strong, Tr(english), textW).c_str());
+		if (sub && *sub)
 			DrawLine(dl, type::Footnote, ImVec2(r.min.x + 18.0f, r.min.y + 16.0f + 40.0f + 8.0f + 22.0f + 4.0f),
-				disabled ? Rgba(236, 238, 244, 0.40f) : col::Subtle, lines.lines[0].first, lines.lines[0].second);
+				disabled ? Rgba(236, 238, 244, 0.40f) : col::Subtle, Ellipsize(type::Footnote, sub, textW).c_str());
 		if (chevron)
 			DrawIcon(dl, Icon::Chevron, ImVec2(r.max.x - 16.0f - 9.0f, r.min.y + 18.0f + 9.0f), 18.0f,
 				Rgba(236, 238, 244, 0.45f), 2.4f);
@@ -366,6 +370,7 @@ namespace ui
 		switch (mark)
 		{
 		case Mark::Good: halo = Rgba(61, 214, 140, 0.09f); core = col::GoodDeep; break;
+		case Mark::Caution:
 		case Mark::Paused: halo = Rgba(255, 179, 64, 0.10f); core = col::CautionDeep; break;
 		case Mark::Bad: halo = Rgba(255, 107, 97, 0.10f); core = col::AlertDeep; break;
 		case Mark::Off: core = Rgba(255, 255, 255, 0.12f); break;
@@ -397,6 +402,7 @@ namespace ui
 			dl->AddRectFilled(at(58, 56), at(65, 80), white, 2.0f * scale);
 			dl->AddRectFilled(at(71, 56), at(78, 80), white, 2.0f * scale);
 			break;
+		case Mark::Caution:
 		case Mark::Bad:
 			dl->AddLine(at(68, 55), at(68, 71), white, 5.0f * scale);
 			dl->AddCircleFilled(at(68, 55), 2.5f * scale, white, 12);

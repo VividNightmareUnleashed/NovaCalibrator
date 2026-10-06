@@ -1,4 +1,5 @@
-// Window entry point: header, content child, pinned band and footer.
+// Window entry point: the backdrop, the sidebar, the current page, and the
+// sheets and dialogs over them.
 #include "stdafx.h"
 #include "UiInternal.h"
 
@@ -11,7 +12,7 @@ ImFont *g_fontSmall = nullptr;
 ImFont *g_fontTitle = nullptr;
 
 IdentifyPulseState g_identifyPulse;
-MainTab s_mainTab = MainTab::Calibration;
+Page g_page = Page::Calibration;
 
 void UpdateIdentifyPulse(double now)
 {
@@ -37,171 +38,126 @@ void UpdateIdentifyPulse(double now)
 	g_identifyPulse.nextPulseTime = now + 0.005;
 }
 
-// ---------------------------------------------------------------------------
-// Header
-// ---------------------------------------------------------------------------
-
-void BuildHeader()
+void StartIdentifyPulse(uint32_t targetId, uint32_t referenceId)
 {
-	ImDrawList *dl = ImGui::GetWindowDrawList();
-	ImVec2 p = ImGui::GetCursorScreenPos();
-	float cw = ImGui::GetContentRegionAvail().x;
-	const float h = 44.0f;
-	static const char *const tabs[] = { "Calibration", "Lighthouse", "Smoothing" };
-	// Each module's tab, and what it says while greyed out.
-	struct ModuleTab
-	{
-		MainTab tab;
-		questcal::ModuleStatus status;
-		const char *notInstalledTip;
-	};
-	const ModuleTab moduleTabs[] = {
-		{ MainTab::Lighthouse, CalCtx.modules.lighthouse,
-			"Lighthouse module is currently not installed. Select it during installation." },
-		{ MainTab::Smoothing, CalCtx.modules.smoothing, nullptr },
-	};
-	unsigned disabled = 0;
-	const char *disabledTips[3] = {};
-	for (const ModuleTab &m : moduleTabs)
-	{
-		if (questcal::Modules::On(m.status))
-			continue;
-		const int i = static_cast<int>(m.tab);
-		disabled |= 1u << i;
-		disabledTips[i] = m.status == questcal::ModuleStatus::NotBuilt ? "Work in progress" : m.notInstalledTip;
-	}
-
-	// One row: the brand at the left, the gear at the right, and the tab
-	// switch centred on the row as a whole rather than on what is left
-	// between them, so it stays put when the title's width changes.
-	FlexLayout fl;
-	YGNodeRef row = fl.Root();
-	YGNodeStyleSetHeight(row, h);
-	YGNodeStyleSetAlignItems(row, YGAlignCenter);
-	YGNodeStyleSetJustifyContent(row, YGJustifySpaceBetween);
-
-	YGNodeRef brand = fl.Row(row);
-	YGNodeStyleSetAlignItems(brand, YGAlignCenter);
-	YGNodeStyleSetGap(brand, YGGutterColumn, 14.0f);
-	YGNodeRef logo = fl.Add(brand);
-	YGNodeStyleSetWidth(logo, 38.0f);
-	YGNodeStyleSetHeight(logo, 38.0f);
-	YGNodeRef title = fl.Text(brand, g_fontTitle, "QuestCalibrator");
-
-	YGNodeRef tabsNode = fl.Add(row);
-	YGNodeStyleSetPositionType(tabsNode, YGPositionTypeAbsolute);
-	YGNodeStyleSetPositionPercent(tabsNode, YGEdgeLeft, 50.0f);
-	YGNodeStyleSetWidth(tabsNode, SegmentedTabsWidth(tabs, 3));
-	YGNodeStyleSetHeight(tabsNode, SegmentedTabsHeight());
-	YGNodeStyleSetMargin(tabsNode, YGEdgeLeft, -SegmentedTabsWidth(tabs, 3) * 0.5f);
-
-	YGNodeRef gear = fl.Add(row);
-	YGNodeStyleSetWidth(gear, 38.0f);
-	YGNodeStyleSetHeight(gear, 38.0f);
-	fl.Compute(p, cw, h);
-
-	const FlexRect lr = fl.Rect(logo);
-	dl->AddRectFilled(lr.min, lr.max, Pal::U32(Pal::Card), 11.0f);
-	dl->AddRect(lr.min, lr.max, Pal::U32(Pal::Border), 11.0f);
-	IconLogo(dl, lr.Center(), 12.0f, Pal::U32(Pal::Text));
-
-	dl->AddText(g_fontTitle, g_fontTitle->LegacySize, fl.Rect(title).min,
-		Pal::U32(Pal::Text), "QuestCalibrator");
-
-	// The tab switch. Picking a tab is also the way back out of Settings.
-	// A module's tab is greyed out until the installer has put it in.
-	{
-		ImGui::SetCursorScreenPos(fl.Rect(tabsNode).min);
-		const int picked = SegmentedTabs("maintab", static_cast<int>(s_mainTab), tabs, 3,
-			disabled, disabledTips);
-		if (picked != static_cast<int>(s_mainTab))
-		{
-			s_mainTab = static_cast<MainTab>(picked);
-			s_showSettings = false;
-		}
-	}
-
-	const FlexRect gr = fl.Rect(gear);
-	ImGui::SetCursorScreenPos(gr.min);
-	if (ImGui::InvisibleButton("##settingsgear", gr.Size(), ImGuiButtonFlags_EnableNav))
-		s_showSettings = !s_showSettings;
-	bool gearHov = ImGui::IsItemHovered();
-	{
-		ImVec4 bg = s_showSettings ? ImVec4(Pal::Accent.x, Pal::Accent.y, Pal::Accent.z, 0.20f)
-			: (gearHov ? Pal::CardHov : Pal::Card);
-		dl->AddRectFilled(gr.min, gr.max, Pal::U32(bg), 10.0f);
-		dl->AddRect(gr.min, gr.max,
-			Pal::U32(s_showSettings ? Pal::Accent : (gearHov ? Pal::BorderHov : Pal::Border)), 10.0f);
-		IconGear(dl, gr.Center(), 9.0f,
-			Pal::U32(s_showSettings || gearHov ? Pal::Text : Pal::Dim));
-	}
-
-	ImGui::SetCursorScreenPos(p);
-	ImGui::Dummy(ImVec2(cw, h));
+	g_identifyPulse = { true, targetId, referenceId, 100, ImGui::GetTime() };
 }
 
-void BuildFooter(bool runningInOverlay)
-{
-	auto &io = ImGui::GetIO();
-	float cw = ImGui::GetContentRegionAvail().x;
-	{
-		float footerY = ImGui::GetWindowHeight() - 40.0f;
-		if (ImGui::GetCursorPosY() < footerY)
-			ImGui::SetCursorPosY(footerY);
-		else
-			ImGui::Spacing();
+// ---------------------------------------------------------------------------
+// Sidebar
+// ---------------------------------------------------------------------------
 
-		ImGui::PushFont(g_fontSmall);
-		ImGui::TextColored(Pal::Faint, "QuestCalibrator v" QUESTCAL_VERSION_STRING "  -  by");
-		ImGui::SameLine(0.0f, 4.0f);
-		LinkText("VividNightmareUnleashed", "https://github.com/VividNightmareUnleashed");
-		ImGui::SameLine(0.0f, 4.0f);
-		ImGui::TextColored(Pal::Faint, "(");
-		ImGui::SameLine(0.0f, 0.0f);
-		LinkText("Jinxxy", "https://jinxxy.com/VividNightmare");
-		ImGui::SameLine(0.0f, 0.0f);
-		ImGui::TextColored(Pal::Faint, ")  -  based on");
-		ImGui::SameLine(0.0f, 4.0f);
-		LinkText("OpenVR-SpaceCalibrator", "https://github.com/pushrax/OpenVR-SpaceCalibrator");
-		ImGui::SameLine(0.0f, 4.0f);
-		ImGui::TextColored(Pal::Faint, "by pushrax");
-		// The keyboard works (arrows and Enter), and nothing else says so:
-		// a quiet line once the pointer has rested, or once it is in use.
-		static double s_lastMouseMove = 0.0;
-		if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f)
-			s_lastMouseMove = ImGui::GetTime();
-		const bool keyboardHint = io.NavVisible || ImGui::GetTime() - s_lastMouseMove > 6.0;
-		if (!runningInOverlay && keyboardHint)
-		{
-			const char *hint = Tr("Arrow keys to move \xC2\xB7 Enter to select");
-			ImVec2 ts = ImGui::CalcTextSize(hint);
-			ImGui::SameLine(cw - ts.x);
-			ImGui::TextColored(Pal::Faint, hint);
-		}
-		if (runningInOverlay)
-		{
-			const char *hint = Tr("Close the SteamVR dashboard to use the mouse");
-			ImVec2 ts = ImGui::CalcTextSize(hint);
-			ImGui::SameLine(cw - ts.x);
-			ImGui::TextColored(Pal::Faint, hint);
-		}
-		ImGui::PopFont();
+static FlexRect NavSlot(ImVec2 windowPos, float top)
+{
+	FlexRect r;
+	r.min = ImVec2(windowPos.x + 12.0f, top);
+	r.max = ImVec2(windowPos.x + kSidebarW - 12.0f, top + 48.0f);
+	return r;
+}
+
+static void BuildSidebar(bool runningInOverlay)
+{
+	ImDrawList *dl = ImGui::GetWindowDrawList();
+	const ImVec2 o = ImGui::GetWindowPos();
+	const float h = ImGui::GetWindowHeight();
+	dl->AddRectFilled(o, ImVec2(o.x + kSidebarW, o.y + h), ui::col::Sidebar);
+
+	// The app's mark and name.
+	if (const DeviceIconTex *icon = ArtTexture("ART_ICON_SMALL"))
+		dl->AddImage(static_cast<ImTextureID>(icon->tex), ImVec2(o.x + 20.0f, o.y + 24.0f), ImVec2(o.x + 56.0f, o.y + 60.0f));
+	ui::DrawLine(dl, ui::TextStyle{ ui::Weight::SemiBold, 17.0f, 36.0f }, ImVec2(o.x + 68.0f, o.y + 24.0f), ui::col::Text,
+		"Nova Calibrator");
+
+	// The pages. A module the installer left out greys its page out.
+	const bool lighthouse = questcal::Modules::On(CalCtx.modules.lighthouse);
+	float y = o.y + 92.0f;
+	if (ui::NavRow("##navcalibration", NavSlot(o, y), ui::Icon::Reticle, "Calibration", g_page == Page::Calibration, false))
+		g_page = Page::Calibration;
+	y += 52.0f;
+	if (ui::NavRow("##navlighthouse", NavSlot(o, y), ui::Icon::Lighthouse, "Lighthouse", g_page == Page::Lighthouse, !lighthouse,
+		nullptr, "Lighthouse module is currently not installed. Select it during installation."))
+		g_page = Page::Lighthouse;
+	y += 52.0f;
+	ui::NavRow("##navsmoothing", NavSlot(o, y), ui::Icon::Smoothing, "Smoothing", false, true, "Soon", "Work in progress");
+
+	// Settings and the version at the foot, with a line on how to drive the
+	// window when it would otherwise be a mystery.
+	const float versionY = o.y + h - 24.0f - 20.0f;
+	const float settingsY = versionY - 10.0f - 48.0f;
+	static double s_lastMouseMove = 0.0;
+	const ImGuiIO &io = ImGui::GetIO();
+	if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f)
+		s_lastMouseMove = ImGui::GetTime();
+	// The keyboard works (arrows and Enter), and nothing else says so: a
+	// quiet line once the pointer has rested over the window.
+	const bool keyboardHint = ImGui::IsMousePosValid() && ImGui::GetTime() - s_lastMouseMove > 6.0;
+	const char *hint = runningInOverlay ? Tr("Close the SteamVR dashboard to use the mouse")
+		: keyboardHint ? Tr("Arrow keys to move \xC2\xB7 Enter to select") : nullptr;
+	if (hint)
+	{
+		const ui::TextLines lines = ui::WrapText(ui::type::Caption, hint, kSidebarW - 28.0f);
+		ui::DrawLines(dl, ui::type::Caption, lines, ImVec2(o.x + 14.0f, settingsY - 12.0f - lines.height), kSidebarW - 28.0f,
+			ui::col::Faint);
 	}
+	if (ui::NavRow("##navsettings", NavSlot(o, settingsY), ui::Icon::Gear, "Settings", g_page == Page::Settings, false))
+		g_page = Page::Settings;
+	ui::DrawLine(dl, ui::type::Footnote, ImVec2(o.x + 26.0f, versionY), ui::Rgba(236, 238, 244, 0.50f),
+		Tr(FormatString("Version %s", QUESTCAL_VERSION_STRING)).c_str());
+}
+
+// ---------------------------------------------------------------------------
+// Pages
+// ---------------------------------------------------------------------------
+
+// A page that has not moved to the design kit yet: its old flowing layout,
+// inset by the page margins.
+static float LegacyPage(void (*build)(const VRState &), const VRState &state, ImVec2 origin, float width)
+{
+	ImGui::SetCursorScreenPos(ImVec2(origin.x + 40.0f, origin.y));
+	ImGui::BeginChild("##legacy", ImVec2(width - 80.0f, 0.0f), ImGuiChildFlags_AutoResizeY, ImGuiWindowFlags_NoBackground);
+	build(state);
+	ImGui::Dummy(ImVec2(0.0f, 8.0f));
+	ImGui::EndChild();
+	return ImGui::GetItemRectSize().y;
+}
+
+static void BuildPage(const VRState &state)
+{
+	const float width = ImGui::GetContentRegionAvail().x;
+	const ImVec2 origin = ImGui::GetCursorScreenPos();
+	// The error banner sits across the top of whatever page is showing.
+	const float banner = BuildErrorBanner(ImVec2(origin.x + 40.0f, origin.y + 24.0f), width - 80.0f);
+	const float top = banner > 0.0f ? 24.0f + banner + 22.0f : 30.0f;
+	const ImVec2 pageOrigin(origin.x, origin.y + top);
+	float height = 0.0f;
+	switch (g_page)
+	{
+	case Page::Calibration:
+		height = BuildHomePage(state, pageOrigin, width);
+		break;
+	case Page::Lighthouse:
+		height = LegacyPage(BuildLighthouseScreen, state, pageOrigin, width);
+		break;
+	case Page::Settings:
+		height = LegacyPage(BuildSettingsScreen, state, pageOrigin, width);
+		break;
+	}
+	ImGui::SetCursorScreenPos(origin);
+	ImGui::Dummy(ImVec2(width, top + height + 30.0f));
 }
 
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
-// The main window never scrolls itself: the content child does. Without
-// NoScrollbar the pinned band below the child makes the window reserve a
-// scrollbar column and everything narrows by it.
+// The main window never scrolls itself: the page does.
 static const ImGuiWindowFlags bareWindowFlags =
 	ImGuiWindowFlags_NoTitleBar |
 	ImGuiWindowFlags_NoResize |
 	ImGuiWindowFlags_NoMove |
 	ImGuiWindowFlags_NoScrollbar |
-	ImGuiWindowFlags_NoScrollWithMouse;
+	ImGuiWindowFlags_NoScrollWithMouse |
+	ImGuiWindowFlags_NoBackground;
 
 void BuildMainWindow(bool runningInOverlay)
 {
@@ -209,8 +165,10 @@ void BuildMainWindow(bool runningInOverlay)
 
 	ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiCond_Always);
 	ImGui::SetNextWindowSize(io.DisplaySize, ImGuiCond_Always);
-
-	if (!ImGui::Begin("MainWindow", nullptr, bareWindowFlags))
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+	const bool visible = ImGui::Begin("MainWindow", nullptr, bareWindowFlags);
+	ImGui::PopStyleVar();
+	if (!visible)
 	{
 		ImGui::End();
 		return;
@@ -227,58 +185,23 @@ void BuildMainWindow(bool runningInOverlay)
 		state = LoadVRState();
 		lastStateRefresh = now;
 	}
+	// The picks stay on devices that exist, whatever is showing.
+	SettlePairSystems(state);
 
-	BuildHeader();
-	ImGui::Spacing();
-	if (!CalCtx.uiError.empty())
-	{
-		ImGui::PushStyleColor(ImGuiCol_Text, Pal::Bad);
-		ImGui::TextWrapped("%s", Tr(CalCtx.uiError.c_str()));
-		ImGui::PopStyleColor();
-		if (ImGui::SmallButton((std::string(Tr("Dismiss")) + "###dismisserror").c_str()))
-		{
-			CalCtx.uiError.clear();
-			CalCtx.uiErrorSource = CalibrationContext::ErrorSource::None;
-		}
-		ImGui::Spacing();
-	}
-	// Everything below the header scrolls in its own region, so the header
-	// and its way back out of Settings stay put when the settings list runs
-	// past the window.
-	// NavFlattened: keyboard focus walks straight from the header into the
-	// content's controls instead of stopping on the child as one item.
-	ImGui::BeginChild("##content",
-		ImVec2(0.0f, ImGui::GetWindowHeight() - ImGui::GetCursorPosY() - s_bottomReserve),
-		ImGuiChildFlags_NavFlattened);
-	// The settings screen replaces the whole content area.
-	bool inSettings = (CalCtx.state == CalibrationState::None && s_showSettings);
-	// The Lighthouse tab owns the content area only while nothing else
-	// does: a calibration in progress or the profile editor keeps its
-	// screen whatever the tab says.
-	const bool lighthouseTab = !inSettings && CalCtx.state == CalibrationState::None &&
-		questcal::Modules::On(CalCtx.modules.lighthouse) && s_mainTab == MainTab::Lighthouse;
-	if (lighthouseTab)
-	{
-		BuildLighthouseScreen(state);
-	}
-	else
-	{
-		if (!inSettings)
-		{
-			BuildSpacesSection(state);
-			ImGui::Spacing();
-		}
-		BuildMenu(state);
-	}
+	ui::PageBackdrop(ImGui::GetWindowDrawList(), ImVec2(0.0f, 0.0f), io.DisplaySize);
+	BuildSidebar(runningInOverlay);
+
+	// A page whose module went away falls back to calibration.
+	if (g_page == Page::Lighthouse && !questcal::Modules::On(CalCtx.modules.lighthouse))
+		g_page = Page::Calibration;
+	ImGui::SetCursorScreenPos(ImVec2(kSidebarW, 0.0f));
+	// NavFlattened: keyboard focus walks straight from the sidebar into the
+	// page's controls instead of stopping on the child as one item.
+	ImGui::BeginChild("##page", ImVec2(io.DisplaySize.x - kSidebarW, io.DisplaySize.y), ImGuiChildFlags_NavFlattened,
+		ImGuiWindowFlags_NoBackground);
+	BuildPage(state);
 	ImGui::EndChild();
 
-	// The pinned bottom block: the band on the calibration screen, the
-	// footer everywhere.
-	if (!inSettings && !lighthouseTab && CalCtx.state == CalibrationState::None)
-		BuildStatusBand(state);
-	else
-		s_bottomReserve = 48.0f;
-	BuildFooter(runningInOverlay);
-
+	BuildOverlays(state);
 	ImGui::End();
 }

@@ -1,9 +1,8 @@
-// Rating and continuous-status logic, the status band and the main screen.
+// Rating and continuous-status logic, and the home page: the alignment hero,
+// notices, tools and recent activity.
 #include "stdafx.h"
 #include "UiInternal.h"
 #include "QualityBands.h"
-
-bool s_showSettings = false;
 
 // The driver's pose channel feeds every runtime monitor. Preview mode has no
 // driver at all, so it must not display a fault for it.
@@ -84,7 +83,7 @@ const char *ContinuousStateWord(ContinuousStatus status)
 	}
 }
 
-// The main screen's line about the loop, as a whole sentence so it reads
+// The home screen's line about the loop, as a whole sentence so it reads
 // (and translates) as one. Written for the question the player has ("will
 // this fix itself?"): waiting states resolve on their own, paused ones name
 // what they need. NotRunning covers a sleeping tracker, a disabled
@@ -97,7 +96,7 @@ const char *ContinuousStatusLine(ContinuousStatus status)
 	case ContinuousStatus::NoTracker:  return "Continuous calibration needs a headset tracker. Pick one in Settings.";
 	case ContinuousStatus::NeedsMount: return "Continuous calibration needs the headset tracker set up. Do it in Settings.";
 	case ContinuousStatus::NotRunning: return "Continuous calibration is waiting. It resumes when tracking is available.";
-	case ContinuousStatus::TrackerOff: return "Continuous calibration is waiting. The headset tracker is off; turn it back on.";
+	case ContinuousStatus::TrackerOff: return "Continuous calibration is waiting because the headset tracker is off. Turn it back on to resume.";
 	case ContinuousStatus::Tracking:   return "Continuous calibration is active.";
 	case ContinuousStatus::Coasting:   return "Continuous calibration is waiting. The headset tracker isn't being seen.";
 	case ContinuousStatus::HeadsetUnseen: return "Continuous calibration is waiting. The headset isn't tracking.";
@@ -229,7 +228,7 @@ const char *RecalibrationNudge(CalRating rating)
 	if (rating < Rating_Poor)
 		return nullptr;
 	return rating == Rating_VeryPoor
-		? "Your trackers won't line up like this. Recalibrate."
+		? "Your trackers are noticeably off. Recalibrate to fix them."
 		: "Recalibrate to tighten the alignment.";
 }
 
@@ -280,106 +279,91 @@ bool ProtectChaperone()
 	return LoadChaperoneBounds();
 }
 
-// When the one-time drift warning modal was opened; gates its accept button.
-double g_chapWarnOpenedAt = 0.0;
+// ---------------------------------------------------------------------------
+// The hero: the alignment's verdict, what it means and what to do
+// ---------------------------------------------------------------------------
 
-// Pinned below the scrolling content by BuildMainWindow. Its height goes
-// through s_bottomReserve so the next frame's content child leaves room for it.
-float s_bottomReserve = 48.0f;
-void BuildStatusBand(const VRState &state)
+namespace
 {
-	// ---- Status ----
-	// The verdict strip renders in both modes; advanced mode adds the
-	// numbers as quiet lines under the verdict instead of replacing it.
-	const ContinuousStatus continuous = ContinuousStatusNow();
-	if (CalCtx.validProfile && continuous == ContinuousStatus::Frozen)
-	{
-		const float width = ImGui::GetContentRegionAvail().x;
-		const float actionW = 280.0f;
-		const float bandH = CalCtx.uiAdvanced ? 220.0f : 184.0f;
-		s_bottomReserve = bandH;
-		ImGui::SetCursorPosY(ImGui::GetWindowHeight() - bandH + 18.0f);
-		const ImVec2 p = ImGui::GetCursorScreenPos();
-		ImGui::PushFont(g_fontTitle);
-		ImGui::TextUnformatted(Tr("Continuous calibration paused"));
-		ImGui::PopFont();
-		ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width - actionW - 36.0f);
-		ImGui::TextWrapped("%s", Tr(CalCtx.continuousFreezeFromRestart
-			? "Restart the headset tracker in view of its base stations. If stable tracking stays misaligned, recalibrate."
-			: "Tracking no longer matches the saved alignment. Recalibrate with the headset tracker."));
-		ImGui::PopTextWrapPos();
-		ImGui::SetCursorScreenPos(ImVec2(p.x + width - actionW, p.y));
-		if (IconButton("fixmount", "Recalibrate", IconPlay, ImVec2(actionW, 46.0f), BtnKind::Primary))
-			StartMountSetup(state);
-		ImGui::SetCursorScreenPos(ImVec2(p.x + width - actionW, p.y + 54.0f));
-		if (IconButton("stopcont", "Turn off continuous calibration", nullptr, ImVec2(actionW, 38.0f), BtnKind::Ghost))
-			SaveProfileFieldEdit(CalCtx, [](questcal::ProfileRecord &candidate) {
-				candidate.continuousEnabled = false;
-			});
-		ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + 108.0f));
-		if (CalCtx.uiAdvanced && CalCtx.continuousDeviation.valid)
-		{
-			ImGui::PushFont(g_fontSmall);
-			ImGui::TextColored(Pal::Dim, "%s", Tr(FormatString(
-				"Difference: %.1f deg yaw, %.1f deg tilt, %.1f cm position",
-				CalCtx.continuousDeviation.yawDeg, CalCtx.continuousDeviation.tiltDeg,
-				CalCtx.continuousDeviation.posM * 100.0)).c_str());
-			ImGui::PopFont();
-		}
-		return;
-	}
-	const CalRating rating = CalCtx.validProfile ? ComputeCalibrationRating(continuous) : Rating_Unknown;
-	const char *nudge = CalCtx.validProfile ? RecalibrationNudge(rating) : nullptr;
+	enum class HeroAction { Calibrate, Recalibrate, RecalibrateMount };
 
-	struct DetailLine
+	struct Hero
 	{
-		std::string text;
-		ImVec4 color;
+		ui::Mark mark = ui::Mark::None;
+		std::string value;          // translated
+		ImU32 valueColour = ui::col::Text;
+		std::string description;    // translated
+		std::string advice;         // translated; empty for none
+		std::vector<std::string> details;   // advanced mode, English
+		HeroAction action = HeroAction::Calibrate;
+		bool primary = true;        // the action carries the accent
+		bool lengthPicker = true;   // the 10/20/35 s choice beside it
+		bool stopContinuous = false;
 	};
-	// Detail lines share one quiet ink and a role word each; the verdict owns
-	// the colour, so a detail line never reads as a second opinion.
-	std::vector<DetailLine> details;
-	if (CalCtx.uiAdvanced && CalCtx.validProfile)
+
+	// Each disable reason wants a different action, so each gets its own
+	// sentence.
+	std::string DisabledSentence()
 	{
+		using Reason = CalibrationContext::DisableReason;
+		switch (CalCtx.disableReason)
+		{
+		case Reason::HmdMismatch:
+			return FormatString("%s headset isn't connected. Calibration is off until it's back.",
+				FriendlySystemName(CalCtx.referenceTrackingSystem).c_str());
+		case Reason::DriverUnreachable:
+			return "SteamVR isn't accepting the calibration. Restart SteamVR.";
+		case Reason::DriverVersionMismatch:
+			return "The app and its SteamVR driver are from different releases. Reinstall QuestCalibrator, then restart SteamVR.";
+		case Reason::DriverRefusedValues:
+			return "The SteamVR driver refused the calibration's values. Recalibrate.";
+		case Reason::InvalidIdentity:
+			return "The saved calibration doesn't match the connected hardware. Recalibrate.";
+		case Reason::InvalidTransform:
+			return "The saved calibration is damaged. Recalibrate.";
+		case Reason::UniverseUnsafe:
+			return "The headset re-centered while QuestCalibrator wasn't watching, so the saved alignment is off. Recalibrate.";
+		case Reason::FrameMovesLost:
+			return "SteamVR moved the base stations more often than QuestCalibrator could follow, so the saved alignment may be off. Recalibrate.";
+		case Reason::None:
+		default:
+			// Never borrow another cause's sentence: a universe change that
+			// was not observed is not something to assert.
+			return "Calibration disabled. Restart SteamVR or recalibrate.";
+		}
+	}
+
+	// The measurements behind the verdict, for advanced mode: quiet lines
+	// under the description rather than a second opinion.
+	std::vector<std::string> AdvancedDetails(ContinuousStatus continuous)
+	{
+		std::vector<std::string> details;
 		if (CalCtx.lastResult.valid)
 		{
-			details.push_back({ FormatString("Solve: %.2f deg / %.1f cm, %+.1f ms%s",
-					CalCtx.lastResult.rotationRmsDeg,
-					CalCtx.lastResult.translationRmsMeters * 100.0,
-					CalCtx.lastResult.timeOffset * 1000.0,
-					CalCtx.lastResult.scale != 1.0 ? ", scaled" : ""), Pal::Dim });
+			details.push_back(FormatString("Solve: %.2f deg / %.1f cm, %+.1f ms%s",
+				CalCtx.lastResult.rotationRmsDeg, CalCtx.lastResult.translationRmsMeters * 100.0,
+				CalCtx.lastResult.timeOffset * 1000.0, CalCtx.lastResult.scale != 1.0 ? ", scaled" : ""));
 			if (CalCtx.solveScale)
-				details.push_back({ FormatString("Scale: %s (condition %.4f, uncertainty %.4f)",
-						CalCtx.lastResult.scaleIdentifiable ? "identifiable" : "insufficient",
-						CalCtx.lastResult.scaleCondition, CalCtx.lastResult.scaleStdDev), Pal::Dim });
+				details.push_back(FormatString("Scale: %s (condition %.4f, uncertainty %.4f)",
+					CalCtx.lastResult.scaleIdentifiable ? "identifiable" : "insufficient",
+					CalCtx.lastResult.scaleCondition, CalCtx.lastResult.scaleStdDev));
 		}
-
 		if (CalCtx.jumpsCompensated > 0 || CalCtx.referenceGapEvents > 0)
+			details.push_back(FormatString("Jumps: %u compensated%s", CalCtx.jumpsCompensated,
+				CalCtx.referenceGapEvents > 0 ? " (tracking gaps seen; recalibrate if alignment looks off)" : ""));
 		{
-			details.push_back({ FormatString("Jumps: %u compensated%s",
-					CalCtx.jumpsCompensated,
-					CalCtx.referenceGapEvents > 0 ? " (tracking gaps seen; recalibrate if alignment looks off)" : ""),
-				Pal::Dim });
-		}
-
-		{
-			const ImVec4 healthColor = Pal::Dim;
-			const char *healthLabel =
-				CalCtx.alignment == CalibrationContext::AlignmentHealth::Stale ? "stale" :
+			const char *health = CalCtx.alignment == CalibrationContext::AlignmentHealth::Stale ? "stale" :
 				CalCtx.alignment == CalibrationContext::AlignmentHealth::Aging ? "aging" : "fresh";
-			// The age is on the verdict line already.
-			std::string line = FormatString("Drift: %s", healthLabel);
+			std::string line = FormatString("Drift: %s", health);
 			// Evidence only when there is some.
 			if (CalCtx.driftSlideEvents > 0)
 				line += FormatString("; %u slip%s up to %.1f cm while standing still",
-					CalCtx.driftSlideEvents, CalCtx.driftSlideEvents == 1 ? "" : "s",
-					CalCtx.driftMaxSlideM * 100.0);
+					CalCtx.driftSlideEvents, CalCtx.driftSlideEvents == 1 ? "" : "s", CalCtx.driftMaxSlideM * 100.0);
 			if (CalCtx.discontinuousLossEvents > 0)
 				line += FormatString("; %u tracking dropout%s with a position change",
 					CalCtx.discontinuousLossEvents, CalCtx.discontinuousLossEvents == 1 ? "" : "s");
-			details.push_back({ line, healthColor });
+			details.push_back(line);
 		}
-
 		// Only while the loop is running: a correction count under "needs
 		// setup" contradicts it, and the count is reset when the tracker
 		// changes.
@@ -390,330 +374,398 @@ void BuildStatusBand(const VRState &state)
 		if (loopRunning)
 		{
 			if (continuous == ContinuousStatus::Tracking && CalCtx.continuousDeviation.valid)
-				details.push_back({ FormatString(
-						"Upkeep: scatter %.2f deg / %.1f cm, deviation %.2f deg / %.1f cm, %u corrections",
-						CalCtx.continuousScatterRotDeg, CalCtx.continuousScatterPosM * 100.0,
-						CalCtx.continuousDeviation.yawDeg + CalCtx.continuousDeviation.tiltDeg,
-						CalCtx.continuousDeviation.posM * 100.0,
-						CalCtx.autoCorrectionsApplied), Pal::Dim });
+				details.push_back(FormatString(
+					"Upkeep: scatter %.2f deg / %.1f cm, deviation %.2f deg / %.1f cm, %u corrections",
+					CalCtx.continuousScatterRotDeg, CalCtx.continuousScatterPosM * 100.0,
+					CalCtx.continuousDeviation.yawDeg + CalCtx.continuousDeviation.tiltDeg,
+					CalCtx.continuousDeviation.posM * 100.0, CalCtx.autoCorrectionsApplied));
 			else
-				details.push_back({ FormatString("Upkeep: %u corrections", CalCtx.autoCorrectionsApplied), Pal::Dim });
+				details.push_back(FormatString("Upkeep: %u corrections", CalCtx.autoCorrectionsApplied));
 		}
+		return details;
 	}
 
-	// Bottom band: the verdict, the advanced detail lines, the
-	// continuous-calibration line and the nudge.
+	Hero DescribeHero()
 	{
-		const bool showContinuous = CalCtx.validProfile && continuous != ContinuousStatus::Off;
-		const float lineH = g_fontBody->LegacySize + 6.0f;
-		const float detailH = g_fontSmall->LegacySize + 6.0f;
-		int lines = CalCtx.validProfile ? 1 + (showContinuous ? 1 : 0) + (nudge ? 1 : 0) : 1;
-		float stripH = lineH * (float)lines + (lines > 1 ? 4.0f : 0.0f)
-			+ detailH * (float)details.size() + (details.empty() ? 0.0f : 4.0f);
-
-		// Full-bleed inset surface with a hairline top edge, anchored to the
-		// bottom of the window.
-		const float bandH = stripH + 14.0f + 44.0f;
-		const float bandTop = ImGui::GetWindowHeight() - bandH;
-		s_bottomReserve = bandH;
+		Hero hero;
+		const ContinuousStatus continuous = ContinuousStatusNow();
+		if (!CalCtx.validProfile)
 		{
-			ImVec2 wp = ImGui::GetWindowPos();
-			float ww = ImGui::GetWindowWidth();
-			float top = wp.y + bandTop - ImGui::GetScrollY();
-			ImDrawList *dlb = ImGui::GetWindowDrawList();
-			dlb->AddRectFilled(ImVec2(wp.x, top),
-				ImVec2(wp.x + ww, top + bandH + 40.0f), Pal::U32(Pal::Inset));
-			dlb->AddLine(ImVec2(wp.x, top), ImVec2(wp.x + ww, top), Pal::U32(Pal::Border), 1.0f);
-			ImGui::SetCursorPosY(bandTop + 14.0f);
+			hero.mark = ui::Mark::None;
+			hero.value = Tr("Not calibrated");
+			hero.description = Tr(FormatString(
+				"Your trackers won't line up with your headset until you calibrate. It takes %.0f seconds.",
+				CalCtx.CollectionSeconds()));
+			return hero;
 		}
-		ImVec2 p = ImGui::GetCursorScreenPos();
-		ImDrawList *dl = ImGui::GetWindowDrawList();
-		float y = p.y;
-
-		if (CalCtx.validProfile)
+		if (!CalCtx.enabled)
 		{
-			// Line 1: the verdict word carries the colour; the age beside it
-			// is information, so it gets Dim rather than Faint.
-			float ty = y + lineH * 0.5f - g_fontBody->LegacySize * 0.5f;
-			float x = p.x;
-			const char *label = Tr(RatingLabel(rating));
-			const char *heading = Tr("Alignment: ");
-			dl->AddText(g_fontBody, g_fontBody->LegacySize, ImVec2(x, ty), Pal::U32(Pal::Text), heading);
-			x += ImGui::CalcTextSize(heading).x;
-			dl->AddText(g_fontBody, g_fontBody->LegacySize, ImVec2(x, ty), Pal::U32(RatingColor(rating)), label);
-			x += ImGui::CalcTextSize(label).x;
-
-			std::string ageLine;
-			if (continuous == ContinuousStatus::Tracking)
-			{
-				std::optional<std::string> adjusted;
-				if (CalCtx.autoCorrectionsApplied > 0)
-					adjusted = FormatUnixAge(CalCtx.lastAutoCorrectionUnixTime);
-				ageLine = adjusted ? FormatString("last adjusted %s", adjusted->c_str())
-					: std::string("maintained continuously");
-			}
-			else
-			{
-				auto age = FormatAlignmentAge();
-				ageLine = age ? *age : std::string("calibration time unknown");
-			}
-			dl->AddText(g_fontSmall, g_fontSmall->LegacySize,
-				ImVec2(x + 18.0f, y + lineH * 0.5f - g_fontSmall->LegacySize * 0.5f + 2.0f),
-				Pal::U32(Pal::Dim), Tr(ageLine.c_str()));
-			y += lineH;
-
-			// Advanced mode: the numbers, small and quiet under the verdict.
-			for (const auto &detail : details)
-			{
-				dl->AddText(g_fontSmall, g_fontSmall->LegacySize,
-					ImVec2(p.x, y + detailH * 0.5f - g_fontSmall->LegacySize * 0.5f),
-					Pal::U32(detail.color), Tr(detail.text.c_str()));
-				y += detailH;
-			}
-			if (!details.empty())
-				y += 4.0f;
-
-			// Line 2: the loop's own state, one sentence in its own colour.
-			if (showContinuous)
-			{
-				y += 4.0f;
-				ty = y + lineH * 0.5f - g_fontBody->LegacySize * 0.5f;
-				dl->AddText(g_fontBody, g_fontBody->LegacySize, ImVec2(p.x, ty),
-					Pal::U32(ContinuousStatusColor(continuous)), Tr(ContinuousStatusLine(continuous)));
-				y += lineH;
-			}
-
-			if (nudge)
-			{
-				if (!showContinuous)
-					y += 4.0f;
-				dl->AddText(g_fontBody, g_fontBody->LegacySize,
-					ImVec2(p.x, y + lineH * 0.5f - g_fontBody->LegacySize * 0.5f),
-					Pal::U32(Pal::Violet), Tr(nudge));
-			}
+			hero.mark = ui::Mark::Off;
+			hero.value = Tr("Off");
+			hero.valueColour = ui::Rgba(236, 238, 244, 0.82f);
+			hero.description = Tr(DisabledSentence());
+			hero.action = HeroAction::Recalibrate;
+			hero.primary = false;
+			return hero;
 		}
-		else
+		if (continuous == ContinuousStatus::Frozen)
 		{
-			dl->AddText(g_fontBody, g_fontBody->LegacySize,
-				ImVec2(p.x, y + lineH * 0.5f - g_fontBody->LegacySize * 0.5f),
-				Pal::U32(Pal::Dim),
-				Tr("Not calibrated yet. Pick a device on each side and press Start calibration."));
+			hero.mark = ui::Mark::Paused;
+			hero.value = Tr("Paused");
+			hero.valueColour = ui::col::Caution;
+			hero.description = Tr(CalCtx.continuousFreezeFromRestart
+				? "Restart the headset tracker in view of its base stations. If stable tracking stays misaligned, recalibrate."
+				: "Tracking has drifted away from your calibration. Recalibrate to bring your trackers back in line.");
+			hero.action = HeroAction::RecalibrateMount;
+			hero.lengthPicker = false;
+			hero.stopContinuous = true;
+			if (CalCtx.uiAdvanced && CalCtx.continuousDeviation.valid)
+				hero.details.push_back(FormatString("Difference: %.1f deg yaw, %.1f deg tilt, %.1f cm position",
+					CalCtx.continuousDeviation.yawDeg, CalCtx.continuousDeviation.tiltDeg,
+					CalCtx.continuousDeviation.posM * 100.0));
+			return hero;
 		}
-
-		ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + stripH));
-		ImGui::Dummy(ImVec2(0, 0));
+		const CalRating rating = ComputeCalibrationRating(continuous);
+		hero.value = Tr(RatingLabel(rating));
+		switch (rating)
+		{
+		case Rating_Good: hero.mark = ui::Mark::Good; hero.valueColour = ui::col::Good; break;
+		case Rating_Decent: hero.mark = ui::Mark::Caution; hero.valueColour = ui::col::Caution; break;
+		case Rating_Poor:
+		case Rating_VeryPoor: hero.mark = ui::Mark::Bad; hero.valueColour = ui::col::Alert; break;
+		default: hero.mark = ui::Mark::None; break;
+		}
+		// What keeps the alignment, or how old it is.
+		if (continuous != ContinuousStatus::Off)
+		{
+			std::string line = ContinuousStatusLine(continuous);
+			if (continuous == ContinuousStatus::Tracking && CalCtx.autoCorrectionsApplied > 0)
+				if (auto adjusted = FormatUnixAge(CalCtx.lastAutoCorrectionUnixTime))
+					line += " " + FormatString("Last adjusted %s.", adjusted->c_str());
+			// Translated whole, so each language joins the sentences its own way.
+			hero.description = Tr(line);
+		}
+		else if (CalCtx.lastAutoCorrectionUnixTime > CalCtx.calibrationUnixTime && FormatUnixAge(CalCtx.lastAutoCorrectionUnixTime))
+			hero.description = Tr(FormatString("Adjusted %s.", FormatUnixAge(CalCtx.lastAutoCorrectionUnixTime)->c_str()));
+		else if (auto calibrated = FormatUnixAge(CalCtx.calibrationUnixTime))
+			hero.description = Tr(FormatString("Calibrated %s.", calibrated->c_str()));
+		if (const char *nudge = RecalibrationNudge(rating))
+			hero.advice = Tr(nudge);
+		hero.action = HeroAction::Recalibrate;
+		hero.primary = rating >= Rating_Poor;
+		if (CalCtx.uiAdvanced)
+			hero.details = AdvancedDetails(continuous);
+		return hero;
 	}
+
+	// A notice above the tools: an icon, what is going on, and one action.
+	struct Notice
+	{
+		ui::Icon icon;
+		ImU32 ink, fill;
+		std::string title;     // translated; may be empty
+		std::string text;      // translated
+		const char *button = nullptr;   // English
+		ui::Icon buttonIcon = ui::Icon::None;
+		int id = 0;
+	};
+
+	enum NoticeId { NoticeUpdate = 1, NoticeCalibrating };
 }
 
-void BuildMainScreen()
+float BuildHomePage(const VRState &state, ImVec2 origin, float width)
 {
-	float cw = ImGui::GetContentRegionAvail().x;
-	const float gap = 12.0f;
+	ImDrawList *dl = ImGui::GetWindowDrawList();
+	const Hero hero = DescribeHero();
+	const questcal::update::Snapshot update = CurrentUpdate();
 
+	std::vector<Notice> notices;
+	if (CalCtx.state == CalibrationState::Begin || CalCtx.state == CalibrationState::Neutralizing ||
+		CalCtx.state == CalibrationState::Collecting)
 	{
-		{
-			std::vector<StatusRowData> warn;
-			if (CalCtx.validProfile && !CalCtx.enabled)
-			{
-				// Each disable reason wants a different action, so each gets
-				// its own sentence.
-				using Reason = CalibrationContext::DisableReason;
-				std::string why;
-				switch (CalCtx.disableReason)
-				{
-				case Reason::HmdMismatch:
-					why = FormatString("%s headset isn't connected. Calibration is off until it's back.",
-						FriendlySystemName(CalCtx.referenceTrackingSystem).c_str());
-					break;
-				case Reason::DriverUnreachable:
-					why = "SteamVR isn't accepting the calibration. Restart SteamVR.";
-					break;
-				case Reason::DriverVersionMismatch:
-					why = "The app and its SteamVR driver are from different releases. Reinstall QuestCalibrator, then restart SteamVR.";
-					break;
-				case Reason::DriverRefusedValues:
-					why = "The SteamVR driver refused the calibration's values. Recalibrate.";
-					break;
-				case Reason::InvalidIdentity:
-					why = "The saved calibration doesn't match the connected hardware. Recalibrate.";
-					break;
-				case Reason::InvalidTransform:
-					why = "The saved calibration is damaged. Recalibrate.";
-					break;
-				case Reason::UniverseUnsafe:
-					why = "The headset re-centered while QuestCalibrator wasn't watching, so the saved alignment is off. Recalibrate.";
-					break;
-				case Reason::FrameMovesLost:
-					why = "SteamVR moved the base stations more often than QuestCalibrator could follow, so the saved alignment may be off. Recalibrate.";
-					break;
-				case Reason::None:
-					// Never borrow another cause's sentence: a universe change
-					// that was not observed is not something to assert.
-					why = "Calibration disabled. Restart SteamVR or recalibrate.";
-					break;
-				}
-				warn.push_back({ IconInfo, Pal::Bad, why });
-			}
-			if (PoseChannelDown())
-			{
-				std::string why = "QuestCalibrator isn't getting tracking data from SteamVR, so it can't watch for drift. Restart SteamVR.";
-				if (CalCtx.uiAdvanced)
-					why += FormatString(" (host hooks: 005 %s, 006 %s)",
-						CalCtx.driverPoseHookMask & protocol::PoseHook005 ? "active" : "missing",
-						CalCtx.driverPoseHookMask & protocol::PoseHook006 ? "active" : "missing");
-				warn.push_back({ IconInfo, Pal::Warn, why });
-			}
-			if (CalCtx.enabled && CalCtx.hookBypassingDevices != 0)
-			{
-				std::string why = "Calibration can't move some target devices, because their tracking doesn't pass through QuestCalibrator's SteamVR driver.";
-				if (CalCtx.uiAdvanced)
-				{
-					std::string ids;
-					for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
-						if (CalCtx.hookBypassingDevices & (uint64_t{ 1 } << id))
-							ids += (ids.empty() ? "" : ", ") + std::to_string(id);
-					why += FormatString(" (OpenVR devices %s)", ids.c_str());
-				}
-				warn.push_back({ IconInfo, Pal::Warn, why });
-			}
-			const questcal::update::Snapshot update =
-				questcal::update::AppUpdater.GetSnapshot();
-			if (update.state == questcal::update::State::Ready)
-			{
-				warn.push_back({ IconDownload, Pal::Good,
-					"QuestCalibrator " + update.version +
-					" is ready. Open Settings to install it." });
-			}
-			if (!warn.empty())
-			{
-				DrawStatusCard(warn);
-				ImGui::Spacing();
-			}
-		}
-
-		// ---- Row A: Start dominates; the measurement length and Clear ride
-		// beside it so the whole screen fits without scrolling ----
-		bool haveProfile = CalCtx.validProfile;
-		const float bh = 56.0f;
-		const float clearW = ButtonWidthFor("Clear calibration", true, 190.0f);
-		const float segItemW = 112.0f;
-		const float segW = segItemW * 3.0f + 8.0f;
-		float startW = cw - segW - gap - (haveProfile ? clearW + gap : 0.0f);
-
-		ImVec2 rowA = ImGui::GetCursorScreenPos();
-		const bool recovering = ContinuousStatusNow() == ContinuousStatus::Frozen;
-		if (IconButton("start", "Start calibration", IconPlay, ImVec2(startW, bh),
-			recovering ? BtnKind::Ghost : BtnKind::Primary))
-			OpenGuide(false, false);
-
-		{
-			// Labelled by length: "Slow" reads as an instruction to move slowly.
-			std::string speedLabels[3];
-			const char *speeds[3];
-			for (int i = 0; i < 3; ++i)
-			{
-				speedLabels[i] = FormatString("%.0f s", CalibrationContext::CollectionSecondsFor(
-					static_cast<CalibrationContext::Speed>(i)));
-				speeds[i] = speedLabels[i].c_str();
-			}
-			ImVec2 sp = ImVec2(rowA.x + startW + gap, rowA.y);
-			ImGui::SetCursorScreenPos(ImVec2(sp.x, sp.y + (bh - 46.0f) * 0.5f));
-			auto previousSpeed = CalCtx.calibrationSpeed;
-			CalCtx.calibrationSpeed = static_cast<CalibrationContext::Speed>(
-				Segmented("speed", static_cast<int>(CalCtx.calibrationSpeed), speeds, 3, segItemW, 46.0f));
-			if (CalCtx.calibrationSpeed != previousSpeed)
-				SaveSettingOrRestore(CalCtx.calibrationSpeed, previousSpeed);
-			if (ImGui::IsMouseHoveringRect(sp, ImVec2(sp.x + segW, sp.y + bh)) && !ImGui::IsAnyItemActive())
-				ShowTip("How long calibration collects tracking data. Longer can be more accurate.\nMove gently at every setting.");
-		}
-
-		if (haveProfile)
-		{
-			ImGui::SetCursorScreenPos(ImVec2(rowA.x + startW + gap + segW + gap, rowA.y));
-			// Irreversible and one laser-click from the primary button: confirm.
-			if (IconButton("clear", "Clear calibration", IconTrash, ImVec2(clearW, bh), BtnKind::Ghost))
-				ImGui::OpenPopup("Clear calibration?");
-		}
-		ImGui::SetCursorScreenPos(ImVec2(rowA.x, rowA.y + bh));
-		ImGui::Dummy(ImVec2(0, 0));
-
-		// ---- Row B: the secondary tools, one row ----
-		{
-			const bool anchors = CalCtx.validProfile && !CalCtx.profileUniverseUnsafe;
-			const int count = anchors ? 3 : 2;
-			const float bw = (cw - gap * (float)(count - 1)) / (float)count;
-			const float rh = 46.0f;
-
-			IdentifyButton(ImVec2(bw, rh));
-
-			// One button covers the whole chaperone story: snapshot the current
-			// bounds AND arm auto-restore. People who rely on the Quest boundary
-			// transferring in each session simply never press it (or disarm the
-			// restore in settings).
-			ImGui::SameLine(0.0f, gap);
-			const char *chapLabel = CalCtx.chaperone.valid ? "Update protected chaperone" : "Protect chaperone";
-			if (IconButton("copychap", chapLabel, IconCopy, ImVec2(bw, rh), BtnKind::Ghost))
-			{
-				if (CalCtx.chaperoneWarningAck)
-				{
-					ProtectChaperone();
-				}
-				else
-				{
-					// First use: the drift warning modal takes over; it calls
-					// ProtectChaperone() itself once acknowledged.
-					g_chapWarnOpenedAt = ImGui::GetTime();
-					ImGui::OpenPopup("Chaperone Drift Warning");
-				}
-			}
-			if (ImGui::IsItemHovered())
-			{
-				ShowTip(
-					"Saves your current chaperone (SteamVR's walls) and puts it\n"
-					"back automatically if SteamVR or the headset ever loses it.\n"
-					"Redrew your chaperone? Press again to protect the new one.\n"
-					"Prefer the Quest boundary imported fresh each session? Don't use this.");
-			}
-			if (anchors)
-			{
-				ImGui::SameLine(0.0f, gap);
-				if (IconButton("addanchor", "Add field anchor", IconPin, ImVec2(bw, rh), BtnKind::Ghost))
-					OpenGuide(true, false);
-				if (ImGui::IsItemHovered())
-				{
-					ShowTip(
-						"Aligned in one spot but slightly off in another?\n"
-						"Stand at the bad spot, press this, and do a quick calibration there.\n"
-						"That spot gets its own correction, blended in as you walk around.");
-				}
-			}
-		}
-
-		// Current state stays in the pinned band; historical events are optional.
-		ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0));
-		ImGui::PushStyleColor(ImGuiCol_HeaderHovered, Pal::CardHov);
-		ImGui::PushStyleColor(ImGuiCol_HeaderActive, Pal::Inset);
-		const bool showActivity = !CalCtx.activity.empty() && ImGui::CollapsingHeader(
-			(std::string(Tr("Recent activity")) + "###recentactivity").c_str());
-		ImGui::PopStyleColor(3);
-		if (showActivity)
-		{
-			const size_t shown = std::min<size_t>(CalCtx.activity.size(), CalCtx.uiAdvanced ? 2 : 3);
-			for (size_t i = CalCtx.activity.size() - shown; i < CalCtx.activity.size(); ++i)
-			{
-				const auto &entry = CalCtx.activity[i];
-				char stamp[16] = "";
-				std::time_t t = static_cast<std::time_t>(entry.unixTime);
-				std::tm tm;
-				if (localtime_s(&tm, &t) == 0)
-					std::strftime(stamp, sizeof stamp, "%H:%M", &tm);
-				ImGui::PushFont(g_fontSmall);
-				ImGui::TextColored(Pal::Dim, "%s", stamp);
-				ImGui::PopFont();
-				ImGui::TextWrapped("%s", Tr(entry.text.c_str()));
-				ImGui::Spacing();
-			}
-		}
-
+		// The calibration sheet normally covers this; if it ever does not,
+		// the same two facts are here: what is happening and how to stop it.
+		if (CurrentSheet() != Sheet::Calibrate)
+			notices.push_back({ ui::Icon::Reticle, ui::col::Link, ui::col::LinkTint, std::string(), Tr("Calibrating..."),
+				"Cancel", ui::Icon::None, NoticeCalibrating });
 	}
+	if (update.state == questcal::update::State::Ready)
+		notices.push_back({ ui::Icon::Download, ui::col::Good, ui::col::GoodTint,
+			Tr(FormatString("Nova Calibrator %s is ready", update.version.c_str())),
+			Tr("Downloaded and verified. Close Steam before you install it."), "Install", ui::Icon::Download, NoticeUpdate });
+	if (PoseChannelDown())
+	{
+		std::string why = Tr("QuestCalibrator isn't getting tracking data from SteamVR, so it can't watch for drift. Restart SteamVR.");
+		if (CalCtx.uiAdvanced)
+			why += FormatString(" (host hooks: 005 %s, 006 %s)",
+				CalCtx.driverPoseHookMask & protocol::PoseHook005 ? "active" : "missing",
+				CalCtx.driverPoseHookMask & protocol::PoseHook006 ? "active" : "missing");
+		notices.push_back({ ui::Icon::Warn, ui::col::Caution, ui::col::CautionTint, std::string(), why });
+	}
+	if (CalCtx.enabled && CalCtx.hookBypassingDevices != 0)
+	{
+		std::string why = Tr("Calibration can't move some target devices, because their tracking doesn't pass through QuestCalibrator's SteamVR driver.");
+		if (CalCtx.uiAdvanced)
+		{
+			std::string ids;
+			for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+				if (CalCtx.hookBypassingDevices & (uint64_t{ 1 } << id))
+					ids += (ids.empty() ? "" : ", ") + std::to_string(id);
+			why += FormatString(" (OpenVR devices %s)", ids.c_str());
+		}
+		notices.push_back({ ui::Icon::Warn, ui::col::Caution, ui::col::CautionTint, std::string(), why });
+	}
+
+	// ---- Layout ----
+	FlexLayout fl;
+	YGNodeRef root = fl.Root();
+	YGNodeStyleSetFlexDirection(root, YGFlexDirectionColumn);
+	YGNodeStyleSetWidth(root, width);
+	YGNodeStyleSetPadding(root, YGEdgeHorizontal, 40.0f);
+	YGNodeRef title = ui::TextNode(fl, root, ui::type::PageTitle, Tr("Calibration"));
+
+	YGNodeRef heroRow = fl.Row(root);
+	YGNodeStyleSetMargin(heroRow, YGEdgeTop, 30.0f);
+	YGNodeStyleSetAlignItems(heroRow, YGAlignCenter);
+	YGNodeStyleSetGap(heroRow, YGGutterColumn, 30.0f);
+	YGNodeRef mark = fl.Box(heroRow, 136.0f, 136.0f);
+	YGNodeRef heroText = fl.Column(heroRow);
+	YGNodeStyleSetFlexGrow(heroText, 1.0f);
+	YGNodeStyleSetFlexShrink(heroText, 1.0f);
+	YGNodeRef eyebrow = ui::TextNode(fl, heroText, ui::type::Eyebrow, Tr("Alignment"));
+	YGNodeRef value = ui::TextNode(fl, heroText, ui::type::Display, hero.value);
+	YGNodeRef description = ui::TextNode(fl, heroText, ui::type::HeroBody, hero.description);
+	YGNodeStyleSetMargin(description, YGEdgeTop, 4.0f);
+	YGNodeStyleSetMaxWidth(description, 600.0f);
+	YGNodeRef advice = nullptr;
+	if (!hero.advice.empty())
+	{
+		advice = ui::TextNode(fl, heroText, ui::type::Body, hero.advice);
+		YGNodeStyleSetMargin(advice, YGEdgeTop, 4.0f);
+	}
+	std::vector<YGNodeRef> detailNodes;
+	for (size_t i = 0; i < hero.details.size(); ++i)
+	{
+		detailNodes.push_back(ui::TextNode(fl, heroText, ui::type::Caption, Tr(hero.details[i].c_str())));
+		YGNodeStyleSetMargin(detailNodes.back(), YGEdgeTop, i == 0 ? 6.0f : 0.0f);
+	}
+	YGNodeRef actions = fl.Row(heroText);
+	YGNodeStyleSetMargin(actions, YGEdgeTop, 18.0f);
+	YGNodeStyleSetAlignItems(actions, YGAlignCenter);
+	YGNodeStyleSetGap(actions, YGGutterColumn, 12.0f);
+	const char *actionLabel = hero.action == HeroAction::Calibrate ? "Calibrate" : "Recalibrate";
+	YGNodeRef actionButton = fl.Box(actions, ui::PillWidth(actionLabel, 18.0f, ui::Icon::Play), 48.0f);
+	YGNodeRef stopButton = hero.stopContinuous
+		? fl.Box(actions, ui::PillWidth("Turn off continuous calibration", 18.0f), 48.0f) : nullptr;
+	std::string lengthLabels[3];
+	const char *lengths[3];
+	for (int i = 0; i < 3; ++i)
+	{
+		// Labelled by length: "Slow" reads as an instruction to move slowly.
+		lengthLabels[i] = FormatString("%.0f s", CalibrationContext::CollectionSecondsFor(static_cast<CalibrationContext::Speed>(i)));
+		lengths[i] = lengthLabels[i].c_str();
+	}
+	YGNodeRef length = hero.lengthPicker ? fl.Box(actions, ui::PillSegmentedWidth(lengths, 3, 16.0f, 74.0f), 48.0f) : nullptr;
+	YGNodeRef more = fl.Box(actions, 48.0f, 48.0f);
+
+	std::vector<YGNodeRef> noticeNodes, noticeTitles, noticeTexts, noticeButtons;
+	if (!notices.empty())
+	{
+		YGNodeRef list = fl.Column(root);
+		YGNodeStyleSetMargin(list, YGEdgeTop, 30.0f);
+		YGNodeStyleSetGap(list, YGGutterRow, 12.0f);
+		for (const Notice &n : notices)
+		{
+			YGNodeRef row = fl.Row(list);
+			YGNodeStyleSetMinHeight(row, 84.0f);
+			YGNodeStyleSetPadding(row, YGEdgeVertical, 14.0f);
+			YGNodeStyleSetPadding(row, YGEdgeHorizontal, 18.0f);
+			YGNodeStyleSetAlignItems(row, YGAlignCenter);
+			YGNodeStyleSetGap(row, YGGutterColumn, 16.0f);
+			fl.Box(row, 44.0f, 44.0f);
+			YGNodeRef text = fl.Column(row);
+			YGNodeStyleSetFlexGrow(text, 1.0f);
+			YGNodeStyleSetFlexShrink(text, 1.0f);
+			noticeTitles.push_back(n.title.empty() ? nullptr : ui::TextNode(fl, text, ui::type::Label, n.title));
+			noticeTexts.push_back(ui::TextNode(fl, text, n.title.empty() ? ui::type::Body : ui::type::Footnote, n.text));
+			noticeButtons.push_back(n.button ? fl.Box(row, ui::PillWidth(n.button, 17.0f, n.buttonIcon), 44.0f) : nullptr);
+			noticeNodes.push_back(row);
+		}
+	}
+
+	YGNodeRef tools = fl.Column(root);
+	YGNodeStyleSetMargin(tools, YGEdgeTop, notices.empty() ? 34.0f : 30.0f);
+	YGNodeRef toolsTitle = ui::TextNode(fl, tools, ui::type::Section, Tr("Tools"));
+	YGNodeRef tiles = fl.Row(tools);
+	YGNodeStyleSetMargin(tiles, YGEdgeTop, 10.0f);
+	YGNodeStyleSetGap(tiles, YGGutterColumn, 14.0f);
+	YGNodeRef tileNodes[3];
+	for (YGNodeRef &tile : tileNodes)
+	{
+		tile = fl.Add(tiles);
+		YGNodeStyleSetFlexGrow(tile, 1.0f);
+		YGNodeStyleSetFlexBasis(tile, 0.0f);
+		YGNodeStyleSetHeight(tile, 128.0f);
+	}
+
+	// Recent activity, newest first.
+	const size_t recentCount = std::min<size_t>(CalCtx.activity.size(), 3);
+	YGNodeRef recent = fl.Column(root);
+	YGNodeStyleSetMargin(recent, YGEdgeTop, 26.0f);
+	YGNodeRef recentHead = fl.Row(recent);
+	YGNodeStyleSetJustifyContent(recentHead, YGJustifySpaceBetween);
+	YGNodeStyleSetAlignItems(recentHead, YGAlignCenter);
+	YGNodeRef recentTitle = ui::TextNode(fl, recentHead, ui::type::Section, Tr("Recent activity"));
+	YGNodeRef showAll = recentCount > 0 ? fl.Box(recentHead, ui::PillWidth("Show all", 17.0f, ui::Icon::None, 6.0f), 32.0f) : nullptr;
+	YGNodeRef recentCard = fl.Column(recent);
+	YGNodeStyleSetMargin(recentCard, YGEdgeTop, 10.0f);
+	std::vector<YGNodeRef> entryRows, entryTexts;
+	std::vector<const CalibrationContext::ActivityEntry *> entries;
+	const std::vector<size_t> order = ActivityNewestFirst();
+	for (size_t i = 0; i < recentCount; ++i)
+	{
+		const auto &entry = CalCtx.activity[order[i]];
+		YGNodeRef row = fl.Row(recentCard);
+		YGNodeStyleSetMinHeight(row, 54.0f);
+		YGNodeStyleSetPadding(row, YGEdgeVertical, 8.0f);
+		YGNodeStyleSetPadding(row, YGEdgeHorizontal, 18.0f);
+		YGNodeStyleSetAlignItems(row, YGAlignCenter);
+		YGNodeStyleSetGap(row, YGGutterColumn, 18.0f);
+		fl.Box(row, 48.0f, 20.0f);
+		YGNodeRef text = ui::TextNode(fl, row, ui::type::Body, Tr(entry.text.c_str()));
+		YGNodeStyleSetFlexGrow(text, 1.0f);
+		YGNodeStyleSetFlexShrink(text, 1.0f);
+		entryRows.push_back(row);
+		entryTexts.push_back(text);
+		entries.push_back(&entry);
+	}
+	YGNodeRef emptyRecent = recentCount == 0 ? fl.Box(recentCard, width - 80.0f, 96.0f) : nullptr;
+
+	fl.Compute(origin, width, YGUndefined);
+
+	// ---- Drawing ----
+	ui::DrawLine(dl, ui::type::PageTitle, fl.Rect(title).min, ui::col::Text, Tr("Calibration"));
+	ui::StateMark(dl, fl.Rect(mark).Center(), hero.mark);
+	ui::DrawLine(dl, ui::type::Eyebrow, fl.Rect(eyebrow).min, ui::col::Muted, Tr("Alignment"));
+	ui::DrawText(dl, ui::type::Display, fl.Rect(value).min, fl.Rect(value).W(), hero.valueColour, hero.value.c_str());
+	ui::DrawText(dl, ui::type::HeroBody, fl.Rect(description).min, fl.Rect(description).W(), ui::col::Body, hero.description.c_str());
+	if (advice)
+		ui::DrawText(dl, ui::type::Body, fl.Rect(advice).min, fl.Rect(advice).W(), ui::col::Lavender, hero.advice.c_str());
+	for (size_t i = 0; i < detailNodes.size(); ++i)
+		ui::DrawText(dl, ui::type::Caption, fl.Rect(detailNodes[i]).min, fl.Rect(detailNodes[i]).W(), ui::col::Quiet,
+			Tr(hero.details[i].c_str()));
+
+	if (ui::PillButton("##heroaction", actionLabel, hero.primary ? ui::Btn::Primary : ui::Btn::Secondary,
+		fl.Rect(actionButton), ui::Icon::Play))
+	{
+		if (hero.action == HeroAction::RecalibrateMount)
+			StartMountSetup(state);
+		else
+			OpenGuide(false, false);
+	}
+	if (stopButton && ui::PillButton("##stopcontinuous", "Turn off continuous calibration", ui::Btn::Secondary, fl.Rect(stopButton)))
+		SaveProfileFieldEdit(CalCtx, [](questcal::ProfileRecord &candidate) {
+			candidate.continuousEnabled = false;
+		});
+	if (length)
+	{
+		const FlexRect r = fl.Rect(length);
+		const auto previous = CalCtx.calibrationSpeed;
+		CalCtx.calibrationSpeed = static_cast<CalibrationContext::Speed>(
+			ui::PillSegmented("##length", static_cast<int>(CalCtx.calibrationSpeed), lengths, 3, r, 16.0f));
+		if (CalCtx.calibrationSpeed != previous)
+			SaveSettingOrRestore(CalCtx.calibrationSpeed, previous);
+		if (ImGui::IsMouseHoveringRect(r.min, r.max) && !ImGui::IsAnyItemActive())
+			ShowTip("How long calibration collects tracking data. Longer can be more accurate.\nMove gently at every setting.");
+	}
+	{
+		const FlexRect r = fl.Rect(more);
+		if (ui::RoundButton("##pair", r.Center(), 48.0f, ui::Icon::More, 20.0f, ui::Rgba(255, 255, 255, 0.07f),
+			ui::Rgba(236, 238, 244, 0.85f)))
+			OpenSheet(Sheet::Pair);
+		if (ImGui::IsItemHovered())
+			ShowTip("Choose the pair to calibrate");
+	}
+
+	for (size_t i = 0; i < notices.size(); ++i)
+	{
+		const Notice &n = notices[i];
+		const FlexRect r = fl.Rect(noticeNodes[i]);
+		ui::Card(dl, r.min, r.max);
+		ui::RoundIcon(dl, ImVec2(r.min.x + 18.0f + 22.0f, r.Center().y), 44.0f, n.icon, 22.0f, n.ink, n.fill);
+		if (noticeTitles[i])
+			ui::DrawText(dl, ui::type::Label, fl.Rect(noticeTitles[i]).min, fl.Rect(noticeTitles[i]).W(), ui::col::Text, n.title.c_str());
+		const ui::TextStyle &style = n.title.empty() ? ui::type::Body : ui::type::Footnote;
+		ui::DrawText(dl, style, fl.Rect(noticeTexts[i]).min, fl.Rect(noticeTexts[i]).W(),
+			n.title.empty() ? ui::col::Text : ui::col::Muted, n.text.c_str());
+		if (noticeButtons[i])
+		{
+			ImGui::PushID(n.id);
+			const bool pressed = ui::PillButton("##notice", n.button, n.id == NoticeUpdate ? ui::Btn::Primary : ui::Btn::Secondary,
+				fl.Rect(noticeButtons[i]), n.buttonIcon, 17.0f);
+			ImGui::PopID();
+			if (pressed && n.id == NoticeUpdate)
+			{
+				std::string error;
+				if (questcal::update::AppUpdater.LaunchInstaller(error))
+					RequestApplicationExit();
+				else
+					CalCtx.ReportError(error + "\n");
+			}
+			else if (pressed && n.id == NoticeCalibrating)
+				CancelCalibration();
+		}
+	}
+
+	ui::DrawLine(dl, ui::type::Section, fl.Rect(toolsTitle).min, ui::col::Text, Tr("Tools"));
+	if (ui::ToolTile("##identify", fl.Rect(tileNodes[0]), ui::Icon::Identify, "Identify the pair", Tr("Makes both vibrate or blink"),
+		false, false))
+		StartIdentifyPulse(CalCtx.targetID, CalCtx.referenceID);
+	if (ImGui::IsItemHovered())
+		ShowTip("Vibrates or blinks the two selected devices so you can tell which is which.");
+	{
+		std::string sub;
+		if (CalCtx.chaperone.valid)
+		{
+			auto age = FormatUnixAge(CalCtx.chaperone.copyUnixTime);
+			sub = age ? Tr(FormatString("Protected %s", age->c_str())) : std::string(Tr("Protected"));
+		}
+		else
+			sub = Tr("Not protected yet");
+		if (ui::ToolTile("##chaperone", fl.Rect(tileNodes[1]), ui::Icon::Chaperone, "Chaperone", sub.c_str(), true, false))
+			OpenSheet(Sheet::Chaperone);
+	}
+	{
+		const bool anchorsAvailable = CalCtx.validProfile && !CalCtx.profileUniverseUnsafe;
+		const size_t count = CalCtx.fieldAnchors.size();
+		const std::string sub = !anchorsAvailable ? std::string(Tr("Calibrate first"))
+			: count == 0 ? std::string(Tr("No anchors yet"))
+			: Tr(FormatString("%zu anchor%s saved", count, count == 1 ? "" : "s"));
+		if (ui::ToolTile("##anchors", fl.Rect(tileNodes[2]), ui::Icon::Anchor, "Field anchors", sub.c_str(), anchorsAvailable,
+			!anchorsAvailable))
+			OpenSheet(Sheet::Anchors);
+	}
+
+	ui::DrawLine(dl, ui::type::Section, fl.Rect(recentTitle).min, ui::col::Text, Tr("Recent activity"));
+	if (showAll && ui::PillButton("##showall", "Show all", ui::Btn::Link, fl.Rect(showAll), ui::Icon::None, 17.0f))
+		OpenSheet(Sheet::Activity);
+	const FlexRect card = fl.Rect(recentCard);
+	ui::Card(dl, card.min, card.max);
+	for (size_t i = 0; i < entryRows.size(); ++i)
+	{
+		const FlexRect r = fl.Rect(entryRows[i]);
+		if (i > 0)
+			ui::Hairline(dl, r.min.x + 84.0f, r.max.x, r.min.y);
+		ui::DrawLine(dl, ui::TextStyle{ ui::Weight::Regular, 15.0f, r.H() }, ImVec2(r.min.x + 18.0f, r.min.y), ui::col::Quiet,
+			ActivityClock(entries[i]->unixTime).c_str());
+		const FlexRect t = fl.Rect(entryTexts[i]);
+		ui::DrawText(dl, ui::type::Body, t.min, t.W(), ui::col::Text, Tr(entries[i]->text.c_str()));
+	}
+	if (emptyRecent)
+	{
+		const FlexRect r = fl.Rect(emptyRecent);
+		ui::DrawText(dl, ui::type::Body, ImVec2(r.min.x, r.min.y + 37.0f), r.W(), ui::col::Muted,
+			Tr("Nothing yet. Calibrations and corrections will appear here."), ui::Align::Center);
+	}
+	return YGNodeLayoutGetHeight(root);
 }

@@ -458,7 +458,7 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 				// Without the tracker's restarts in view nothing re-aligns on
 				// its own; only the readings coming back resume it.
 				NotifyOnce(ctx, Monitors.freezeNotified,
-					"Continuous calibration paused: readings drifted too far from the calibration to correct safely.",
+					"Continuous calibration paused: tracking drifted too far to correct safely.",
 					CalibrationContext::Tone::Warn,
 					"QuestCalibrator: continuous calibration paused; readings drifted too far to correct safely. Recalibrate with the headset tracker to resume.",
 					ctx.notifyPoorCalibration);
@@ -482,7 +482,7 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 				ctx.continuousReanchorsAcrossSolutions++;
 			Monitors.freezeNotified = false;
 			if (!ctx.continuousNoPause)
-				ctx.Tell("Continuous calibration re-aligned your trackers after the tracking spaces moved apart.\n",
+				ctx.Tell("Re-aligned your trackers after your headset's tracking shifted.\n",
 					CalibrationContext::Tone::Good);
 			break;
 		case questcal::ContinuousAlignment::Event::ReanchorUndone:

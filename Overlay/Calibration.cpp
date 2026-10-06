@@ -524,7 +524,7 @@ static void BeginCollection(CalibrationContext &ctx, double time)
 	else
 	{
 		ctx.Instruct("Keep both devices firmly together.");
-		ctx.Note("Move both devices in a figure eight, gently turning and tilting as you go. Keep them firmly together and in view of their tracking cameras or base stations.");
+		ctx.Note("Draw slow figure eights in the air, turning and tilting your hands as you go.");
 	}
 }
 
@@ -712,8 +712,8 @@ void CalibrationTick(double time)
 						? DeviceName(ctx, run.referenceModel, run.referenceSerial, true)
 						: DeviceName(ctx, run.targetModel, run.targetSerial, false);
 					const std::string instruction = tracking
-						? name + "'s tracking is settling."
-						: name + " isn't tracking yet.";
+						? "Waiting for " + name + " to settle."
+						: "Waiting for " + name + " to start tracking.";
 					if (instruction != run.waitInstruction)
 					{
 						run.waitInstruction = instruction;

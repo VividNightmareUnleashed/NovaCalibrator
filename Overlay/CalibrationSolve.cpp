@@ -31,8 +31,8 @@ static StopReason DescribeSolveFailure(const questcal::EngineResult &result)
 	switch (result.failure)
 	{
 	case EngineFailure::NotEnoughRotation:
-		reason.body = "The devices didn't rotate far enough.";
-		reason.action = "Use wider turns while keeping both devices fixed together.";
+		reason.body = "The devices didn't turn far enough.";
+		reason.action = "Make bigger turns, and keep them pressed together.";
 		break;
 	case EngineFailure::SingleAxis:
 	case EngineFailure::TranslationUnobservable:
@@ -507,7 +507,7 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 		questcal::JudgeSolveQuality(result.rotationRmsDeg, result.translationRmsMeters);
 	const bool good = band == questcal::SolveQuality::Good;
 	const bool rough = band == questcal::SolveQuality::Poor;
-	const std::string quality = good ? "Check that the tracker positions line up in VR."
+	const std::string quality = good ? "Check in VR that your trackers line up with your body."
 		: rough ? "The alignment is rough." : "The alignment may need another pass.";
 	const std::string action = good ? ""
 		: rough ? "Try again with slower motion, turning and tilting in different directions."

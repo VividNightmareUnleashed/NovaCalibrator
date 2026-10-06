@@ -236,7 +236,7 @@ void DisarmChaperoneAndPersist(CalibrationContext &ctx, double now,
 
 constexpr const char *ForeignHeadsetChaperone =
 	"The protected chaperone was saved for a different headset, so it was switched off. "
-	"Press Protect chaperone again on the main screen.\n";
+	"Protect it again from the Chaperone tool.\n";
 
 void ProfileUniverseTick(CalibrationContext &ctx, double now);
 void DrainJumpObservations(CalibrationContext &ctx);
@@ -296,7 +296,7 @@ void CheckProtectedChaperone(CalibrationContext &ctx)
 		if (ctx.timeLastTick - Space.lastReadFailure >= 30.0)
 		{
 			ctx.ReportError(
-				"Couldn't read the current chaperone, so the protected one wasn't changed.\n",
+				"Couldn't read your chaperone from SteamVR, so your protected walls weren't changed.\n",
 				CalibrationContext::ErrorSource::ChaperoneMonitor);
 			Space.lastReadFailure = ctx.timeLastTick;
 		}
@@ -409,7 +409,7 @@ void CalibrationSpaceTick(CalibrationContext &ctx, double now)
 			ctx.persistence.MarkSettings(now);
 			ctx.ReportError(
 				"The headset re-centered, so the protected chaperone no longer lines up and was turned off. "
-				"Protect it again from the main screen.\n",
+				"Protect it again from the Chaperone tool.\n",
 				CalibrationContext::ErrorSource::Chaperone);
 			SaveSettings(ctx);
 		}
@@ -473,7 +473,7 @@ void CalibrationSpaceTick(CalibrationContext &ctx, double now)
 	{
 		DisarmChaperoneAndPersist(ctx, now,
 			"The headset re-centered while QuestCalibrator couldn't follow it, so the protected chaperone was switched off. "
-			"Press Protect chaperone again on the main screen.\n");
+			"Protect it again from the Chaperone tool.\n");
 		return;
 	}
 	if (!reanchored)
@@ -553,7 +553,7 @@ void RebindCalibrationUniverse(CalibrationContext &ctx,
 		ctx.DisarmChaperone();
 		ctx.ReportError(
 			"The protected chaperone belonged to the previous calibration and was turned off. "
-			"Protect it again from the main screen.\n",
+			"Protect it again from the Chaperone tool.\n",
 			CalibrationContext::ErrorSource::Chaperone);
 	}
 }

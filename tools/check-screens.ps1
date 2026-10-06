@@ -27,9 +27,10 @@ if (-not $Exe) { $Exe = Join-Path $root 'x64\Release\QuestCalibrator.exe' }
 $Exe = (Resolve-Path -LiteralPath $Exe).Path
 # Every -uipreview flag Overlay\QuestCalibrator.cpp reads; validate-cpp.ps1
 # fails when the two lists differ.
-$Screens = @('-uipreview', '-uipreview-many', '-uipreview-guide', '-uipreview-guide-wait', '-uipreview-result',
-    '-uipreview-frozen', '-uipreview-trackeroff', '-uipreview-failed', '-uipreview-empty',
-    '-uipreview-lighthouse', '-uipreview-settings')
+$Screens = @('-uipreview', '-uipreview-many', '-uipreview-empty', '-uipreview-frozen', '-uipreview-trackeroff',
+    '-uipreview-notices', '-uipreview-pair', '-uipreview-guide', '-uipreview-guide-wait', '-uipreview-move',
+    '-uipreview-result', '-uipreview-failed', '-uipreview-chaperone', '-uipreview-chapwarn', '-uipreview-anchors',
+    '-uipreview-activity', '-uipreview-clear', '-uipreview-lighthouse', '-uipreview-settings')
 $Languages = @('en', 'ja', 'it')
 
 New-Item -ItemType Directory -Force -Path $Out | Out-Null

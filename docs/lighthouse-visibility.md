@@ -83,14 +83,14 @@ shrank was rotated: SteamVR restarted, and the sets and counters start over.
 
 ## What is shown
 
-- **On the Lighthouse tab** (with the Lighthouse module installed): one card per station (channel, id, how many of
+- **On the Lighthouse page** (with the Lighthouse module installed): one card per station (channel, id, how many of
   the switched-on devices see it, its drops this session), then one row per
   lighthouse device with a dot per station, filled while it is in view, and
   the in-view figure (`3 of 4 in view`, red for one or none) with the
   device's drop count. Hovering a row lists the stations by channel and id
   and the last change. A station no device sees is outlined in red: that is
-  the one to look at. The Calibration tab's device rows carry none of this.
-  `-uipreview-lighthouse` opens the tab in the preview.
+  the one to look at. The pair sheet's device tiles carry none of this.
+  `-uipreview-lighthouse` opens the page in the preview.
 - **In the session log:** one line per disturbance (`LHR-A3C36EA5 down to one
   station S-9 (F210FBA6) after losing S-16 (04D47FB4)`), and, with detailed
   logging on, one line per routine handoff.

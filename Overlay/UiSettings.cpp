@@ -709,6 +709,36 @@ bool BuildProfileEditor()
 	return g_transformDraft.valid;
 }
 
+// The editor's sheet. Saving returns the context to None, which closes it;
+// Cancel drops the draft, since entering Editing seeds it again.
+void BuildEditorSheet()
+{
+	const FlexRect c = SheetPanel(880.0f, 560.0f);
+	const bool closed = SheetHeader(c, Tr("Edit calibration"));
+	ImGui::SetCursorScreenPos(ImVec2(c.min.x, c.min.y + 64.0f));
+	ImGui::BeginChild("##editorfields", ImVec2(c.W(), c.H() - 64.0f - 72.0f), ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
+	const bool valid = BuildProfileEditor();
+	ImGui::EndChild();
+	FlexRect save, cancel;
+	const float saveW = std::max(230.0f, ui::PillWidth("Save calibration", 18.0f, ui::Icon::Check));
+	const float cancelW = std::max(150.0f, ui::PillWidth("Cancel", 18.0f));
+	save.min = ImVec2(c.max.x - saveW, c.max.y - 52.0f);
+	save.max = c.max;
+	cancel.min = ImVec2(save.min.x - 12.0f - cancelW, save.min.y);
+	cancel.max = ImVec2(save.min.x - 12.0f, save.max.y);
+	// Invalid values keep the label and go quiet; the editor's red line says
+	// what to fix.
+	if (ui::PillButton("##saveprofile", "Save calibration", valid ? ui::Btn::Primary : ui::Btn::Waiting, save, ui::Icon::Check) && valid)
+		SaveProfileEditorDraft();
+	if (ui::PillButton("##cancelprofile", "Cancel", ui::Btn::Secondary, cancel) || closed)
+	{
+		CalCtx.state = CalibrationState::None;
+		CalCtx.timeLastScan = -1e9;
+	}
+	if (CalCtx.state != CalibrationState::Editing)
+		CloseSheet();
+}
+
 // Only for a draft BuildProfileEditor reported valid this frame.
 void SaveProfileEditorDraft()
 {

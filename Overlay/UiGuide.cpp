@@ -1,14 +1,14 @@
-// The guided calibration modal (art, meters, stages) and the other modals.
+// The calibration sheet: get set, move and check, with the motion demo, the
+// live meters and the result. The guide owns presentation state;
+// CalibrationContext owns the measurement.
 #include "stdafx.h"
 #include "UiInternal.h"
-
-// The guide owns presentation state; CalibrationContext owns the measurement.
 
 GuideState s_guide;
 static GLuint s_guideTexture = 0;
 static int s_guideTextureKind = -1;
 
-// Whether the result modal shows its detail lines; OpenGuide seeds it from
+// Whether the result shows its detail lines; OpenGuide seeds it from
 // advanced mode.
 bool s_modalDetails = false;
 
@@ -56,7 +56,7 @@ void StartMountSetup(const VRState &state)
 	CalCtx.referenceID = static_cast<uint32_t>(hmd->id);
 	CalCtx.pendingTargetTrackingSystem = tracker->trackingSystem;
 	CalCtx.targetID = static_cast<uint32_t>(tracker->id);
-	s_showSettings = false;
+	g_page = Page::Calibration;
 	OpenGuide(false, true);
 }
 
@@ -78,11 +78,11 @@ bool BeginGuidedRun()
 		else
 		{
 			CalCtx.Instruct("Keep both devices firmly together.");
-			CalCtx.Note("Move both devices in a figure eight, gently turning and tilting as you go. Keep them firmly together and in view of their tracking cameras or base stations.");
+			CalCtx.Note("Draw slow figure eights in the air, turning and tilting your hands as you go.");
 		}
 		CalCtx.Progress(0, static_cast<int>(CalCtx.CollectionSeconds() * 100.0));
 		s_guide.metrics.valid = true;
-		s_guide.metrics.coverage = 0.55;
+		s_guide.metrics.coverage = 0.45;
 		s_guide.metrics.gatedFraction = 0.08;
 		s_guide.metrics.rigidityValid = true;
 		s_guide.metrics.rigidityDeg = 1.4;
@@ -91,41 +91,59 @@ bool BeginGuidedRun()
 	return s_guide.anchor ? StartAnchorCalibration() : StartCalibration();
 }
 
-// One atlas is resident at a time (at most 112.5 MiB).
-// Resources are embedded so a moved executable cannot lose its instructions.
-void DrawGuideAnimation(ImDrawList *dl, ImVec2 origin, ImVec2 size, double t, GuideDemo demo)
+void ChooseGuideDemo(const VRState &state)
+{
+	s_guide.demo = s_guide.mountRun ? GuideDemo::Mounted : GuideDemo::Wrist;
+	bool headsetReference = false;
+	bool controllerTarget = false;
+	for (const auto &device : state.devices)
+	{
+		if (static_cast<uint32_t>(device.id) == CalCtx.referenceID)
+			headsetReference = device.deviceClass == vr::TrackedDeviceClass_HMD;
+		if (static_cast<uint32_t>(device.id) == CalCtx.targetID)
+			controllerTarget = device.deviceClass == vr::TrackedDeviceClass_Controller;
+	}
+	if (!s_guide.mountRun && headsetReference)
+		s_guide.demo = controllerTarget ? GuideDemo::HeadsetContact : GuideDemo::Mounted;
+}
+
+void ReleaseGuideTexture()
+{
+	if (s_guideTexture)
+		glDeleteTextures(1, &s_guideTexture);
+	s_guideTexture = 0;
+	s_guideTextureKind = -1;
+}
+
+// One atlas is resident at a time (at most 112.5 MiB). Resources are
+// embedded so a moved executable cannot lose its instructions.
+void DrawGuideAnimation(ImDrawList *dl, const FlexRect &box, double t, GuideDemo demo, bool caption)
 {
 	const int kind = static_cast<int>(demo);
 	if (kind != s_guideTextureKind)
 	{
-		if (s_guideTexture)
-			glDeleteTextures(1, &s_guideTexture);
-		s_guideTexture = 0;
+		ReleaseGuideTexture();
 		LoadGuideTexture(demo, &s_guideTexture);
 		s_guideTextureKind = kind;
 	}
 	if (!s_guideTexture)
 	{
-		dl->AddText(g_fontBody, g_fontBody->LegacySize, ImVec2(origin.x, origin.y + 24.0f),
-			Pal::U32(Pal::Warn), Tr("Motion demos couldn't load. Reinstall QuestCalibrator to restore them."));
+		ui::DrawText(dl, ui::type::Body, ImVec2(box.min.x + 24.0f, box.min.y + 24.0f), box.W() - 48.0f, ui::col::Caution,
+			Tr("Motion demos couldn't load. Reinstall QuestCalibrator to restore them."));
 		return;
 	}
 	const bool wrist = demo == GuideDemo::Wrist;
-	const char *headLabels[] = { "Look left and right", "Look up and down", "Tilt side to side" };
-	const float gap = 16.0f;
-	const float cellW = (size.x - gap * 2.0f) / 3.0f;
-	const float imageH = size.y - 34.0f;
-	const float imageW = imageH * (wrist ? 5.0f / 3.0f : 8.0f / 7.0f);
 	const int columns = wrist ? 16 : 24;
 	const float frameW = wrist ? 320.0f : 192.0f;
 	const float frameH = wrist ? 192.0f : 168.0f;
 	const float atlasW = wrist ? 5120.0f : 4608.0f;
 	const float atlasH = wrist ? 5760.0f : 5880.0f;
+	// The per-axis labels of the head demos always show: without them the
+	// three cells look alike. The one-line caption is optional.
+	const float captionH = caption || !wrist ? 30.0f : 0.0f;
 	if (demo == GuideDemo::Mounted)
 		t += 2.3;
-	const float blend = static_cast<float>(std::clamp((t - 2.0) / 0.3, 0.0, 1.0));
-	const float motionAlpha = blend * blend * (3.0f - 2.0f * blend);
-	auto drawFrame = [&](int index, ImVec2 top, float opacity)
+	auto drawFrame = [&](int index, ImVec2 a, ImVec2 b, float opacity)
 	{
 		if (opacity <= 0.0f)
 			return;
@@ -134,617 +152,663 @@ void DrawGuideAnimation(ImDrawList *dl, ImVec2 origin, ImVec2 size, double t, Gu
 		// Half-texel inset keeps linear filtering inside this frame.
 		const ImVec2 uv0((column * frameW + 0.5f) / atlasW, (row * frameH + 0.5f) / atlasH);
 		const ImVec2 uv1((column * frameW + frameW - 0.5f) / atlasW, (row * frameH + frameH - 0.5f) / atlasH);
-		dl->AddImage(static_cast<ImTextureID>(s_guideTexture), top,
-			ImVec2(top.x + imageW, top.y + imageH), uv0, uv1,
+		dl->AddImage(static_cast<ImTextureID>(s_guideTexture), a, b, uv0, uv1,
 			ImGui::ColorConvertFloat4ToU32(ImVec4(1, 1, 1, opacity)));
 	};
+	const ui::TextStyle captionStyle{ ui::Weight::Regular, 16.0f, captionH };
+	const ImU32 captionInk = ui::Rgba(236, 238, 244, 0.82f);
 	if (wrist)
 	{
+		const float imageH = std::min(box.H() - captionH - 6.0f, (box.W() - 40.0f) * 3.0f / 5.0f);
+		const float imageW = imageH * 5.0f / 3.0f;
+		const ImVec2 a(box.min.x + (box.W() - imageW) * 0.5f, box.min.y + std::max(0.0f, (box.H() - captionH - imageH) * 0.5f));
 		const int frame = t < 2.0 ? std::min(119, static_cast<int>(t * 60.0))
 			: 120 + static_cast<int>(std::fmod(t - 2.0, 6.0) * 60.0) % 360;
-		drawFrame(frame, ImVec2(origin.x + (size.x - imageW) * 0.5f, origin.y),
-			static_cast<float>(std::clamp(t / 0.2, 0.0, 1.0)));
-		const char *label = Tr(t < 2.0 ? "Bring the controller to the wrist tracker" : "Turn and tilt as you move in a figure eight");
-		const ImVec2 textSize = g_fontBody->CalcTextSizeA(g_fontBody->LegacySize, FLT_MAX, 0.0f, label);
-		dl->AddText(g_fontBody, g_fontBody->LegacySize,
-			ImVec2(origin.x + (size.x - textSize.x) * 0.5f, origin.y + imageH + 8.0f), Pal::U32(Pal::Text), label);
+		drawFrame(frame, a, ImVec2(a.x + imageW, a.y + imageH), static_cast<float>(std::clamp(t / 0.2, 0.0, 1.0)));
+		if (caption)
+		{
+			const char *label = Tr(t < 2.0 ? "Bring the controller to the wrist tracker" : "Turn and tilt as you move in a figure eight");
+			ui::DrawText(dl, captionStyle, ImVec2(box.min.x, box.max.y - captionH - 4.0f), box.W(), captionInk, label, ui::Align::Center);
+		}
 		return;
 	}
+	const float blend = static_cast<float>(std::clamp((t - 2.0) / 0.3, 0.0, 1.0));
+	const float motionAlpha = blend * blend * (3.0f - 2.0f * blend);
+	const float gap = 16.0f;
+	const float cellW = (box.W() - gap * 2.0f) / 3.0f;
+	const float imageH = std::min(box.H() - captionH - 6.0f, cellW * 7.0f / 8.0f);
+	const float imageW = imageH * 8.0f / 7.0f;
+	const float top = box.min.y + std::max(0.0f, (box.H() - captionH - imageH) * 0.5f);
 	if (motionAlpha < 1.0f)
 	{
 		const float opacity = (1.0f - motionAlpha) * static_cast<float>(std::clamp(t / 0.2, 0.0, 1.0));
-		drawFrame(std::min(119, static_cast<int>(t * 60.0)),
-			ImVec2(origin.x + (size.x - imageW) * 0.5f, origin.y), opacity);
-		const char *label = Tr(demo == GuideDemo::HeadsetContact ? "Rest the controller against the visor" : "Bring the controller to the wrist tracker");
-		const ImVec2 textSize = g_fontBody->CalcTextSizeA(g_fontBody->LegacySize, FLT_MAX, 0.0f, label);
-		ImVec4 color = Pal::Text;
-		color.w *= opacity;
-		dl->AddText(g_fontBody, g_fontBody->LegacySize,
-			ImVec2(origin.x + (size.x - textSize.x) * 0.5f, origin.y + imageH + 8.0f), Pal::U32(color), label);
+		const ImVec2 a(box.min.x + (box.W() - imageW) * 0.5f, top);
+		drawFrame(std::min(119, static_cast<int>(t * 60.0)), a, ImVec2(a.x + imageW, a.y + imageH), opacity);
+		if (caption)
+		{
+			const char *label = Tr(demo == GuideDemo::HeadsetContact ? "Rest the controller against the visor" : "Bring the controller to the wrist tracker");
+			ui::DrawText(dl, captionStyle, ImVec2(box.min.x, box.max.y - captionH - 4.0f), box.W(), ui::Fade(captionInk, opacity),
+				label, ui::Align::Center);
+		}
 	}
+	const char *headLabels[] = { "Look left and right", "Look up and down", "Tilt side to side" };
 	const int frame = static_cast<int>(std::fmod(std::max(0.0, t - 2.3), 4.0) * 60.0) % 240;
 	for (int axis = 0; axis < 3; ++axis)
 	{
-		const float x = origin.x + (cellW + gap) * static_cast<float>(axis);
-		const ImVec2 top(x + (cellW - imageW) * 0.5f, origin.y);
-		drawFrame(120 + axis * 240 + frame, top, motionAlpha);
-		const char *label = Tr(headLabels[axis]);
-		const ImVec2 textSize = g_fontBody->CalcTextSizeA(g_fontBody->LegacySize, FLT_MAX, 0.0f, label);
-		ImVec4 color = Pal::Text;
-		color.w *= motionAlpha;
-		dl->AddText(g_fontBody, g_fontBody->LegacySize,
-			ImVec2(x + (cellW - textSize.x) * 0.5f, origin.y + imageH + 8.0f), Pal::U32(color), label);
+		const float x = box.min.x + (cellW + gap) * static_cast<float>(axis);
+		const ImVec2 a(x + (cellW - imageW) * 0.5f, top);
+		drawFrame(120 + axis * 240 + frame, a, ImVec2(a.x + imageW, a.y + imageH), motionAlpha);
+		ui::DrawText(dl, captionStyle, ImVec2(x, box.max.y - captionH - 4.0f), cellW, ui::Fade(captionInk, motionAlpha),
+			Tr(headLabels[axis]), ui::Align::Center);
 	}
 }
 
-void DrawGuideIndicators(ImDrawList *dl, ImVec2 origin, float width, const questcal::GuideMetrics &m, bool mountRun)
+// ---------------------------------------------------------------------------
+// The sheet
+// ---------------------------------------------------------------------------
+
+// Titles go without a closing full stop, the way the canvas sets them; the
+// messages keep theirs for the log and the activity feed.
+static std::string AsTitle(const char *text)
 {
-	const float cellW = (width - 32.0f) / 3.0f;
-	const char *names[] = { "Motion variety", "Movement speed", mountRun ? "Tracker stability" : "Device stability" };
-	const char *states[] = {
-		!m.valid ? "Measuring..." : m.coverage >= 0.99 ? "Enough variety" : "Keep turning and tilting",
-		!m.valid ? "Measuring..." : m.gatedFraction < 0.15 ? "Good pace" : "Move more slowly",
-		!m.rigidityValid ? "Measuring..." : m.rigidityDeg < 3.0 ? "Moving together"
-			: mountRun ? "Tracker is shifting on the headset" : "Hold them tighter together"
-	};
-	const double values[] = { m.coverage, m.valid ? 1.0 - m.gatedFraction : 0.0,
-		m.rigidityValid ? std::clamp(1.0 - (m.rigidityDeg - 1.0) / 8.0, 0.0, 1.0) : 0.0 };
-	for (int i = 0; i < 3; ++i)
-	{
-		const float x = origin.x + (cellW + 16.0f) * static_cast<float>(i);
-		dl->AddText(g_fontBody, g_fontBody->LegacySize, ImVec2(x, origin.y), Pal::U32(Pal::Text), Tr(names[i]));
-		dl->AddText(g_fontSmall, g_fontSmall->LegacySize, ImVec2(x, origin.y + 28.0f), Pal::U32(Pal::Dim), Tr(states[i]));
-		const ImVec2 a(x, origin.y + 50.0f), b(x + cellW, origin.y + 54.0f);
-		dl->AddRectFilled(a, b, Pal::U32(Pal::Border), 2.0f);
-		const float fill = static_cast<float>(values[i]);
-		if (fill > 0.0f)
-			dl->AddRectFilled(a, ImVec2(x + cellW * fill, b.y), Pal::U32(Pal::Accent), 2.0f);
-	}
+	std::string s(text ? text : "");
+	if (s.size() >= 3 && s.compare(s.size() - 3, 3, "\xE3\x80\x82") == 0)
+		s.erase(s.size() - 3);
+	else if (!s.empty() && s.back() == '.' && (s.size() < 3 || s.compare(s.size() - 3, 3, "...") != 0))
+		s.pop_back();
+	return s;
 }
 
-static void GuideGetSetStage(const VRState &state, float mw, ImDrawList *mdl, ImVec2 artSize, double now)
+static void CloseGuide()
 {
-	ImGui::TextColored(Pal::Dim, "%s", Tr("Step 1 of 3"));
-	ImGui::Spacing();
-	ImGui::PushFont(g_fontTitle);
-	ImGui::TextWrapped("%s", Tr(s_guide.anchor ? "Stand where the trackers look misaligned."
-		: s_guide.demo == GuideDemo::HeadsetContact ? "Hold the controller against the visor."
-		: s_guide.demo == GuideDemo::Mounted ? "Keep the tracker fixed to your headset."
-		: "Hold the controller against the wrist tracker."));
-	ImGui::PopFont();
-	const std::string how = s_guide.demo == GuideDemo::HeadsetContact
-		? FormatString("Hold the controller upright, with the trigger side against the front of your headset. Keep it in place as you turn and tilt your head for %.0f seconds.", CalCtx.CollectionSeconds())
-		: s_guide.demo == GuideDemo::Mounted
-		? FormatString("Move your head gently for %.0f seconds, keeping your body relaxed. Keep the tracker sensors uncovered.", CalCtx.CollectionSeconds())
-		: FormatString("Hold the controller against the wrist tracker with your other hand. Move both in a figure eight, gently turning and tilting, for %.0f seconds.", CalCtx.CollectionSeconds());
-	ImGui::TextWrapped("%s", Tr(how.c_str()));
-	ImGui::Spacing();
-	const ImVec2 row = ImGui::GetCursorScreenPos();
-	DrawGuideAnimation(mdl, row, artSize, s_guide.animationTime, s_guide.demo);
-	ImGui::SetCursorScreenPos(ImVec2(row.x, row.y + artSize.y + 12.0f));
-	const ImVec2 readiness = ImGui::GetCursorScreenPos();
+	s_guide.stage = GuideStage::Idle;
+	ReleaseGuideTexture();
+	CloseSheet();
+}
 
-	const VRDevice *picks[2] = { nullptr, nullptr };
+// The two picks, as found in the device list (either may be missing).
+static void FindPicks(const VRState &state, const VRDevice *&reference, const VRDevice *&target)
+{
+	reference = target = nullptr;
 	for (const auto &d : state.devices)
 	{
 		if (static_cast<uint32_t>(d.id) == CalCtx.referenceID)
-			picks[0] = &d;
+			reference = &d;
 		if (static_cast<uint32_t>(d.id) == CalCtx.targetID)
-			picks[1] = &d;
+			target = &d;
 	}
-	bool ready = true;
-	for (int i = 0; i < 2; ++i)
-	{
-		const bool ok = picks[i] && picks[i]->tracking;
-		ready = ready && ok;
-		const std::string who = picks[i] ? DeviceDisplayName(*picks[i])
-			: std::string(i == 0 ? "Reference device" : "Target device");
-		ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + mw - 332.0f);
-		if (ok)
-			ImGui::TextWrapped("%s", Tr(FormatString("%s is tracking", who.c_str())).c_str());
-		else
-			ImGui::TextWrapped("%s", Tr(FormatString("%s isn't tracking. Wake it or bring it into view.", who.c_str())).c_str());
-		ImGui::PopTextWrapPos();
-	}
-	const float readinessBottom = ImGui::GetCursorScreenPos().y;
-	ImGui::SetCursorScreenPos(ImVec2(readiness.x + mw - 312.0f, readiness.y));
-	if (IconButton("motionreplay", "Replay", nullptr, ImVec2(110.0f, 38.0f), BtnKind::Quiet))
+}
+
+static std::string PickName(const VRDevice *device, bool reference)
+{
+	return device ? DeviceDisplayName(*device) : std::string(reference ? "Reference device" : "Target device");
+}
+
+// The header row: the steps, and the button that stops everything.
+static bool StepperHeader(const FlexRect &c, int current, unsigned done, int failed)
+{
+	ui::Stepper(ImGui::GetWindowDrawList(), c.min, current, done, failed);
+	return ui::CloseButton("##cancelguide", ImVec2(c.max.x - 44.0f, c.min.y));
+}
+
+// The demo's well and the two small buttons that control it.
+static void DemoWell(ImDrawList *dl, const FlexRect &area, bool controls)
+{
+	ui::FillRounded(dl, area.min, area.max, ui::col::Well, 22.0f);
+	if (!controls)
+		return;
+	const ImU32 fill = ui::Rgba(255, 255, 255, 0.12f), ink = ui::Rgba(236, 238, 244, 0.90f);
+	const ImVec2 pause(area.max.x - 14.0f - 20.0f, area.max.y - 12.0f - 20.0f);
+	const ImVec2 replay(pause.x - 48.0f, pause.y);
+	if (ui::RoundButton("##replaydemo", replay, 40.0f, ui::Icon::Refresh, 18.0f, fill, ink))
 	{
 		s_guide.animationTime = 0.0;
 		s_guide.animate = true;
 	}
-	ImGui::SameLine(0.0f, 12.0f);
-	if (IconButton("motiontoggle", s_guide.animate ? "Pause demo" : "Play demo", nullptr,
-		ImVec2(190.0f, 38.0f), BtnKind::Ghost))
+	if (ImGui::IsItemHovered())
+		ShowTip("Replay the demo");
+	if (ui::RoundButton("##pausedemo", pause, 40.0f, s_guide.animate ? ui::Icon::Pause : ui::Icon::Play, 16.0f, fill, ink))
 		s_guide.animate = !s_guide.animate;
-	ImGui::SetCursorScreenPos(ImVec2(row.x, std::max(readinessBottom, readiness.y + 38.0f) + 8.0f));
+	if (ImGui::IsItemHovered())
+		ShowTip(s_guide.animate ? "Pause the demo" : "Play the demo");
+}
 
-	if (s_guide.stage == GuideStage::Countdown)
+// A sheet stage's frame: header, title, lead, the flexible area and the
+// footer. The texts are the caller's, translated.
+struct StageLayout
+{
+	FlexLayout fl;
+	YGNodeRef title = nullptr, lead = nullptr, area = nullptr, extra = nullptr, footer = nullptr;
+};
+
+static void LayOutStage(StageLayout &s, const FlexRect &c, const std::string &title, const std::string &lead,
+	float areaMinH, float extraH)
+{
+	YGNodeRef root = s.fl.Root();
+	YGNodeStyleSetFlexDirection(root, YGFlexDirectionColumn);
+	YGNodeStyleSetWidth(root, c.W());
+	YGNodeStyleSetHeight(root, c.H());
+	s.fl.Box(root, c.W(), 44.0f);
+	s.title = ui::TextNode(s.fl, root, ui::type::SheetTitle, title);
+	YGNodeStyleSetMargin(s.title, YGEdgeTop, 26.0f);
+	if (!lead.empty())
 	{
-		int remain = static_cast<int>(std::ceil(kCountdownSeconds - (now - s_guide.countdownStart)));
-		std::string label = Tr(FormatString("Starting in %d...", remain));
-		ImGui::PushFont(g_fontTitle);
-		ImGui::TextUnformatted(label.c_str());
-		ImGui::PopFont();
-		ImGui::Spacing();
-		if (IconButton("guidecancel", "Cancel", nullptr, ImVec2(mw, 46.0f), BtnKind::Ghost) || EscapePressed())
-		{
-			s_guide.stage = GuideStage::Idle;
-			ImGui::CloseCurrentPopup();
-		}
+		s.lead = ui::TextNode(s.fl, root, ui::type::Lead, lead);
+		YGNodeStyleSetMargin(s.lead, YGEdgeTop, 10.0f);
+		YGNodeStyleSetMaxWidth(s.lead, 760.0f);
 	}
-	else
+	s.area = s.fl.Add(root);
+	YGNodeStyleSetMargin(s.area, YGEdgeTop, 22.0f);
+	YGNodeStyleSetFlexGrow(s.area, 1.0f);
+	YGNodeStyleSetFlexShrink(s.area, 1.0f);
+	YGNodeStyleSetMinHeight(s.area, areaMinH);
+	if (extraH > 0.0f)
 	{
-		const float cancelW = 180.0f;
-		if (IconButton("guidestart", ready ? "Start" : "Start anyway", IconPlay,
-			ImVec2(mw - cancelW - 12.0f, 46.0f), ready ? BtnKind::Primary : BtnKind::Ghost))
-		{
-			s_guide.stage = GuideStage::Countdown;
-			s_guide.countdownStart = now;
-		}
-		ImGui::SameLine(0.0f, 12.0f);
-		if (IconButton("guidecancel", "Cancel", nullptr, ImVec2(cancelW, 46.0f), BtnKind::Ghost) || EscapePressed())
-		{
-			s_guide.stage = GuideStage::Idle;
-			ImGui::CloseCurrentPopup();
-		}
+		s.extra = s.fl.Box(root, c.W(), extraH);
+		YGNodeStyleSetMargin(s.extra, YGEdgeTop, 16.0f);
+	}
+	s.footer = s.fl.Box(root, c.W(), 54.0f);
+	YGNodeStyleSetMargin(s.footer, YGEdgeTop, 20.0f);
+	s.fl.Compute(c.min, c.W(), c.H());
+}
+
+static void DrawStageTexts(const StageLayout &s, const std::string &title, const std::string &lead)
+{
+	ImDrawList *dl = ImGui::GetWindowDrawList();
+	const FlexRect t = s.fl.Rect(s.title);
+	ui::DrawText(dl, ui::type::SheetTitle, t.min, t.W(), ui::col::Text, title.c_str());
+	if (s.lead)
+	{
+		const FlexRect l = s.fl.Rect(s.lead);
+		ui::DrawText(dl, ui::type::Lead, l.min, l.W(), ui::col::Prose, lead.c_str());
 	}
 }
 
-static void GuideRunningStage(float mw, ImDrawList *mdl, ImVec2 artSize, double now)
+// Readiness chips along the footer's left, from at, within maxWidth: a long
+// device name gives way before what the chip says about it.
+static void PairChips(ImDrawList *dl, ImVec2 at, float maxWidth, const VRDevice *reference, const VRDevice *target,
+	bool targetSettling)
+{
+	struct ChipText { const char *pattern; std::string name, shown, text; ImU32 dot; };
+	ChipText chips[2];
+	const VRDevice *picks[2] = { reference, target };
+	for (int i = 0; i < 2; ++i)
+	{
+		ChipText &chip = chips[i];
+		chip.name = chip.shown = PickName(picks[i], i == 0);
+		const bool tracking = picks[i] && picks[i]->tracking;
+		const bool settling = i == 1 && targetSettling && tracking;
+		chip.pattern = settling ? "%s is settling" : tracking ? "%s is tracking" : "%s isn't tracking";
+		chip.dot = tracking && !settling ? ui::col::Good : ui::col::Caution;
+		chip.text = Tr(FormatString(chip.pattern, chip.shown.c_str()));
+	}
+	const float gap = 10.0f;
+	const ui::TextStyle nameStyle = ui::type::CalloutMedium;
+	for (int guard = 0; guard < 64; ++guard)
+	{
+		if (ui::ChipWidth(chips[0].text.c_str()) + gap + ui::ChipWidth(chips[1].text.c_str()) <= maxWidth)
+			break;
+		// The longer name loses a little at a time.
+		const float w0 = ui::MeasureLine(nameStyle, chips[0].shown.c_str()).x;
+		const float w1 = ui::MeasureLine(nameStyle, chips[1].shown.c_str()).x;
+		ChipText &chip = w0 >= w1 ? chips[0] : chips[1];
+		const float w = std::max(w0, w1);
+		if (w < 48.0f)
+			break;
+		chip.shown = ui::Ellipsize(nameStyle, chip.name, w - 12.0f);
+		chip.text = Tr(FormatString(chip.pattern, chip.shown.c_str()));
+	}
+	float x = at.x;
+	for (const ChipText &chip : chips)
+	{
+		ui::Chip(dl, ImVec2(x, at.y), chip.dot, chip.text.c_str());
+		x += ui::ChipWidth(chip.text.c_str()) + gap;
+	}
+}
+
+static void GetSetStage(const VRState &state, const FlexRect &c, double now)
+{
+	ImDrawList *dl = ImGui::GetWindowDrawList();
+	if (StepperHeader(c, 0, 0u, -1) || (EscapePressed() && !DialogOpen()))
+	{
+		CloseGuide();
+		return;
+	}
+	const bool contact = s_guide.demo == GuideDemo::HeadsetContact;
+	const bool mounted = s_guide.demo == GuideDemo::Mounted;
+	const std::string title = Tr(s_guide.anchor ? "Stand where the trackers look misaligned"
+		: contact ? "Hold the controller against the visor"
+		: mounted ? "Keep the tracker fixed to your headset"
+		: "Hold the controller against the wrist tracker");
+	const std::string lead = Tr(contact
+		? FormatString("Hold the controller upright, with the trigger side against the front of your headset. Keep it in place as you turn and tilt your head for %.0f seconds.", CalCtx.CollectionSeconds())
+		: mounted
+		? FormatString("Move your head gently for %.0f seconds, keeping your body relaxed. Keep the tracker sensors uncovered.", CalCtx.CollectionSeconds())
+		: FormatString("When you start, move both in slow figure eights for %.0f seconds, turning and tilting your hands as you go.", CalCtx.CollectionSeconds()));
+	StageLayout s;
+	LayOutStage(s, c, title, lead, 200.0f, 0.0f);
+	DrawStageTexts(s, title, lead);
+	const FlexRect area = s.fl.Rect(s.area);
+	DemoWell(dl, area, true);
+	FlexRect demo = area;
+	demo.min.y += 12.0f;
+	demo.max.y -= 10.0f;
+	DrawGuideAnimation(dl, demo, s_guide.animationTime, s_guide.demo);
+
+	const VRDevice *reference = nullptr, *target = nullptr;
+	FindPicks(state, reference, target);
+	const bool ready = reference && reference->tracking && target && target->tracking;
+	const FlexRect footer = s.fl.Rect(s.footer);
+	// The action first: the chips take what room it leaves. Labels stay
+	// English here; the button translates its own.
+	const bool counting = s_guide.stage == GuideStage::Countdown;
+	const int remain = static_cast<int>(std::ceil(kCountdownSeconds - (now - s_guide.countdownStart)));
+	const std::string label = counting ? FormatString("Starting in %d...", std::max(remain, 1))
+		: std::string(ready ? "Start" : "Start anyway");
+	const ui::Icon icon = counting ? ui::Icon::None : ui::Icon::Play;
+	const float w = std::max(210.0f, ui::PillWidth(label.c_str(), 19.0f, icon));
+	FlexRect action;
+	action.min = ImVec2(footer.max.x - w, footer.min.y);
+	action.max = footer.max;
+	PairChips(dl, ImVec2(footer.min.x, footer.min.y + (footer.H() - ui::kChipH) * 0.5f), footer.W() - w - 16.0f,
+		reference, target, false);
+	if (counting)
+	{
+		ui::PillButton("##starting", label.c_str(), ui::Btn::Waiting, action, icon, 19.0f);
+		return;
+	}
+	if (ui::PillButton("##start", label.c_str(), ready ? ui::Btn::Primary : ui::Btn::Secondary, action, icon, 19.0f))
+	{
+		s_guide.stage = GuideStage::Countdown;
+		s_guide.countdownStart = now;
+	}
+}
+
+// The ring that counts down the measurement.
+static void CountdownRing(ImDrawList *dl, ImVec2 centre, float fractionLeft, int secondsLeft)
+{
+	const float r = 64.0f;
+	dl->AddCircle(centre, r, ui::Rgba(255, 255, 255, 0.12f), 96, 10.0f);
+	const float f = std::clamp(fractionLeft, 0.0f, 1.0f);
+	if (f > 0.0f)
+	{
+		dl->PathArcTo(centre, r, -IM_PI * 0.5f, -IM_PI * 0.5f + IM_PI * 2.0f * f, 96);
+		dl->PathStroke(ui::col::Link, 10.0f);
+		dl->AddCircleFilled(ImVec2(centre.x, centre.y - r), 5.0f, ui::col::Link, 16);
+		const float end = -IM_PI * 0.5f + IM_PI * 2.0f * f;
+		dl->AddCircleFilled(ImVec2(centre.x + std::cos(end) * r, centre.y + std::sin(end) * r), 5.0f, ui::col::Link, 16);
+	}
+	const std::string number = std::to_string(std::max(secondsLeft, 0));
+	const ui::TextStyle big{ ui::Weight::Bold, 48.0f, 52.0f };
+	const float w = ui::MeasureLine(big, number.c_str()).x;
+	ui::DrawLine(dl, big, ImVec2(centre.x - w * 0.5f, centre.y - 38.0f), ui::col::Text, number.c_str());
+	ui::DrawText(dl, ui::type::Caption, ImVec2(centre.x - 70.0f, centre.y + 14.0f), 140.0f, ui::col::Muted,
+		Tr("seconds left"), ui::Align::Center);
+}
+
+// The device being waited for, inside a spinning ring.
+static void WaitingRing(ImDrawList *dl, ImVec2 centre, const VRDevice *device, double now)
+{
+	const float r = 80.0f;
+	dl->AddCircleFilled(centre, r, ui::Rgba(255, 255, 255, 0.04f), 96);
+	dl->AddCircle(centre, r, ui::Rgba(255, 255, 255, 0.10f), 96, 5.0f);
+	const float start = static_cast<float>(std::fmod(now * 4.0, IM_PI * 2.0));
+	dl->PathArcTo(centre, r, start, start + IM_PI * 0.5f, 32);
+	dl->PathStroke(ui::col::Link, 5.0f);
+	ui::KeepAnimating();
+	if (device)
+	{
+		FlexRect box;
+		box.min = ImVec2(centre.x - 58.0f, centre.y - 58.0f);
+		box.max = ImVec2(centre.x + 58.0f, centre.y + 58.0f);
+		DrawDeviceArt(dl, *device, box, ui::col::Muted);
+	}
+}
+
+static void RunningStage(const VRState &state, const FlexRect &c, double now)
 {
 	using Msg = CalibrationContext::Message;
+	ImDrawList *dl = ImGui::GetWindowDrawList();
 	// The run waits in Begin until its devices track and settle
-	// (CalibrationTick): it says what it waits for, and nothing counts
-	// down until it measures.
-	const bool waiting = CalCtx.state == CalibrationState::Begin &&
-		!CalCtx.run.waitInstruction.empty();
+	// (CalibrationTick): it says what it waits for, and nothing counts down
+	// until it measures.
+	const bool waiting = CalCtx.state == CalibrationState::Begin && !CalCtx.run.waitInstruction.empty();
 	if (g_uiPreviewMode && !waiting)
 		CalCtx.Progress(static_cast<int>((now - s_guide.countdownStart - kCountdownSeconds) * 100.0),
 			static_cast<int>(CalCtx.CollectionSeconds() * 100.0));
-	ImGui::TextColored(Pal::Dim, "%s", Tr("Step 2 of 3"));
-	ImGui::Spacing();
 	// Live feedback from the run's own buffers, at 5 Hz.
-	if (!g_uiPreviewMode && CalCtx.state == CalibrationState::Collecting &&
-		now - s_guide.lastMetricsTime >= 0.2)
+	if (!g_uiPreviewMode && CalCtx.state == CalibrationState::Collecting && now - s_guide.lastMetricsTime >= 0.2)
 	{
 		s_guide.lastMetricsTime = now;
-		s_guide.metrics = questcal::ComputeGuideMetrics(
-			CalCtx.run.referenceSamples, CalCtx.run.targetSamples);
+		s_guide.metrics = questcal::ComputeGuideMetrics(CalCtx.run.referenceSamples, CalCtx.run.targetSamples);
 	}
+	const bool cancel = StepperHeader(c, 1, 1u, -1) || (EscapePressed() && !DialogOpen());
+	if (cancel)
+	{
+		if (g_uiPreviewMode)
+			CloseGuide();
+		else
+			CancelCalibration();
+		return;
+	}
+
+	std::string title, lead;
 	if (waiting)
 	{
-		ImGui::PushFont(g_fontTitle);
-		ImGui::TextWrapped("%s", Tr(CalCtx.run.waitInstruction.c_str()));
-		ImGui::PopFont();
-		ImGui::TextWrapped("%s", Tr(CalCtx.run.waitNote.c_str()));
+		title = AsTitle(Tr(CalCtx.run.waitInstruction.c_str()));
+		lead = Tr(CalCtx.run.waitNote.c_str());
 	}
 	else
 	{
-		for (auto &message : CalCtx.messages)
+		for (const auto &message : CalCtx.messages)
 		{
 			if (message.kind == Msg::Instruction)
-			{
-				ImGui::PushFont(g_fontTitle);
-				ImGui::TextWrapped("%s", Tr(message.str.c_str()));
-				ImGui::PopFont();
-			}
+				title = AsTitle(Tr(message.str.c_str()));
 			else if (message.kind == Msg::Info)
-				ImGui::TextWrapped("%s", Tr(message.str.c_str()));
+				lead = Tr(message.str.c_str());
 		}
 	}
-	ImGui::Spacing();
-	ImVec2 row = ImGui::GetCursorScreenPos();
-	DrawGuideAnimation(mdl, row, artSize, s_guide.animationTime, s_guide.demo);
-	// Nothing is measured yet while the run waits.
-	if (!waiting)
-		DrawGuideIndicators(mdl, ImVec2(row.x, row.y + artSize.y + 12.0f), mw, s_guide.metrics, s_guide.mountRun);
-	ImGui::SetCursorScreenPos(ImVec2(row.x, row.y + artSize.y + 80.0f));
-	ImGui::Dummy(ImVec2(0, 0));
-	for (auto &message : CalCtx.messages)
+	const VRDevice *reference = nullptr, *target = nullptr;
+	FindPicks(state, reference, target);
+
+	StageLayout s;
+	LayOutStage(s, c, title, lead, waiting ? 220.0f : 180.0f, waiting ? 0.0f : 82.0f);
+	DrawStageTexts(s, title, lead);
+	const FlexRect area = s.fl.Rect(s.area);
+	const FlexRect footer = s.fl.Rect(s.footer);
+	FlexRect cancelR;
+	cancelR.min = ImVec2(footer.max.x - 160.0f, footer.min.y);
+	cancelR.max = footer.max;
+
+	if (waiting)
 	{
-		if (waiting || message.kind != Msg::Progress)
-			continue;
-		float fraction = (float)message.progress / (float)message.target;
-		ImGui::Spacing();
-		ImGui::PushStyleColor(ImGuiCol_FrameBg, Pal::Inset);
-		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 5.0f);
-		ImGui::ProgressBar(fraction, ImVec2(-1.0f, 10.0f), "");
-		ImGui::PopStyleVar();
-		ImGui::PopStyleColor();
-		// Seconds remaining, not a percentage of an unnamed quantity.
-		// Progress counts hundredths of a second (see CalibrationTick).
-		double secondsLeft = std::max(0.0, (message.target - message.progress) / 100.0);
-		ImGui::PushFont(g_fontSmall);
-		ImGui::TextColored(Pal::Dim, "%s", Tr(FormatString("%.0f s left", std::ceil(secondsLeft))).c_str());
-		ImGui::PopFont();
+		DemoWell(dl, area, false);
+		const ImVec2 centre(area.Center().x, area.min.y + area.H() * 0.5f - 22.0f);
+		WaitingRing(dl, centre, target, now);
+		const char *caption = Tr(target && target->tracking ? "Settling..." : "Waiting for tracking");
+		ui::DrawText(dl, ui::type::Label, ImVec2(area.min.x, centre.y + 96.0f), area.W(), ui::col::Text, caption, ui::Align::Center);
+		PairChips(dl, ImVec2(footer.min.x, footer.min.y + (footer.H() - ui::kChipH) * 0.5f), cancelR.min.x - footer.min.x - 16.0f,
+			reference, target, true);
+		if (ui::PillButton("##cancelrun", "Cancel", ui::Btn::Secondary, cancelR, ui::Icon::None, 19.0f))
+		{
+			if (g_uiPreviewMode)
+				CloseGuide();
+			else
+				CancelCalibration();
+		}
+		return;
 	}
-	ImGui::Spacing();
-	if (IconButton("cancelprogress", "Cancel", nullptr, ImVec2(mw - 202.0f, 46.0f), BtnKind::Ghost) || EscapePressed())
+
+	// Seconds left, from the run's progress (hundredths of a second).
+	float fractionLeft = 1.0f;
+	int secondsLeft = static_cast<int>(CalCtx.CollectionSeconds());
+	for (const auto &message : CalCtx.messages)
+	{
+		if (message.kind != Msg::Progress || message.target <= 0)
+			continue;
+		fractionLeft = 1.0f - static_cast<float>(message.progress) / static_cast<float>(message.target);
+		secondsLeft = static_cast<int>(std::ceil(std::max(0.0, (message.target - message.progress) / 100.0)));
+	}
+	DemoWell(dl, area, false);
+	FlexRect demo = area;
+	demo.max.x -= 210.0f;
+	demo.min.y += 8.0f;
+	demo.max.y -= 6.0f;
+	// The title already says how to move; the caption would repeat it.
+	DrawGuideAnimation(dl, demo, s_guide.animationTime, s_guide.demo, false);
+	CountdownRing(dl, ImVec2(area.max.x - 120.0f, area.Center().y), fractionLeft, secondsLeft);
+
+	// The meters: how varied, how fast and how steady the motion is.
+	const questcal::GuideMetrics &m = s_guide.metrics;
+	const FlexRect extra = s.fl.Rect(s.extra);
+	const float meterW = (extra.W() - 24.0f) / 3.0f;
+	const char *names[3] = { Tr("Range of motion"), Tr("Movement speed"), Tr(s_guide.mountRun ? "Tracker stability" : "Grip") };
+	const char *states[3] = {
+		!m.valid ? "Measuring..." : m.coverage >= 0.99 ? "Enough variety" : "Keep turning and tilting",
+		!m.valid ? "Measuring..." : m.gatedFraction < 0.15 ? "Good pace" : "Move more slowly",
+		!m.rigidityValid ? "Measuring..." : m.rigidityDeg < 3.0 ? "Moving together"
+			: s_guide.mountRun ? "Tracker is shifting on the headset" : "Hold them tighter together"
+	};
+	const bool good[3] = { m.valid && m.coverage >= 0.99, m.valid && m.gatedFraction < 0.15, m.rigidityValid && m.rigidityDeg < 3.0 };
+	const bool measured[3] = { m.valid, m.valid, m.rigidityValid };
+	const double values[3] = { m.coverage, m.valid ? 1.0 - m.gatedFraction : 0.0,
+		m.rigidityValid ? std::clamp(1.0 - (m.rigidityDeg - 1.0) / 8.0, 0.0, 1.0) : 0.0 };
+	for (int i = 0; i < 3; ++i)
+	{
+		FlexRect r;
+		r.min = ImVec2(extra.min.x + (meterW + 12.0f) * static_cast<float>(i), extra.min.y);
+		r.max = ImVec2(r.min.x + meterW, extra.max.y);
+		const ImU32 colour = !measured[i] ? ui::col::Quiet : good[i] ? ui::col::Good : ui::col::Caution;
+		ui::Meter(dl, r, names[i], Tr(states[i]), colour, static_cast<float>(values[i]));
+	}
+	ui::DrawLine(dl, ui::TextStyle{ ui::Weight::Regular, 16.0f, footer.H() }, footer.min, ui::col::Muted,
+		Tr("Keep holding until the timer ends."));
+	if (ui::PillButton("##cancelrun", "Cancel", ui::Btn::Secondary, cancelR, ui::Icon::None, 19.0f))
 	{
 		if (g_uiPreviewMode)
-		{
-			s_guide.stage = GuideStage::Idle;
-			ImGui::CloseCurrentPopup();
-		}
+			CloseGuide();
 		else
 			CancelCalibration();
 	}
-	ImGui::SameLine(0.0f, 12.0f);
-	if (IconButton("runningmotion", s_guide.animate ? "Pause demo" : "Play demo", nullptr,
-		ImVec2(190.0f, 46.0f), BtnKind::Ghost))
-		s_guide.animate = !s_guide.animate;
 }
 
-static void GuideResultStage(float mw)
+// The result's big round mark: a tick, or the alert's exclamation.
+static void ResultMark(ImDrawList *dl, ImVec2 centre, bool passed)
+{
+	dl->AddCircleFilled(centre, 54.0f, passed ? ui::Rgba(61, 214, 140, 0.12f) : ui::Rgba(255, 107, 97, 0.12f), 96);
+	dl->AddCircleFilled(centre, 36.0f, passed ? ui::col::GoodDeep : ui::col::AlertDeep, 64);
+	const ImU32 white = ui::col::White;
+	if (passed)
+	{
+		const ImVec2 pts[3] = { ImVec2(centre.x - 15.0f, centre.y + 0.5f), ImVec2(centre.x - 5.0f, centre.y + 10.5f),
+			ImVec2(centre.x + 15.0f, centre.y - 10.0f) };
+		dl->AddPolyline(pts, 3, white, 6.0f);
+		for (const ImVec2 &p : pts)
+			dl->AddCircleFilled(p, 3.0f, white, 12);
+	}
+	else
+	{
+		dl->AddLine(ImVec2(centre.x, centre.y - 16.0f), ImVec2(centre.x, centre.y + 4.0f), white, 6.0f);
+		dl->AddCircleFilled(ImVec2(centre.x, centre.y - 16.0f), 3.0f, white, 12);
+		dl->AddCircleFilled(ImVec2(centre.x, centre.y + 4.0f), 3.0f, white, 12);
+		dl->AddCircleFilled(ImVec2(centre.x, centre.y + 15.0f), 3.8f, white, 16);
+	}
+}
+
+static void ResultStage(const FlexRect &c)
 {
 	using Msg = CalibrationContext::Message;
+	ImDrawList *dl = ImGui::GetWindowDrawList();
+	const bool passed = CalCtx.lastRunPassed;
+	if (StepperHeader(c, passed ? 2 : -1, 3u, passed ? -1 : 2) || (EscapePressed() && !DialogOpen()))
+	{
+		CloseGuide();
+		return;
+	}
 	// The outcome block starts at the last headline; the run's own
-	// instruction and note before it are not part of the result.
-	// Detail lines are shown from anywhere, behind the toggle.
+	// instruction and note before it are not part of the result. Detail
+	// lines come from anywhere, behind the toggle.
 	size_t outcomeStart = 0;
 	for (size_t i = 0; i < CalCtx.messages.size(); ++i)
 		if (CalCtx.messages[i].kind == Msg::Headline)
 			outcomeStart = i;
-	bool anyDetail = false;
+	std::string headline;
+	std::vector<std::string> body, actions, details;
 	for (size_t i = 0; i < CalCtx.messages.size(); ++i)
 	{
 		const auto &message = CalCtx.messages[i];
-		switch (message.kind)
-		{
-		case Msg::Headline:
-			if (i < outcomeStart)
-				break;
-			ImGui::PushFont(g_fontTitle);
-			ImGui::TextWrapped("%s", Tr(message.str.c_str()));
-			ImGui::PopFont();
-			ImGui::Spacing();
-			break;
-		case Msg::Info:
-			if (i > outcomeStart)
-				ImGui::TextWrapped("%s", Tr(message.str.c_str()));
-			break;
-		case Msg::Action:
-			if (i > outcomeStart)
-			{
-				ImGui::PushStyleColor(ImGuiCol_Text, Pal::Violet);
-				ImGui::TextWrapped("%s", Tr(message.str.c_str()));
-				ImGui::PopStyleColor();
-			}
-			break;
-		case Msg::Detail:
-			anyDetail = true;
-			break;
-		default:
-			break;
-		}
-	}
-	// The engineer lines come after the outcome, whatever order they
-	// were logged in: the result is what the modal is for.
-	if (anyDetail && s_modalDetails)
-	{
-		ImGui::Spacing();
-		ImGui::PushFont(g_fontSmall);
-		ImGui::PushStyleColor(ImGuiCol_Text, Pal::Dim);
-		for (const auto &message : CalCtx.messages)
-			if (message.kind == Msg::Detail)
-				ImGui::TextWrapped("%s", message.str.c_str());
-		ImGui::PopStyleColor();
-		ImGui::PopFont();
+		if (message.kind == Msg::Detail)
+			details.push_back(message.str);
+		else if (i == outcomeStart && message.kind == Msg::Headline)
+			headline = AsTitle(Tr(message.str.c_str()));
+		else if (i > outcomeStart && message.kind == Msg::Info)
+			body.push_back(Tr(message.str.c_str()));
+		else if (i > outcomeStart && message.kind == Msg::Action)
+			actions.push_back(Tr(message.str.c_str()));
 	}
 
-	ImGui::Dummy(ImVec2(0, 16.0f));
+	// The centred column, laid out in the space between header and footer.
+	const float colW = std::min(c.W(), 720.0f);
+	FlexLayout fl;
+	YGNodeRef root = fl.Root();
+	YGNodeStyleSetFlexDirection(root, YGFlexDirectionColumn);
+	YGNodeStyleSetAlignItems(root, YGAlignCenter);
+	YGNodeStyleSetWidth(root, colW);
+	YGNodeRef mark = fl.Box(root, 112.0f, 112.0f);
+	YGNodeRef title = ui::TextNode(fl, root, ui::type::ResultTitle, headline);
+	YGNodeStyleSetMargin(title, YGEdgeTop, 20.0f);
+	std::vector<YGNodeRef> bodyNodes, actionNodes;
+	for (size_t i = 0; i < body.size(); ++i)
+	{
+		bodyNodes.push_back(ui::TextNode(fl, root, ui::type::Lead, body[i]));
+		YGNodeStyleSetMargin(bodyNodes.back(), YGEdgeTop, i == 0 ? 8.0f : 4.0f);
+	}
+	for (const std::string &action : actions)
+	{
+		actionNodes.push_back(ui::TextNode(fl, root, ui::type::Body, action));
+		YGNodeStyleSetMargin(actionNodes.back(), YGEdgeTop, 4.0f);
+	}
+	YGNodeRef detailBox = nullptr, detailText = nullptr;
+	std::string detailJoined;
+	for (const std::string &d : details)
+		detailJoined += (detailJoined.empty() ? "" : "\n") + d;
+	while (!detailJoined.empty() && (detailJoined.back() == '\n' || detailJoined.back() == '\r'))
+		detailJoined.pop_back();
+	if (!details.empty() && s_modalDetails)
+	{
+		detailBox = fl.Column(root);
+		YGNodeStyleSetMargin(detailBox, YGEdgeTop, 18.0f);
+		YGNodeStyleSetPadding(detailBox, YGEdgeVertical, 12.0f);
+		YGNodeStyleSetPadding(detailBox, YGEdgeHorizontal, 18.0f);
+		YGNodeStyleSetMaxWidth(detailBox, colW);
+		detailText = ui::TextNode(fl, detailBox, ui::type::Footnote, detailJoined);
+	}
+	YGNodeRef toggle = nullptr;
+	const char *toggleLabel = s_modalDetails ? "Hide details" : "Show details";
+	if (!details.empty())
+	{
+		toggle = fl.Box(root, ui::PillWidth(toggleLabel, 17.0f, ui::Icon::None, 8.0f), 32.0f);
+		YGNodeStyleSetMargin(toggle, YGEdgeTop, detailBox ? 8.0f : 14.0f);
+	}
+	fl.Compute(ImVec2(0.0f, 0.0f), colW, YGUndefined);
+	const float colH = YGNodeLayoutGetHeight(root);
+	const float bandTop = c.min.y + 44.0f, bandBottom = c.max.y - 54.0f - 12.0f;
+	const ImVec2 origin(c.min.x + (c.W() - colW) * 0.5f, std::max(bandTop + 8.0f, bandTop + (bandBottom - bandTop - colH) * 0.5f));
+	fl.Compute(origin, colW, YGUndefined);
 
-	ImGui::Spacing();
-	const bool failed = !CalCtx.lastRunPassed;
-	const float detailsW = anyDetail ? 170.0f : 0.0f;
-	if (anyDetail)
+	ResultMark(dl, fl.Rect(mark).Center(), passed);
+	const FlexRect t = fl.Rect(title);
+	ui::DrawText(dl, ui::type::ResultTitle, ImVec2(origin.x, t.min.y), colW, ui::col::Text, headline.c_str(), ui::Align::Center);
+	for (size_t i = 0; i < body.size(); ++i)
+		ui::DrawText(dl, ui::type::Lead, ImVec2(origin.x, fl.Rect(bodyNodes[i]).min.y), colW, ui::col::Prose,
+			body[i].c_str(), ui::Align::Center);
+	for (size_t i = 0; i < actions.size(); ++i)
+		ui::DrawText(dl, ui::type::Body, ImVec2(origin.x, fl.Rect(actionNodes[i]).min.y), colW, ui::col::Lavender,
+			actions[i].c_str(), ui::Align::Center);
+	if (detailBox)
 	{
-		if (IconButton("modaldetails", s_modalDetails ? "Hide details" : "Show details", nullptr,
-			ImVec2(detailsW, 46.0f), BtnKind::Quiet))
-			s_modalDetails = !s_modalDetails;
-		ImGui::SameLine(0.0f, 12.0f);
+		const FlexRect box = fl.Rect(detailBox);
+		ui::FillRounded(dl, box.min, box.max, ui::col::Well, 14.0f);
+		const FlexRect text = fl.Rect(detailText);
+		ui::DrawText(dl, ui::type::Footnote, text.min, text.W(), ui::col::Muted, detailJoined.c_str());
 	}
-	const float remaining = mw - (anyDetail ? detailsW + 12.0f : 0.0f);
-	if (failed)
+	if (toggle && ui::PillButton("##details", toggleLabel, ui::Btn::Link, fl.Rect(toggle), ui::Icon::None, 17.0f))
+		s_modalDetails = !s_modalDetails;
+
+	FlexRect footer;
+	footer.min = ImVec2(c.min.x, c.max.y - 54.0f);
+	footer.max = c.max;
+	if (passed)
 	{
-		// Back to get-set and its motion demo, not to a log.
-		const float closeW = 120.0f;
-		if (IconButton("guideretry", "Try again", IconPlay, ImVec2(remaining - closeW - 12.0f, 46.0f), BtnKind::Primary))
-		{
-			CalCtx.ClearMessages();
-			s_guide.stage = GuideStage::GetSet;
-		}
-		ImGui::SameLine(0.0f, 12.0f);
-		if (IconButton("closeprogress", "Close", nullptr, ImVec2(closeW, 46.0f), BtnKind::Ghost) || EscapePressed())
-		{
-			s_guide.stage = GuideStage::Idle;
-			ImGui::CloseCurrentPopup();
-		}
+		FlexRect done;
+		done.min = ImVec2(footer.max.x - 210.0f, footer.min.y);
+		done.max = footer.max;
+		if (ui::PillButton("##done", "Done", ui::Btn::Primary, done, ui::Icon::None, 19.0f))
+			CloseGuide();
+		return;
 	}
-	else
+	// Back to get-set and its motion demo, not to a log.
+	const float retryW = std::max(210.0f, ui::PillWidth("Try again", 19.0f, ui::Icon::Play));
+	const float closeW = std::max(150.0f, ui::PillWidth("Close", 19.0f));
+	FlexRect retry, close;
+	retry.min = ImVec2(footer.max.x - retryW, footer.min.y);
+	retry.max = footer.max;
+	close.min = ImVec2(retry.min.x - 12.0f - closeW, footer.min.y);
+	close.max = ImVec2(retry.min.x - 12.0f, footer.max.y);
+	if (ui::PillButton("##closeresult", "Close", ui::Btn::Secondary, close, ui::Icon::None, 19.0f))
+		CloseGuide();
+	if (ui::PillButton("##retry", "Try again", ui::Btn::Primary, retry, ui::Icon::Play, 19.0f))
 	{
-		ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - 150.0f);
-		if (IconButton("closeprogress", "Done", nullptr, ImVec2(150.0f, 46.0f), BtnKind::Primary) || EscapePressed())
-		{
-			s_guide.stage = GuideStage::Idle;
-			ImGui::CloseCurrentPopup();
-		}
+		CalCtx.ClearMessages();
+		s_guide.stage = GuideStage::GetSet;
 	}
 }
 
-static void ClearCalibrationModal(const ImGuiIO &io, float modalW)
+void BuildCalibrateSheet(const VRState &state)
 {
-	ImGui::SetNextWindowPos(ImVec2((io.DisplaySize.x - modalW) * 0.5f, 180.0f), ImGuiCond_Always);
-	ImGui::SetNextWindowSize(ImVec2(modalW, 0.0f), ImGuiCond_Always);
-	if (ImGui::BeginPopupModal("Clear calibration?", nullptr,
-		ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
-	{
-		ImGui::PushFont(g_fontTitle);
-		ImGui::TextUnformatted(Tr("Clear this calibration?"));
-		ImGui::PopFont();
-		ImGui::Spacing();
-		ImGui::TextWrapped("%s", Tr("Your trackers won't line up until you calibrate again. "
-			"This also removes the field anchors and the headset tracker setup."));
-		ImGui::Spacing();
-		ImGui::Spacing();
-		float bw = ImGui::GetContentRegionAvail().x;
-		// The safe choice carries the accent and the width; the destructive
-		// one is outlined in the error colour, so a laser pointer that lands
-		// on the big blue button keeps the calibration.
-		float clearW = 210.0f, bgap = 12.0f;
-		if (IconButton("clearkeep", "Keep calibration", nullptr, ImVec2(bw - clearW - bgap, 46.0f), BtnKind::Primary) || EscapePressed())
-			ImGui::CloseCurrentPopup();
-		ImGui::SameLine(0.0f, bgap);
-		if (IconButton("clearconfirm", "Clear calibration", IconTrash, ImVec2(clearW, 46.0f), BtnKind::Danger))
-		{
-			// The write can be refused; a destructive button that did nothing
-			// has to say so instead of leaving the screen unchanged.
-			if (!ClearSavedProfile(CalCtx))
-				CalCtx.ReportError("Couldn't clear the calibration, so it's still saved. Restart QuestCalibrator and try again.\n",
-					CalibrationContext::ErrorSource::ProfilePersistence);
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::EndPopup();
-	}
-}
-
-static void ChaperoneWarningModal(const ImGuiIO &io)
-{
-	const float proseW = 640.0f;
-	ImGui::SetNextWindowPos(ImVec2((io.DisplaySize.x - proseW) * 0.5f, 180.0f), ImGuiCond_Always);
-	ImGui::SetNextWindowSize(ImVec2(proseW, 0.0f), ImGuiCond_Always);
-	if (ImGui::BeginPopupModal("Chaperone Drift Warning", nullptr,
-		ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
-	{
-		ImGui::PushFont(g_fontTitle);
-		ImGui::TextUnformatted(Tr("Check your room boundaries"));
-		ImGui::PopFont();
-		ImGui::Spacing();
-
-		ImGui::TextWrapped("%s", Tr(
-			"QuestCalibrator saves and restores your SteamVR chaperone. "
-			"Tracking drift can still move the chaperone walls away from your real walls."));
-		ImGui::Spacing();
-		ImGui::TextWrapped("%s", Tr(
-			"Keep the Quest boundary turned on too. A protected chaperone "
-			"doesn't guarantee that your play area is clear or correctly aligned."));
-		ImGui::Spacing();
-		ImGui::PushStyleColor(ImGuiCol_Text, Pal::Violet);
-		ImGui::TextWrapped("%s", Tr(
-			"Before playing, check that the chaperone walls match your room and leave "
-			"enough space to move safely, especially when dancing."));
-		ImGui::PopStyleColor();
-		if (!CalCtx.uiError.empty())
-		{
-			ImGui::Spacing();
-			ImGui::PushStyleColor(ImGuiCol_Text, Pal::Bad);
-			ImGui::TextWrapped("%s", Tr(CalCtx.uiError.c_str()));
-			ImGui::PopStyleColor();
-		}
-		ImGui::Spacing();
-		ImGui::Spacing();
-
-		float bw = ImGui::GetContentRegionAvail().x;
-		float cancelW = 210.0f, bgap = 12.0f;
-		int remain = static_cast<int>(std::ceil(5.0 - (ImGui::GetTime() - g_chapWarnOpenedAt)));
-		if (remain > 0)
-		{
-			// Disabled look: ghost chrome, dim countdown label, no hover/click.
-			ImVec2 p = ImGui::GetCursorScreenPos();
-			ImVec2 sz(bw - cancelW - bgap, 46.0f);
-			ImDrawList *mdl = ImGui::GetWindowDrawList();
-			mdl->AddRectFilled(p, ImVec2(p.x + sz.x, p.y + sz.y), Pal::U32(Pal::Card), 10.0f);
-			mdl->AddRect(p, ImVec2(p.x + sz.x, p.y + sz.y), Pal::U32(Pal::Border), 10.0f);
-			std::string lbl = Tr(FormatString("Protect chaperone (%d s)", remain));
-			ImVec2 ts = ImGui::CalcTextSize(lbl.c_str());
-			mdl->AddText(g_fontBody, g_fontBody->LegacySize,
-				ImVec2(p.x + (sz.x - ts.x) * 0.5f, p.y + sz.y * 0.5f - g_fontBody->LegacySize * 0.5f),
-				Pal::U32(Pal::Dim), lbl.c_str());
-			ImGui::Dummy(sz);
-		}
-		// Named for what it does: accepting the caveat is what saves the
-		// chaperone.
-		else if (IconButton("chapwarnok", "Protect chaperone", nullptr, ImVec2(bw - cancelW - bgap, 46.0f), BtnKind::Primary))
-		{
-			bool previousAck = CalCtx.chaperoneWarningAck;
-			CalCtx.chaperoneWarningAck = true;
-			if (ProtectChaperone())
-				ImGui::CloseCurrentPopup();
-			else
-			{
-				CalCtx.chaperoneWarningAck = previousAck;
-				// A failed capture may have persisted the fail-closed chaperone
-				// state immediately; keep the acknowledgement rollback consistent.
-				if (!SaveSettings(CalCtx))
-				{
-					CalCtx.persistence.MarkSettings(CalCtx.timeLastTick);
-				}
-			}
-		}
-		ImGui::SameLine(0.0f, bgap);
-		if (IconButton("chapwarncancel", "Cancel", nullptr, ImVec2(cancelW, 46.0f), BtnKind::Ghost) || EscapePressed())
-			ImGui::CloseCurrentPopup();
-
-		ImGui::EndPopup();
-	}
-}
-
-void BuildMenu(const VRState &state)
-{
-	auto &io = ImGui::GetIO();
-	float cw = ImGui::GetContentRegionAvail().x;
-	if ((s_guide.stage == GuideStage::Done || s_guide.stage == GuideStage::Idle) && s_guideTexture)
-	{
-		glDeleteTextures(1, &s_guideTexture);
-		s_guideTexture = 0;
-		s_guideTextureKind = -1;
-	}
-
-
-	if (CalCtx.state == CalibrationState::None)
-	{
-		if (s_showSettings)
-			BuildSettingsScreen(state);
-		else
-			BuildMainScreen();
-	}
-	else if (CalCtx.state == CalibrationState::Editing)
-	{
-		bool transformValid = BuildProfileEditor();
-
-		ImGui::Spacing();
-		const float gap = 10.0f;
-		const float cancelWidth = 130.0f;
-		// Invalid values keep the label and go quiet; the editor's red line
-		// above says what to fix.
-		if (IconButton("saveprofile", "Save calibration", IconCheck,
-			ImVec2(cw - cancelWidth - gap, 52.0f),
-			transformValid ? BtnKind::Primary : BtnKind::Ghost) && transformValid)
-			SaveProfileEditorDraft();
-		ImGui::SameLine(0.0f, gap);
-		if (IconButton("cancelprofile", "Close", nullptr,
-			ImVec2(cancelWidth, 52.0f), BtnKind::Ghost))
-		{
-			// Unsaved edits are dropped: leaving Editing is enough, because
-			// re-entering it seeds the draft again.
-			CalCtx.state = CalibrationState::None;
-			CalCtx.timeLastScan = -1e9;
-		}
-	}
-	else
-	{
-		// The modal normally covers this; if it ever does not, the same two
-		// facts are here: what is happening and how to stop it.
-		ImVec2 p = BeginRowCard(64.0f);
-		ImDrawList *dl = ImGui::GetWindowDrawList();
-		dl->AddText(g_fontBody, g_fontBody->LegacySize,
-			ImVec2(p.x + 20.0f, p.y + 32.0f - g_fontBody->LegacySize * 0.5f),
-			Pal::U32(Pal::Text), Tr("Calibrating..."));
-		ImGui::SetCursorScreenPos(ImVec2(p.x + cw - 150.0f, p.y + 13.0f));
-		if (IconButton("cancelcard", "Cancel", nullptr, ImVec2(130.0f, 38.0f), BtnKind::Ghost))
-			CancelCalibration();
-		EndRowCard(p, 64.0f);
-	}
-
-	// ---- Calibration progress modal ----
-	// Popup IDs depend on the current window. The pinned recovery button is
-	// outside this content child, so open its request in the modal's scope.
-	if (s_guide.openRequested)
-	{
-		s_guide.demo = s_guide.mountRun ? GuideDemo::Mounted : GuideDemo::Wrist;
-		bool headsetReference = false;
-		bool controllerTarget = false;
-		for (const auto &device : state.devices)
-		{
-			if (static_cast<uint32_t>(device.id) == CalCtx.referenceID)
-				headsetReference = device.deviceClass == vr::TrackedDeviceClass_HMD;
-			if (static_cast<uint32_t>(device.id) == CalCtx.targetID)
-				controllerTarget = device.deviceClass == vr::TrackedDeviceClass_Controller;
-		}
-		if (!s_guide.mountRun && headsetReference)
-			s_guide.demo = controllerTarget ? GuideDemo::HeadsetContact : GuideDemo::Mounted;
-		ImGui::OpenPopup("Calibration Progress");
-		s_guide.openRequested = false;
-	}
+	const ImGuiIO &io = ImGui::GetIO();
 	const double now = ImGui::GetTime();
-	// Stage transitions the context drives: a run that ended, any way,
-	// moves to the outcome; a finished countdown starts the run.
-	if (s_guide.stage == GuideStage::Running && !g_uiPreviewMode &&
-		CalCtx.state == CalibrationState::None)
+	if (s_guide.stage == GuideStage::Idle)
+	{
+		CloseGuide();
+		return;
+	}
+	// Stage changes the context drives: a run that ended, any way, moves to
+	// the outcome; a finished countdown starts the run.
+	if (s_guide.stage == GuideStage::Running && !g_uiPreviewMode && CalCtx.state == CalibrationState::None)
 		s_guide.stage = GuideStage::Done;
 	if (s_guide.stage == GuideStage::Running && g_uiPreviewMode &&
 		now - s_guide.countdownStart > kCountdownSeconds + CalCtx.CollectionSeconds())
 	{
-		// Preview: a fake outcome so the result stage can be styled, a
-		// refused solve under -uipreview-failed and a success otherwise.
+		// Preview: a fake outcome so the result stage can be styled, a refused
+		// solve under -uipreview-failed and a success otherwise.
 		if (g_uiPreviewScenario == PreviewScenario::Failed)
 		{
 			CalCtx.lastRunPassed = false;
-			CalCtx.Outcome("Calibration failed", "The devices didn't rotate in enough directions.",
-				"Turn and tilt both devices together, then try again.",
+			CalCtx.Outcome("Calibration failed", "The devices didn't turn far enough.",
+				"Make bigger turns, and keep them pressed together.",
 				"Rotation coverage 0.21 of 1.00 (need 0.60)", CalibrationContext::Tone::Warn);
 		}
 		else
 		{
 			CalCtx.lastRunPassed = true;
-			CalCtx.Outcome("Calibration complete", "Check that the tracker positions line up in VR.", "", "", CalibrationContext::Tone::Good);
+			CalCtx.Outcome("Calibration complete", "Check in VR that your trackers line up with your body.", "", "",
+				CalibrationContext::Tone::Good);
 		}
 		s_guide.stage = GuideStage::Done;
 	}
-	const bool showingResult = s_guide.stage == GuideStage::Done;
-	float modalW = showingResult ? 660.0f : 940.0f;
-	ImGui::SetNextWindowPos(ImVec2((io.DisplaySize.x - modalW) * 0.5f, showingResult ? 180.0f : 60.0f), ImGuiCond_Always);
-	ImGui::SetNextWindowSize(ImVec2(modalW, 0.0f), ImGuiCond_Always);
-	if (ImGui::BeginPopupModal("Calibration Progress", nullptr,
-		ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
+	if (s_guide.stage == GuideStage::Done)
+		ReleaseGuideTexture();
+	if (s_guide.stage == GuideStage::Countdown || s_guide.stage == GuideStage::Running ||
+		(s_guide.stage == GuideStage::GetSet && s_guide.animate))
+		ui::KeepAnimating();
+	if (s_guide.stage == GuideStage::Countdown && now - s_guide.countdownStart >= kCountdownSeconds)
 	{
-		const float mw = ImGui::GetContentRegionAvail().x;
-		ImDrawList *mdl = ImGui::GetWindowDrawList();
-		if (s_guide.stage == GuideStage::Countdown || s_guide.stage == GuideStage::Running ||
-			(s_guide.stage == GuideStage::GetSet && s_guide.animate))
-			CalCtx.wantedUpdateInterval = std::min(CalCtx.wantedUpdateInterval, 1.0 / 60.0);
-
-		if (s_guide.stage == GuideStage::Countdown && now - s_guide.countdownStart >= kCountdownSeconds)
+		if (BeginGuidedRun())
+			s_guide.stage = GuideStage::Running;
+		else
 		{
-			if (BeginGuidedRun())
-				s_guide.stage = GuideStage::Running;
-			else
-			{
-				// StartCalibration already said why, in the banner.
-				s_guide.stage = GuideStage::Idle;
-				ImGui::CloseCurrentPopup();
-			}
+			// StartCalibration already said why, in the banner.
+			CloseGuide();
+			return;
 		}
-
-		if (s_guide.animate)
-			s_guide.animationTime += std::min(io.DeltaTime, 0.05f);
-		const ImVec2 artSize(mw, s_guide.demo == GuideDemo::Wrist ? 330.0f : 230.0f);
-		switch (s_guide.stage)
-		{
-		case GuideStage::GetSet:
-		case GuideStage::Countdown:
-			GuideGetSetStage(state, mw, mdl, artSize, now);
-			break;
-		case GuideStage::Running:
-			GuideRunningStage(mw, mdl, artSize, now);
-			break;
-		case GuideStage::Done:
-		default:
-			GuideResultStage(mw);
-			break;
-		}
-
-		ImGui::EndPopup();
 	}
+	if (s_guide.animate)
+		s_guide.animationTime += std::min(io.DeltaTime, 0.05f);
 
-	// ---- Clear calibration confirmation ----
-	ClearCalibrationModal(io, modalW);
-
-	// ---- One-time chaperone drift warning ----
-	// Shown before the first "Protect chaperone" ever runs; the accept button
-	// unlocks after a short countdown so the caveat actually gets read.
-	// Narrower than the other modals: three paragraphs of prose want a
-	// 60-70 character measure, and the buttons should span the text.
-	ChaperoneWarningModal(io);
+	const FlexRect c = SheetPanel(kCalibrateSheetW, kCalibrateSheetH);
+	switch (s_guide.stage)
+	{
+	case GuideStage::GetSet:
+	case GuideStage::Countdown:
+		GetSetStage(state, c, now);
+		break;
+	case GuideStage::Running:
+		RunningStage(state, c, now);
+		break;
+	case GuideStage::Done:
+	default:
+		ResultStage(c);
+		break;
+	}
 }

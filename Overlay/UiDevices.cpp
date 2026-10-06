@@ -1,10 +1,7 @@
-// Device rows, the two tracking-system panes and the live VR state query.
+// The pair sheet ("Choose the pair"), device names, and the live VR state
+// query.
 #include "stdafx.h"
 #include "UiInternal.h"
-
-// ---------------------------------------------------------------------------
-// Device cards
-// ---------------------------------------------------------------------------
 
 void DeviceIcon(ImDrawList *dl, const VRDevice &dev, ImVec2 c, float s, ImU32 col)
 {
@@ -22,28 +19,9 @@ void DeviceIcon(ImDrawList *dl, const VRDevice &dev, ImVec2 c, float s, ImU32 co
 	}
 }
 
-// A device row's icon: SteamVR's own art when it resolves, the vector glyph
-// in the fallback colour otherwise.
-void RowDeviceIcon(ImDrawList *dl, const VRDevice &dev, ImVec2 c, ImU32 fallback)
-{
-	const DeviceIconTex *tex = GetDeviceIconTex(dev.iconPath);
-	if (!tex)
-	{
-		DeviceIcon(dl, dev, c, 13.0f, fallback);
-		return;
-	}
-	const float boxW = 40.0f, boxH = 34.0f;
-	float scale = boxW / (float)tex->w;
-	if (scale * (float)tex->h > boxH)
-		scale = boxH / (float)tex->h;
-	ImVec2 half = ImVec2(tex->w * scale * 0.5f, tex->h * scale * 0.5f);
-	dl->AddImage((ImTextureID)(intptr_t)tex->tex,
-		ImVec2(c.x - half.x, c.y - half.y), ImVec2(c.x + half.x, c.y + half.y));
-}
-
-// Player-given names. The row shows the name in place of the model, with
-// the model and serial beneath; everywhere else a device is named, the same
-// lookup applies so "Hip" is "Hip" in the tracker pick and the guide too.
+// Player-given names. A tile shows the name in place of the model; everywhere
+// else a device is named, the same lookup applies so "Hip" is "Hip" in the
+// tracker pick and the guide too.
 const std::string *FindDeviceName(const std::string &serial)
 {
 	auto it = CalCtx.deviceNames.find(serial);
@@ -56,7 +34,7 @@ std::string DeviceDisplayName(const VRDevice &dev)
 	return name ? *name : dev.model;
 }
 
-// Inline rename: one row at a time.
+// Inline rename: one device at a time.
 static int s_renameDeviceId = -1;
 static bool s_renameFocus = false;
 static char s_renameBuf[CalibrationContext::DeviceNameMaxBytes + 1] = {};
@@ -79,187 +57,6 @@ void CommitDeviceName(const VRDevice &dev, const char *text)
 		CalCtx.deviceNames[dev.serial] = name;
 	if (CalCtx.deviceNames != previous)
 		SaveSettingOrRestore(CalCtx.deviceNames, previous);
-}
-
-static void StartIdentifyPulse(uint32_t targetId, uint32_t referenceId)
-{
-	g_identifyPulse = { true, targetId, referenceId, 100, ImGui::GetTime() };
-}
-
-// A flat row inside the list container: no chrome of its own — an inset
-// divider above (except the first), a hover wash, and selection as an accent
-// rail + tint. Rounding only ever belongs to the container's outer corners.
-bool DeviceRow(const VRDevice &dev, bool selected, float w, bool first, bool last)
-{
-	const float h = 52.0f;
-	ImGui::PushID(dev.id);
-	ImVec2 p = ImGui::GetCursorScreenPos();
-	// The rename and identify tools sit on top of the row and must win the
-	// hover.
-	ImGui::SetNextItemAllowOverlap();
-	bool pressed = ImGui::InvisibleButton("row", ImVec2(w, h), ImGuiButtonFlags_EnableNav);
-	bool hov = ImGui::IsItemHovered();
-	const bool rowFocused = ImGui::IsItemFocused();
-	ImDrawList *dl = ImGui::GetWindowDrawList();
-	ImVec2 b = ImVec2(p.x + w, p.y + h);
-
-	if (!first)
-		dl->AddLine(ImVec2(p.x + 16.0f, p.y), ImVec2(b.x - 16.0f, p.y), Pal::U32(Pal::Border), 1.0f);
-
-	int corners = (first ? ImDrawFlags_RoundCornersTop : 0) | (last ? ImDrawFlags_RoundCornersBottom : 0);
-	if (!corners)
-		corners = ImDrawFlags_RoundCornersNone;
-	if (selected)
-	{
-		ImVec4 tint = Pal::Accent; tint.w = 0.08f;
-		dl->AddRectFilled(p, b, Pal::U32(tint), 11.0f, corners);
-		dl->AddRectFilled(ImVec2(p.x + 1.0f, p.y + 10.0f), ImVec2(p.x + 4.5f, b.y - 10.0f),
-			Pal::U32(Pal::Accent), 2.0f);
-	}
-	else if (hov)
-	{
-		dl->AddRectFilled(p, b, Pal::U32(ImVec4(1, 1, 1, 0.03f)), 11.0f, corners);
-	}
-
-	ImVec2 iconC = ImVec2(p.x + 30.0f, p.y + h * 0.5f);
-	RowDeviceIcon(dl, dev, iconC, Pal::U32(selected ? Pal::Text : Pal::Dim));
-
-	// Battery, right-aligned where a device reports one: a small glyph whose
-	// fill is the level, red at the same threshold that swaps the device icon
-	// to its low-battery art.
-	const bool low = dev.connected && dev.battery >= 0.0f &&
-		dev.battery < kLowBattery && !dev.charging;
-	float textRight = b.x - 16.0f;
-	if (dev.connected && dev.battery >= 0.0f)
-	{
-		const float bw = 26.0f, bh = 12.0f, nub = 2.5f;
-		ImVec2 g0 = ImVec2(b.x - 16.0f - bw - nub, p.y + (h - bh) * 0.5f);
-		ImVec2 g1 = ImVec2(g0.x + bw, g0.y + bh);
-		dl->AddRect(g0, g1, Pal::U32(Pal::Faint), 3.0f, 1.0f, ImDrawFlags_RoundCornersAll);
-		dl->AddRectFilled(ImVec2(g1.x + 1.0f, iconC.y - 2.5f),
-			ImVec2(g1.x + 1.0f + nub, iconC.y + 2.5f), Pal::U32(Pal::Faint), 1.0f);
-		float level = dev.battery > 1.0f ? 1.0f : dev.battery;
-		float fw = (bw - 4.0f) * level;
-		if (fw > 0.5f)
-			dl->AddRectFilled(ImVec2(g0.x + 2.0f, g0.y + 2.0f), ImVec2(g0.x + 2.0f + fw, g1.y - 2.0f),
-				Pal::U32(low ? Pal::Bad : Pal::Good), 1.5f);
-		textRight = g0.x - 10.0f;
-	}
-
-	// The state in words, next to the glyphs that only hint at it: a dimmer
-	// row and a red pill are not something a player can be expected to read.
-	const char *stateWord = !dev.connected ? Tr("Off") : (low ? Tr("Low battery") : nullptr);
-	if (stateWord)
-	{
-		ImGui::PushFont(g_fontSmall);
-		ImVec2 sw = ImGui::CalcTextSize(stateWord);
-		ImGui::PopFont();
-		float sx = textRight - sw.x;
-		dl->AddText(g_fontSmall, g_fontSmall->LegacySize,
-			ImVec2(sx, p.y + (h - g_fontSmall->LegacySize) * 0.5f),
-			Pal::U32(dev.connected ? Pal::Bad : Pal::Dim), stateWord);
-		textRight = sx - 10.0f;
-	}
-
-	// Two small tools, quiet at rest and bright on hover: rename, and buzz
-	// this one device. With six identical trackers these are what tell the
-	// rows apart.
-	{
-		// A headset can't buzz or blink on command, so it gets rename only.
-		const bool canBuzz = dev.deviceClass != vr::TrackedDeviceClass_HMD;
-		const float bs = 26.0f;
-		const float toolsW = canBuzz ? bs * 2.0f + 8.0f : bs;
-		float bx = textRight - toolsW;
-		const float by = p.y + (h - bs) * 0.5f;
-		auto tool = [&](const char *id, IconFn icon, float iconSize, const char *tip) {
-			ImGui::SetCursorScreenPos(ImVec2(bx, by));
-			bool pressedTool = ImGui::InvisibleButton(id, ImVec2(bs, bs), ImGuiButtonFlags_EnableNav);
-			bool hovTool = ImGui::IsItemHovered();
-			bool focused = ImGui::IsItemFocused();
-			if (hovTool || focused)
-				dl->AddRectFilled(ImVec2(bx, by), ImVec2(bx + bs, by + bs),
-					Pal::U32(ImVec4(1, 1, 1, 0.08f)), 6.0f);
-			if (focused)
-				dl->AddRect(ImVec2(bx, by), ImVec2(bx + bs, by + bs), Pal::U32(Pal::Accent), 6.0f, 2.0f, ImDrawFlags_RoundCornersNone);
-			// No tip while the field is open: it would sit on the field.
-			if (hovTool && s_renameDeviceId != dev.id)
-				ShowTip(tip, true);
-			icon(dl, ImVec2(bx + bs * 0.5f, by + bs * 0.5f), iconSize,
-				Pal::U32(hovTool || focused ? Pal::Text : Pal::Faint));
-			bx += bs + 8.0f;
-			return pressedTool;
-		};
-		if (tool("rename", IconPencil, 9.0f, "Rename this device"))
-		{
-			s_renameDeviceId = dev.id;
-			const std::string *current = FindDeviceName(dev.serial);
-			strncpy_s(s_renameBuf, current ? current->c_str() : "", _TRUNCATE);
-			s_renameFocus = true;
-		}
-		if (canBuzz && tool("buzz", IconCrosshair, 7.5f, "Vibrate or blink this device"))
-			StartIdentifyPulse(static_cast<uint32_t>(dev.id), vr::k_unTrackedDeviceIndexInvalid);
-		textRight -= toolsW + 10.0f;
-	}
-
-	ImVec4 clip = ImVec4(p.x, p.y, textRight, b.y);
-	float tx = p.x + 58.0f;
-	if (s_renameDeviceId == dev.id)
-	{
-		// The field takes the name line only; the model and serial stay
-		// beneath it, because with six identical trackers they are what
-		// says which one is being named.
-		ImGui::SetCursorScreenPos(ImVec2(tx - 6.0f, p.y + 3.0f));
-		ImGui::PushItemWidth(std::max(140.0f, textRight - tx - 2.0f));
-		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6, 3));
-		if (s_renameFocus)
-		{
-			ImGui::SetKeyboardFocusHere();
-			s_renameFocus = false;
-		}
-		bool entered = ImGui::InputText("##rename", s_renameBuf, sizeof s_renameBuf,
-			ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
-		// The VR keyboard may finish without an Enter, so leaving the field
-		// commits too; Escape reverts the buffer first, which commits no change.
-		bool finished = entered || ImGui::IsItemDeactivated();
-		ImGui::PopStyleVar();
-		ImGui::PopItemWidth();
-		if (s_renameBuf[0] == '\0')
-			dl->AddText(g_fontBody, g_fontBody->LegacySize, ImVec2(tx, p.y + 6.0f),
-				Pal::U32(Pal::Faint), Tr("Hip, Left foot, Chest..."));
-		std::string sub = dev.model + "  " + dev.serial;
-		dl->AddText(g_fontSmall, g_fontSmall->LegacySize, ImVec2(tx, p.y + 31.0f),
-			Pal::U32(Pal::Dim), sub.c_str(), nullptr, 0.0f, &clip);
-		if (finished)
-		{
-			CommitDeviceName(dev, s_renameBuf);
-			s_renameDeviceId = -1;
-		}
-	}
-	else if (const std::string *name = FindDeviceName(dev.serial))
-	{
-		dl->AddText(g_fontBody, g_fontBody->LegacySize, ImVec2(tx, p.y + 6.0f),
-			Pal::U32(dev.connected ? Pal::Text : Pal::Dim), name->c_str(), nullptr, 0.0f, &clip);
-		std::string sub = dev.model + "  " + dev.serial;
-		dl->AddText(g_fontSmall, g_fontSmall->LegacySize, ImVec2(tx, p.y + 31.0f),
-			Pal::U32(dev.connected ? Pal::Dim : Pal::Faint), sub.c_str(), nullptr, 0.0f, &clip);
-	}
-	else
-	{
-		dl->AddText(g_fontBody, g_fontBody->LegacySize, ImVec2(tx, p.y + 6.0f),
-			Pal::U32(dev.connected ? Pal::Text : Pal::Dim), dev.model.c_str(), nullptr, 0.0f, &clip);
-		dl->AddText(g_fontSmall, g_fontSmall->LegacySize, ImVec2(tx, p.y + 31.0f),
-			Pal::U32(dev.connected ? Pal::Dim : Pal::Faint), dev.serial.c_str(), nullptr, 0.0f, &clip);
-	}
-
-	if (rowFocused)
-		dl->AddRect(ImVec2(p.x + 2.0f, p.y + 2.0f), ImVec2(b.x - 2.0f, b.y - 2.0f),
-			Pal::U32(Pal::Accent), 6.0f, 2.0f, ImDrawFlags_RoundCornersAll);
-
-	// The tools and the rename field moved the cursor; the next row starts
-	// where this one ends.
-	ImGui::SetCursorScreenPos(ImVec2(p.x, b.y));
-	ImGui::PopID();
-	return pressed;
 }
 
 // Drops a selection that is no longer in the system's device list, then
@@ -302,67 +99,6 @@ void EnsureDeviceSelection(const VRState &state, uint32_t &selected, const std::
 	}
 }
 
-void BuildDeviceList(const VRState &state, uint32_t &selected, const std::string &system, float paneW)
-{
-	EnsureDeviceSelection(state, selected, system);
-
-	const float rowH = 52.0f;
-	const int maxVisible = 4;
-	ImVec2 origin = ImGui::GetCursorScreenPos();
-	ImDrawList *dl = ImGui::GetWindowDrawList();
-
-	std::vector<const VRDevice *> devices;
-	devices.reserve(state.devices.size());
-	for (auto &device : state.devices)
-		if (device.trackingSystem == system)
-			devices.push_back(&device);
-
-	if (devices.empty())
-	{
-		ImVec2 b = ImVec2(origin.x + paneW, origin.y + rowH);
-		dl->AddRectFilled(origin, b, Pal::U32(Pal::Card), 12.0f);
-		dl->AddRect(origin, b, Pal::U32(Pal::Border), 12.0f);
-		const char *msg = Tr("No devices connected");
-		ImVec2 ts = ImGui::CalcTextSize(msg);
-		dl->AddText(g_fontBody, g_fontBody->LegacySize,
-			ImVec2(origin.x + (paneW - ts.x) * 0.5f, origin.y + (rowH - ts.y) * 0.5f),
-			Pal::U32(Pal::Dim), msg);
-		ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + rowH));
-		ImGui::Dummy(ImVec2(0, 0));
-		return;
-	}
-
-	// One container, flat rows inside it separated by hairlines — a grouped
-	// list, not stacked cards. More devices than fit -> fixed-height scrolling
-	// list; the rows narrow a little to leave room for the scrollbar.
-	bool scrolls = (int)devices.size() > maxVisible;
-	int visible = scrolls ? maxVisible : (int)devices.size();
-	float listH = visible * rowH;
-	float rowW = paneW - (scrolls ? 12.0f : 0.0f);
-
-	ImVec2 listB = ImVec2(origin.x + paneW, origin.y + listH);
-	dl->AddRectFilled(origin, listB, Pal::U32(Pal::Card), 12.0f);
-
-	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
-	ImGui::BeginChild(system.empty() ? "devlist" : system.c_str(), ImVec2(paneW, listH), false);
-	for (size_t i = 0; i < devices.size(); ++i)
-	{
-		const VRDevice &device = *devices[i];
-		if (DeviceRow(device, selected == (uint32_t)device.id, rowW, i == 0, i + 1 == devices.size()))
-			selected = (uint32_t)device.id;
-	}
-	ImGui::EndChild();
-	ImGui::PopStyleVar();
-
-	dl->AddRect(origin, listB, Pal::U32(Pal::Border), 12.0f);
-	ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + listH));
-	ImGui::Dummy(ImVec2(0, 0));
-}
-
-// ---------------------------------------------------------------------------
-// Spaces + devices section
-// ---------------------------------------------------------------------------
-
 // Users know their hardware, not driver names; show friendly labels for the
 // systems we recognize and fall back to the raw name for anything else.
 std::string FriendlySystemName(const std::string &raw)
@@ -373,177 +109,302 @@ std::string FriendlySystemName(const std::string &raw)
 	return raw;
 }
 
-// The picker behind both space panes. `fallback` is the candidate index to
-// commit when `selection` is not among the candidates (-1 to leave it alone),
-// so an emptied or vanished pick settles onto a real system.
-void PickTrackingSystem(const char *id, const std::vector<std::string> &candidates, int fallback, float width, std::string &selection)
-{
-	int current = -1;
-	for (size_t i = 0; i < candidates.size(); ++i)
-		if (candidates[i] == selection)
-		{
-			current = (int)i;
-			break;
-		}
-	if (current == -1)
-		current = fallback;
-
-	std::vector<std::string> display;
-	std::vector<const char *> items;
-	display.reserve(candidates.size());
-	items.reserve(candidates.size());
-	for (const auto &raw : candidates)
-		display.push_back(FriendlySystemName(raw));
-	for (const auto &label : display)
-		items.push_back(label.c_str());
-
-	if (candidates.size() <= 1)
-	{
-		// One system is not a choice: a combo that can only return its own
-		// value still looks like something to open. Same frame as the combo
-		// beside it, minus the arrow.
-		ImVec2 p = ImGui::GetCursorScreenPos();
-		float h = ImGui::GetFrameHeight();
-		ImDrawList *dl = ImGui::GetWindowDrawList();
-		dl->AddRectFilled(p, ImVec2(p.x + width, p.y + h), Pal::U32(Pal::Card), 9.0f);
-		dl->AddRect(p, ImVec2(p.x + width, p.y + h), Pal::U32(Pal::Border), 9.0f);
-		ImGui::Dummy(ImVec2(width, h));
-		dl->AddText(g_fontBody, g_fontBody->LegacySize,
-			ImVec2(p.x + 14.0f, p.y + (h - g_fontBody->LegacySize) * 0.5f),
-			Pal::U32(Pal::Text), items[0]);
-	}
-	else
-	{
-		ImGui::PushItemWidth(width);
-		ImGui::Combo(id, &current, items.data(), (int)items.size());
-		ImGui::PopItemWidth();
-	}
-
-	if (current >= 0)
-		selection = candidates[current];
-}
-
-void BuildSpacesSection(const VRState &state)
+// The picks are candidates for the next base calibration; the active
+// profile's system names are committed only after a successful solve. The
+// reference is the headset's system (LoadVRState lists it first) unless the
+// pick is still there; the target is any other system, and one system can
+// never be both.
+void SettlePairSystems(const VRState &state)
 {
 	if (state.trackingSystems.empty())
-	{
-		const float h = 120.0f;
-		ImVec2 p = BeginRowCard(h);
-		ImDrawList *dl = ImGui::GetWindowDrawList();
-		float cw = ImGui::GetContentRegionAvail().x;
-		const char *msg = Tr("No tracked devices found");
-		ImVec2 ts = ImGui::CalcTextSize(msg);
-		IconHMD(dl, ImVec2(p.x + cw * 0.5f, p.y + 42.0f), 16.0f, Pal::U32(Pal::Faint));
-		dl->AddText(g_fontBody, g_fontBody->LegacySize,
-			ImVec2(p.x + (cw - ts.x) * 0.5f, p.y + 70.0f), Pal::U32(Pal::Dim), msg);
-		EndRowCard(p, h);
 		return;
-	}
-
-	// The panes edit pending calibration choices. Active profile system names
-	// are committed only by FinishCalibration after a successful base solve.
-	// The reference pane offers every system in the list (HMD system first, as
-	// LoadVRState ordered it); when the current pick is gone it falls back to
-	// the first system that is not already the target.
-	int firstReferenceSystemNotTargetSystem = -1;
-	for (size_t i = 0; i < state.trackingSystems.size(); ++i)
+	auto present = [&](const std::string &system) {
+		return std::find(state.trackingSystems.begin(), state.trackingSystems.end(), system) != state.trackingSystems.end();
+	};
+	if (!present(CalCtx.pendingReferenceTrackingSystem))
+		CalCtx.pendingReferenceTrackingSystem = state.trackingSystems.front();
+	if (CalCtx.pendingTargetTrackingSystem == CalCtx.pendingReferenceTrackingSystem ||
+		!present(CalCtx.pendingTargetTrackingSystem))
 	{
-		const std::string &str = state.trackingSystems[i];
-		if (str != CalCtx.pendingReferenceTrackingSystem &&
-			str != CalCtx.pendingTargetTrackingSystem)
+		CalCtx.pendingTargetTrackingSystem.clear();
+		for (const auto &system : state.trackingSystems)
+			if (system != CalCtx.pendingReferenceTrackingSystem)
+			{
+				CalCtx.pendingTargetTrackingSystem = system;
+				break;
+			}
+	}
+	EnsureDeviceSelection(state, CalCtx.referenceID, CalCtx.pendingReferenceTrackingSystem);
+	// Nothing to pick on the other side means nothing may stay picked: this id
+	// is what the identify pulse buzzes and what StartCalibration freezes.
+	if (CalCtx.pendingTargetTrackingSystem.empty())
+		CalCtx.targetID = vr::k_unTrackedDeviceIndexInvalid;
+	else
+		EnsureDeviceSelection(state, CalCtx.targetID, CalCtx.pendingTargetTrackingSystem);
+}
+
+// ---------------------------------------------------------------------------
+// The pair sheet
+// ---------------------------------------------------------------------------
+
+static void BatteryGlyph(ImDrawList *dl, ImVec2 topLeft, float level, ImU32 colour)
+{
+	const float w = 20.0f, h = 10.0f;
+	dl->AddRect(topLeft, ImVec2(topLeft.x + w, topLeft.y + h), ui::Rgba(236, 238, 244, 0.55f), 2.5f, 0, 1.2f);
+	dl->AddRectFilled(ImVec2(topLeft.x + w + 1.0f, topLeft.y + 3.0f), ImVec2(topLeft.x + w + 3.0f, topLeft.y + h - 3.0f),
+		ui::Rgba(236, 238, 244, 0.55f), 1.0f);
+	const float fill = (w - 4.0f) * std::clamp(level, 0.0f, 1.0f);
+	if (fill > 0.5f)
+		dl->AddRectFilled(ImVec2(topLeft.x + 2.0f, topLeft.y + 2.0f), ImVec2(topLeft.x + 2.0f + fill, topLeft.y + h - 2.0f), colour, 1.0f);
+}
+
+// One device as a tile: picture, name, and battery or state. Hovering shows
+// rename and identify; the rename field takes over the name line.
+static bool DeviceTile(const VRDevice &dev, const FlexRect &r, bool selected)
+{
+	ImGui::PushID(dev.id);
+	ImDrawList *dl = ImGui::GetWindowDrawList();
+	ImGui::SetCursorScreenPos(r.min);
+	// The rename and identify tools sit on top of the tile and must win the
+	// hover.
+	ImGui::SetNextItemAllowOverlap();
+	const bool pressed = ImGui::InvisibleButton("tile", r.Size(), ImGuiButtonFlags_EnableNav);
+	const bool hov = ImGui::IsItemHovered();
+	const bool focused = ImGui::IsItemFocused();
+	if (selected)
+	{
+		ui::FillRounded(dl, r.min, r.max, ui::Rgba(35, 112, 232, 0.18f), 20.0f);
+		ui::InnerEdge(dl, r.min, r.max, ui::Rgba(47, 124, 242), 20.0f, 2.0f);
+	}
+	else
+		ui::FillRounded(dl, r.min, r.max, hov ? ui::Rgba(255, 255, 255, 0.09f) : ui::col::Card, 20.0f);
+
+	FlexRect art;
+	art.min = ImVec2(r.Center().x - 44.0f, r.min.y + 6.0f);
+	art.max = ImVec2(art.min.x + 88.0f, art.min.y + 88.0f);
+	DrawDeviceArt(dl, dev, art, dev.connected ? ui::col::Muted : ui::col::Faint);
+
+	const ui::TextStyle nameStyle{ ui::Weight::SemiBold, 16.0f, 20.0f };
+	const float textW = r.W() - 16.0f;
+	const float nameY = r.min.y + 6.0f + 88.0f + 6.0f;
+	if (s_renameDeviceId == dev.id)
+	{
+		ImGui::SetCursorScreenPos(ImVec2(r.min.x + 6.0f, nameY - 3.0f));
+		ImGui::PushItemWidth(r.W() - 12.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6, 2));
+		ImGui::PushFont(ui::FontOf(ui::Weight::SemiBold), ui::GlyphSize(15.0f));
+		if (s_renameFocus)
 		{
-			firstReferenceSystemNotTargetSystem = (int)i;
-			break;
+			ImGui::SetKeyboardFocusHere();
+			s_renameFocus = false;
 		}
-	}
-
-	float cw = ImGui::GetContentRegionAvail().x;
-	const float paneGap = 24.0f;
-	float paneW = (cw - paneGap) * 0.5f;
-
-	ImVec2 top = ImGui::GetCursorScreenPos();
-
-	// ---- Left pane: reference space ----
-	ImGui::SetCursorScreenPos(top);
-	ImGui::BeginGroup();
-	SectionLabel("REFERENCE SYSTEM");
-	PickTrackingSystem("##ReferenceTrackingSystem", state.trackingSystems,
-		firstReferenceSystemNotTargetSystem, paneW, CalCtx.pendingReferenceTrackingSystem);
-
-	// One space cannot be both sides of the calibration. The reference pane
-	// wins and the target pick is dropped; the target list below is rebuilt
-	// from the reference, so it can never collide in the other direction.
-	if (CalCtx.pendingReferenceTrackingSystem == CalCtx.pendingTargetTrackingSystem)
-		CalCtx.pendingTargetTrackingSystem = "";
-
-	ImGui::Spacing();
-	BuildDeviceList(state, CalCtx.referenceID, CalCtx.pendingReferenceTrackingSystem, paneW);
-	ImGui::EndGroup();
-	float leftBottom = ImGui::GetItemRectMax().y;
-
-	// ---- Right pane: target space ----
-	std::vector<std::string> targetSystems;
-	targetSystems.reserve(state.trackingSystems.size());
-	for (auto &str : state.trackingSystems)
-		if (str != CalCtx.pendingReferenceTrackingSystem)
-			targetSystems.push_back(str);
-
-	ImGui::SetCursorScreenPos(ImVec2(top.x + paneW + paneGap, top.y));
-	ImGui::BeginGroup();
-	SectionLabel("TARGET SYSTEM");
-	if (!targetSystems.empty())
-	{
-		// An emptied pick (the collision rule above) settles on the first
-		// remaining system; a pick that is simply absent this frame is left
-		// alone, so a system that flickers out does not silently retarget.
-		PickTrackingSystem("##TargetTrackingSystem", targetSystems,
-			CalCtx.pendingTargetTrackingSystem.empty() ? 0 : -1, paneW,
-			CalCtx.pendingTargetTrackingSystem);
-
-		ImGui::Spacing();
-		BuildDeviceList(state, CalCtx.targetID, CalCtx.pendingTargetTrackingSystem, paneW);
+		const bool entered = ImGui::InputTextWithHint("##rename", Tr("Hip, Left foot, Chest..."), s_renameBuf, sizeof s_renameBuf,
+			ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+		// The VR keyboard may finish without an Enter, so leaving the field
+		// commits too; Escape reverts the buffer first, which commits no
+		// change.
+		const bool finished = entered || ImGui::IsItemDeactivated();
+		ImGui::PopFont();
+		ImGui::PopStyleVar();
+		ImGui::PopItemWidth();
+		if (finished)
+		{
+			CommitDeviceName(dev, s_renameBuf);
+			s_renameDeviceId = -1;
+		}
 	}
 	else
 	{
-		ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + paneW);
-		ImGui::TextColored(Pal::Dim, "%s", Tr("No trackers found. Turn on a tracker and make sure SteamVR sees it."));
-		ImGui::PopTextWrapPos();
-		// The pane is showing nothing, so nothing may stay selected: this id is
-		// what the identify pulse buzzes and what StartCalibration freezes.
-		CalCtx.targetID = vr::k_unTrackedDeviceIndexInvalid;
+		const std::string name = ui::Ellipsize(nameStyle, DeviceDisplayName(dev), textW);
+		const float w = ui::MeasureLine(nameStyle, name.c_str()).x;
+		ui::DrawLine(dl, nameStyle, ImVec2(r.Center().x - w * 0.5f, nameY), dev.connected ? ui::col::Text : ui::col::Faint, name.c_str());
 	}
-	ImGui::EndGroup();
-	float rightBottom = ImGui::GetItemRectMax().y;
 
-	ImGui::SetCursorScreenPos(ImVec2(top.x, (leftBottom > rightBottom ? leftBottom : rightBottom)));
-	ImGui::Dummy(ImVec2(0, 0));
-
-	// ---- What happens next, then Identify ----
-	// How to move depends on the picks (figure eight, looking around), and
-	// the guide shows it; this line only sets the length.
-	ImGui::Spacing();
+	// What else there is to know: the headset is the headset; otherwise the
+	// battery, or that the device is off.
+	const float subY = nameY + 20.0f;
+	const ui::TextStyle subStyle{ ui::Weight::Regular, 14.0f, 18.0f };
+	const bool low = dev.connected && dev.battery >= 0.0f && dev.battery < kLowBattery && !dev.charging;
+	if (dev.deviceClass == vr::TrackedDeviceClass_HMD)
 	{
-		std::string hint = Tr(FormatString(
-			"Calibration takes %.0f seconds. The next screen shows how to move.",
-			CalCtx.CollectionSeconds()));
-		ImGui::PushFont(g_fontSmall);
-		ImVec2 hs = ImGui::CalcTextSize(hint.c_str());
-		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, (cw - hs.x) * 0.5f));
-		ImGui::TextColored(Pal::Dim, "%s", hint.c_str());
-		ImGui::PopFont();
+		const char *text = Tr("Headset");
+		const float w = ui::MeasureLine(subStyle, text).x;
+		ui::DrawLine(dl, subStyle, ImVec2(r.Center().x - w * 0.5f, subY), ui::Rgba(236, 238, 244, 0.64f), text);
 	}
+	else if (!dev.connected)
+	{
+		const char *text = Tr("Off");
+		const float w = ui::MeasureLine(subStyle, text).x;
+		ui::DrawLine(dl, subStyle, ImVec2(r.Center().x - w * 0.5f, subY), ui::col::Faint, text);
+	}
+	else if (dev.battery >= 0.0f)
+	{
+		const std::string text = FormatString("%d%%", static_cast<int>(std::lround(std::min(dev.battery, 1.0f) * 100.0f)));
+		const float w = ui::MeasureLine(subStyle, text.c_str()).x + 26.0f;
+		const float x = r.Center().x - w * 0.5f;
+		BatteryGlyph(dl, ImVec2(x, subY + 4.0f), dev.battery, low ? ui::col::Alert : ui::col::Good);
+		ui::DrawLine(dl, subStyle, ImVec2(x + 26.0f, subY), low ? ui::col::Alert : ui::Rgba(236, 238, 244, 0.64f), text.c_str());
+	}
+
+	if (selected)
+	{
+		const ImVec2 c(r.max.x - 10.0f - 12.0f, r.min.y + 10.0f + 12.0f);
+		dl->AddCircleFilled(c, 12.0f, ui::col::Accent, 24);
+		ui::DrawIcon(dl, ui::Icon::Check, c, 14.0f, ui::col::White, 3.0f);
+	}
+
+	// Rename, and buzz this one device: with six identical trackers these are
+	// what tell the tiles apart. Shown while the tile is hovered or focused.
+	const bool showTools = hov || focused || ImGui::IsMouseHoveringRect(r.min, r.max);
+	if (showTools && s_renameDeviceId != dev.id)
+	{
+		const ImU32 fill = ui::Rgba(20, 22, 26, 0.72f), ink = ui::Rgba(236, 238, 244, 0.92f);
+		ImVec2 at(r.min.x + 10.0f + 14.0f, r.min.y + 10.0f + 14.0f);
+		if (ui::RoundButton("rename", at, 28.0f, ui::Icon::Pencil, 15.0f, fill, ink))
+		{
+			s_renameDeviceId = dev.id;
+			const std::string *current = FindDeviceName(dev.serial);
+			strncpy_s(s_renameBuf, current ? current->c_str() : "", _TRUNCATE);
+			s_renameFocus = true;
+		}
+		if (ImGui::IsItemHovered())
+			ShowTip("Rename this device");
+		// A headset can't buzz or blink on command, so it gets rename only.
+		if (dev.deviceClass != vr::TrackedDeviceClass_HMD)
+		{
+			at.x += 34.0f;
+			if (ui::RoundButton("buzz", at, 28.0f, ui::Icon::Identify, 15.0f, fill, ink))
+				StartIdentifyPulse(static_cast<uint32_t>(dev.id), vr::k_unTrackedDeviceIndexInvalid);
+			if (ImGui::IsItemHovered())
+				ShowTip("Vibrate or blink this device");
+		}
+	}
+	ui::FocusRing(dl, r.min, r.max, 20.0f);
+	ImGui::PopID();
+	return pressed;
 }
 
-// Vibrate or blink the two picks.
-void IdentifyButton(ImVec2 size)
+void BuildPairSheet(const VRState &state)
 {
-	bool identifyPressed = IconButton("identify", "Identify selected devices", IconCrosshair,
-		size, BtnKind::Ghost);
+	SettlePairSystems(state);
+	const FlexRect c = SheetPanel(960.0f, 670.0f);
+	if (SheetHeader(c, Tr("Choose the pair")))
+		CloseSheet();
+	ImDrawList *dl = ImGui::GetWindowDrawList();
+	const ui::TextStyle leadStyle{ ui::Weight::Regular, 18.0f, 26.0f };
+	const float leadH = ui::DrawText(dl, leadStyle, ImVec2(c.min.x, c.min.y + 44.0f + 6.0f), c.W(), ui::Rgba(236, 238, 244, 0.70f),
+		Tr("Pick a Quest device and a SteamVR device to hold together while you calibrate."));
+
+	// The groups scroll on their own when more devices than fit are on.
+	const float footerH = 52.0f;
+	const ImVec2 listMin(c.min.x, c.min.y + 44.0f + 6.0f + leadH + 16.0f);
+	const ImVec2 listSize(c.W(), c.max.y - footerH - 18.0f - listMin.y);
+	ImGui::SetCursorScreenPos(listMin);
+	ImGui::BeginChild("##pairgroups", listSize, ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
+	ImDrawList *gdl = ImGui::GetWindowDrawList();
+	const float width = ImGui::GetContentRegionAvail().x;
+	const ImVec2 origin = ImGui::GetCursorScreenPos();
+	float y = 0.0f;
+	std::vector<std::string> systems;
+	if (!CalCtx.pendingReferenceTrackingSystem.empty())
+		systems.push_back(CalCtx.pendingReferenceTrackingSystem);
+	for (const auto &system : state.trackingSystems)
+		if (system != CalCtx.pendingReferenceTrackingSystem)
+			systems.push_back(system);
+	if (systems.empty())
+	{
+		const char *text = Tr("No tracked devices found");
+		ui::DrawText(gdl, ui::type::Body, ImVec2(origin.x, origin.y + 60.0f), width, ui::col::Muted, text, ui::Align::Center);
+		y = 140.0f;
+	}
+	const int columns = 6;
+	const float gap = 12.0f;
+	const float tileW = std::floor((width - gap * static_cast<float>(columns - 1)) / static_cast<float>(columns));
+	const float tileH = 156.0f;
+	for (size_t s = 0; s < systems.size(); ++s)
+	{
+		const std::string &system = systems[s];
+		const bool reference = s == 0;
+		if (s > 0)
+			y += 20.0f;
+		ui::DrawLine(gdl, ui::type::Strong, ImVec2(origin.x, origin.y + y), ui::Rgba(236, 238, 244, 0.82f),
+			FriendlySystemName(system).c_str());
+		y += 22.0f + 10.0f;
+		int index = 0;
+		for (const auto &device : state.devices)
+		{
+			if (device.trackingSystem != system)
+				continue;
+			const int column = index % columns;
+			const int row = index / columns;
+			FlexRect r;
+			r.min = ImVec2(origin.x + (tileW + gap) * static_cast<float>(column), origin.y + y + (tileH + gap) * static_cast<float>(row));
+			r.max = ImVec2(r.min.x + tileW, r.min.y + tileH);
+			const uint32_t id = static_cast<uint32_t>(device.id);
+			const bool selected = reference ? CalCtx.referenceID == id
+				: CalCtx.targetID == id && CalCtx.pendingTargetTrackingSystem == system;
+			if (DeviceTile(device, r, selected))
+			{
+				if (reference)
+					CalCtx.referenceID = id;
+				else
+				{
+					CalCtx.targetID = id;
+					CalCtx.pendingTargetTrackingSystem = system;
+				}
+			}
+			++index;
+		}
+		if (index == 0)
+		{
+			ui::DrawLine(gdl, ui::type::Body, ImVec2(origin.x, origin.y + y), ui::col::Muted, Tr("No devices connected"));
+			y += 24.0f;
+		}
+		else
+			y += (tileH + gap) * static_cast<float>((index + columns - 1) / columns) - gap;
+	}
+	if (systems.size() == 1)
+	{
+		y += 20.0f;
+		ui::DrawText(gdl, ui::type::Body, ImVec2(origin.x, origin.y + y), width, ui::col::Muted,
+			Tr("No trackers found. Turn on a tracker and make sure SteamVR sees it."));
+		y += 24.0f;
+	}
+	ImGui::SetCursorScreenPos(origin);
+	ImGui::Dummy(ImVec2(width, y + 4.0f));
+	// More tiles below the fold: the list fades into the panel instead of
+	// ending on a clean cut that reads as the last row. Drawn in the list's
+	// own draw list, which ImGui renders over the sheet's.
+	const float hiddenBelow = ImGui::GetScrollMaxY() - ImGui::GetScrollY();
+	if (hiddenBelow > 1.0f)
+	{
+		const float panelTop = c.min.y - 28.0f, panelBottom = c.max.y + 32.0f;
+		const float listBottom = listMin.y + listSize.y;
+		const float fadeH = std::min(56.0f, hiddenBelow + 16.0f);
+		const ImU32 panel = ui::Mix(ui::col::SheetTop, ui::col::SheetBottom, (listBottom - panelTop) / (panelBottom - panelTop));
+		gdl->AddRectFilledMultiColor(ImVec2(origin.x, listBottom - fadeH), ImVec2(origin.x + width, listBottom),
+			ui::Fade(panel, 0.0f), ui::Fade(panel, 0.0f), panel, panel);
+	}
+	ImGui::EndChild();
+
+	FlexRect done, identify;
+	const float doneW = std::max(140.0f, ui::PillWidth("Done", 18.0f));
+	const float identifyW = ui::PillWidth("Identify", 18.0f, ui::Icon::Identify);
+	done.min = ImVec2(c.max.x - doneW, c.max.y - footerH);
+	done.max = c.max;
+	identify.min = ImVec2(done.min.x - 12.0f - identifyW, done.min.y);
+	identify.max = ImVec2(done.min.x - 12.0f, done.max.y);
+	if (ui::PillButton("##identifypair", "Identify", ui::Btn::Secondary, identify, ui::Icon::Identify))
+		StartIdentifyPulse(CalCtx.targetID, CalCtx.referenceID);
 	if (ImGui::IsItemHovered())
 		ShowTip("Vibrates or blinks the two selected devices so you can tell which is which.");
-	if (identifyPressed)
-		StartIdentifyPulse(CalCtx.targetID, CalCtx.referenceID);
+	if (ui::PillButton("##donepair", "Done", ui::Btn::Primary, done))
+		CloseSheet();
 }
+
+// ---------------------------------------------------------------------------
+// The live VR state
+// ---------------------------------------------------------------------------
 
 VRState LoadVRState()
 {
@@ -557,7 +418,7 @@ VRState LoadVRState()
 	if (!vr::VRSystem())
 		return state;
 
-	// One pose query per refresh for the readiness dots in the guide: raw
+	// One pose query per refresh for the readiness chips in the guide: raw
 	// universe, no prediction, so it costs the same as the property reads.
 	vr::TrackedDevicePose_t poses[vr::k_unMaxTrackedDeviceCount];
 	vr::VRSystem()->GetDeviceToAbsoluteTrackingPose(
