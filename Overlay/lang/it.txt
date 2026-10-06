@@ -1135,3 +1135,95 @@ en: Move
 it: Movimento
 en: Check
 it: Verifica
+
+# The first-launch setup.
+en: Back
+it: Indietro
+en: Continue
+it: Continua
+en: Welcome to Nova Calibrator
+it: Benvenuto in Nova Calibrator
+en: Play with your headset and SteamVR trackers in one playspace. Nova Calibrator lines them up, so your trackers sit where your body is.
+it: Gioca con il visore e i tracker SteamVR in un unico spazio di gioco. Nova Calibrator li allinea, così i tracker stanno dove si trova il tuo corpo.
+en: Calibrate in seconds
+it: Calibra in pochi secondi
+en: Hold a controller to a tracker and move both for 10 seconds.
+it: Tieni un controller contro un tracker e muovili insieme per 10 secondi.
+en: Stays aligned while you play
+it: Resta allineato mentre giochi
+en: When your headset re-centers or corrects itself, your trackers follow.
+it: Quando il visore si ricentra o si corregge da solo, i tracker lo seguono.
+en: Warns you about drift
+it: Ti avvisa della deriva
+en: You'll get a notification in VR if the alignment starts to slip.
+it: Ricevi una notifica in VR se l'allineamento inizia a scivolare.
+en: Which headset do you use?
+it: Quale visore usi?
+en: Your headset sets the playspace. Nova Calibrator lines your trackers up with it.
+it: Il visore definisce lo spazio di gioco. Nova Calibrator allinea i tracker al visore.
+en: Quest 2, Quest 3, Quest 3S and Quest Pro
+it: Quest 2, Quest 3, Quest 3S e Quest Pro
+en: Connected
+it: Collegato
+en: Coming later
+it: Prossimamente
+en: Which trackers do you use?
+it: Quali tracker usi?
+en: Select every kind you use.
+it: Seleziona tutti i tipi che usi.
+en: VIVE Tracker 3.0
+it: VIVE Tracker 3.0
+en: Tundra Tracker
+it: Tundra Tracker
+en: Index Controllers
+it: Controller Index
+en: VIVE Tracker (2018)
+it: VIVE Tracker (2018)
+en: %d connected
+it: {0} {0|collegato|collegati}
+en: Not connected
+it: Non collegato
+en: Untested
+it: Non testato
+en: Greyed out? Turn that tracker on first.
+it: È in grigio? Accendi prima quel tracker.
+en: Keep Nova Calibrator up to date
+it: Mantieni Nova Calibrator aggiornato
+en: New versions download in the background. You decide when to install them.
+it: Le nuove versioni si scaricano in background. Decidi tu quando installarle.
+en: Checked before it's offered
+it: Verificato prima di essere proposto
+en: Every release is signed, and you're only offered ones that pass the check.
+it: Ogni versione è firmata e ti vengono proposte solo quelle che superano la verifica.
+en: Installs when you say so
+it: Si installa quando lo decidi tu
+en: Steam has to be closed to install, so updates always wait for you.
+it: Per installare bisogna chiudere Steam, quindi gli aggiornamenti aspettano sempre te.
+en: Talks only to GitHub
+it: Comunica solo con GitHub
+en: It only ever checks Nova Calibrator's releases on GitHub.
+it: Controlla soltanto le versioni di Nova Calibrator su GitHub.
+en: You can change this anytime in Settings.
+it: Puoi cambiarlo quando vuoi nelle Impostazioni.
+en: Turn on automatic updates
+it: Attiva gli aggiornamenti automatici
+en: Not now
+it: Non ora
+en: Your first calibration
+it: La tua prima calibrazione
+en: Hold one of your Quest controllers against a tracker. You'll move them together for %.0f seconds.
+it: Tieni uno dei controller del Quest contro un tracker. Li muoverai insieme per {0} secondi.
+en: Hold this
+it: Tieni questo
+en: Against this
+it: Contro questo
+en: %d%% battery
+it: batteria {0}%
+en: No controller found
+it: Nessun controller trovato
+en: No tracker found
+it: Nessun tracker trovato
+en: Do it later
+it: Più tardi
+en: Start calibration
+it: Avvia calibrazione

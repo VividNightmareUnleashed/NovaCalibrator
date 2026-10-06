@@ -1131,3 +1131,95 @@ en: Move
 ja: 動かす
 en: Check
 ja: 確認
+
+# The first-launch setup.
+en: Back
+ja: 戻る
+en: Continue
+ja: 続ける
+en: Welcome to Nova Calibrator
+ja: Nova Calibrator へようこそ
+en: Play with your headset and SteamVR trackers in one playspace. Nova Calibrator lines them up, so your trackers sit where your body is.
+ja: ヘッドセットと SteamVR のトラッカーを、ひとつのプレイスペースで使えます。Nova Calibrator が位置を合わせるので、トラッカーが体の位置にぴったり重なります。
+en: Calibrate in seconds
+ja: 数秒でキャリブレーション
+en: Hold a controller to a tracker and move both for 10 seconds.
+ja: コントローラーをトラッカーに当てて、10 秒間一緒に動かすだけです。
+en: Stays aligned while you play
+ja: プレイ中も位置がずれません
+en: When your headset re-centers or corrects itself, your trackers follow.
+ja: ヘッドセットが再センタリングや自己補正をしても、トラッカーが追従します。
+en: Warns you about drift
+ja: ずれを知らせます
+en: You'll get a notification in VR if the alignment starts to slip.
+ja: 位置合わせがずれ始めると、VR 内で通知が届きます。
+en: Which headset do you use?
+ja: どのヘッドセットを使っていますか？
+en: Your headset sets the playspace. Nova Calibrator lines your trackers up with it.
+ja: プレイスペースの基準はヘッドセットです。Nova Calibrator はトラッカーをヘッドセットに合わせます。
+en: Quest 2, Quest 3, Quest 3S and Quest Pro
+ja: Quest 2、Quest 3、Quest 3S、Quest Pro
+en: Connected
+ja: 接続済み
+en: Coming later
+ja: 今後対応予定
+en: Which trackers do you use?
+ja: どのトラッカーを使っていますか？
+en: Select every kind you use.
+ja: 使っている種類をすべて選んでください。
+en: VIVE Tracker 3.0
+ja: VIVE Tracker 3.0
+en: Tundra Tracker
+ja: Tundra Tracker
+en: Index Controllers
+ja: Index コントローラー
+en: VIVE Tracker (2018)
+ja: VIVE Tracker (2018)
+en: %d connected
+ja: {0} 台接続中
+en: Not connected
+ja: 未接続
+en: Untested
+ja: 未検証
+en: Greyed out? Turn that tracker on first.
+ja: グレー表示の場合は、先にそのトラッカーの電源を入れてください。
+en: Keep Nova Calibrator up to date
+ja: Nova Calibrator を最新の状態に
+en: New versions download in the background. You decide when to install them.
+ja: 新しいバージョンはバックグラウンドでダウンロードされます。インストールするタイミングは自分で決められます。
+en: Checked before it's offered
+ja: 検証済みのものだけを提供
+en: Every release is signed, and you're only offered ones that pass the check.
+ja: すべてのリリースには署名があり、検証に通ったものだけが提供されます。
+en: Installs when you say so
+ja: インストールは指示したときだけ
+en: Steam has to be closed to install, so updates always wait for you.
+ja: インストールには Steam を終了する必要があるため、アップデートは必ずあなたの操作を待ちます。
+en: Talks only to GitHub
+ja: 通信先は GitHub のみ
+en: It only ever checks Nova Calibrator's releases on GitHub.
+ja: 確認するのは GitHub 上の Nova Calibrator のリリースだけです。
+en: You can change this anytime in Settings.
+ja: 設定からいつでも変更できます。
+en: Turn on automatic updates
+ja: 自動アップデートをオンにする
+en: Not now
+ja: 今はしない
+en: Your first calibration
+ja: 最初のキャリブレーション
+en: Hold one of your Quest controllers against a tracker. You'll move them together for %.0f seconds.
+ja: Quest のコントローラーをトラッカーに当ててください。{0} 秒間、一緒に動かします。
+en: Hold this
+ja: これを持つ
+en: Against this
+ja: これに当てる
+en: %d%% battery
+ja: バッテリー {0}%
+en: No controller found
+ja: コントローラーが見つかりません
+en: No tracker found
+ja: トラッカーが見つかりません
+en: Do it later
+ja: あとで
+en: Start calibration
+ja: キャリブレーション開始

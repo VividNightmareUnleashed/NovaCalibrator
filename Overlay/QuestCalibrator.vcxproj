@@ -450,6 +450,7 @@
     <ClCompile Include="UiKit.cpp" />
     <ClCompile Include="UiControls.cpp" />
     <ClCompile Include="UiSheets.cpp" />
+    <ClCompile Include="UiSetup.cpp" />
     <ClCompile Include="UiMainScreen.cpp" />
     <ClCompile Include="UiDevices.cpp" />
     <ClCompile Include="UiLayout.cpp" />

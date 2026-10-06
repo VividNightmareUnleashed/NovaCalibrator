@@ -281,6 +281,9 @@
     <ClCompile Include="UiSheets.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="UiSetup.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="UiMainScreen.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

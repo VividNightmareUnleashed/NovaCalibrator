@@ -39,7 +39,12 @@ constexpr int SettingsSchema = 1;
 	X(solveScale, "solve_scale", false) \
 	X(applyTimeOffset, "apply_time_offset", true) \
 	X(detailedLogging, "detailed_logging", false) \
-	X(automaticUpdates, "automatic_updates", false)
+	X(automaticUpdates, "automatic_updates", false) \
+	X(onboarded, "onboarded", false) \
+	X(usesViveTracker3, "uses_vive_tracker_3", false) \
+	X(usesTundraTracker, "uses_tundra_tracker", false) \
+	X(usesIndexControllers, "uses_index_controllers", false) \
+	X(usesViveTracker2018, "uses_vive_tracker_2018", false)
 
 struct SettingsRecord
 {

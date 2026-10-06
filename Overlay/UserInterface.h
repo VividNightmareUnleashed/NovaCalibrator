@@ -11,11 +11,13 @@ extern bool g_uiPreviewMany;
 // off, a failed solve, an empty profile, the calibration sheet's stages, the
 // pair, chaperone, anchors and activity sheets, the confirmation dialogs, the
 // home screen's notices, the Lighthouse page, Settings (scrolled to its end
-// too), the calibration editor and the credits. Each implies -uipreview-many.
+// too), the calibration editor, the credits and each page of the first-launch
+// setup. Each implies -uipreview-many.
 enum class PreviewScenario
 {
 	Healthy, Frozen, TrackerOff, Failed, Empty, Guide, GuideWait, Move, Result, Lighthouse, Settings,
-	Pair, Chaperone, Anchors, Activity, ClearCalibration, ChaperoneWarning, Notices, SettingsMore, Editor, Credits
+	Pair, Chaperone, Anchors, Activity, ClearCalibration, ChaperoneWarning, Notices, SettingsMore, Editor, Credits,
+	SetupWelcome, SetupHeadset, SetupTrackers, SetupUpdates, SetupCalibrate
 };
 extern PreviewScenario g_uiPreviewScenario;
 
