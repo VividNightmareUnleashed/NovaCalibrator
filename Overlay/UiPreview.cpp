@@ -147,6 +147,8 @@ void SetupPreviewState()
 {
 	CalCtx.validProfile = true;
 	CalCtx.enabled = true;
+	// Past the first-launch setup, unless a scenario shows it.
+	CalCtx.onboarded = true;
 	CalCtx.referenceTrackingSystem = "oculus";
 	CalCtx.targetTrackingSystem = "lighthouse";
 
@@ -364,6 +366,15 @@ void SetupPreviewState()
 			CalibrationContext::Tone::Warn);
 		CalCtx.Tell("To keep SteamVR from doing this, set \"Turn off controllers after\" to Never in SteamVR's Startup / Shutdown settings.");
 		break;
+	case PreviewScenario::SetupWelcome:
+	case PreviewScenario::SetupHeadset:
+	case PreviewScenario::SetupTrackers:
+	case PreviewScenario::SetupUpdates:
+	case PreviewScenario::SetupCalibrate:
+		// A first launch still in its setup.
+		CalCtx.onboarded = false;
+		g_setupStep = static_cast<SetupStep>(static_cast<int>(g_uiPreviewScenario) - static_cast<int>(PreviewScenario::SetupWelcome));
+		[[fallthrough]];
 	case PreviewScenario::Empty:
 		// First launch: no profile, no chaperone, nothing measured.
 		CalCtx.validProfile = false;

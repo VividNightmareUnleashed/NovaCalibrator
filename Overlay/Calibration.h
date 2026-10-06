@@ -214,6 +214,17 @@ struct CalibrationContext : CalibrationProfileState
 	// elevated package installer.
 	bool automaticUpdates = false;  // persisted setting
 
+	// The first-launch setup was finished or skipped (persisted). Someone who
+	// already has a calibration never sees it.
+	bool onboarded = false;
+
+	// The kinds of SteamVR tracker the player said they use in the setup
+	// (persisted); the first calibration picks one of these to hold against.
+	bool usesViveTracker3 = false;
+	bool usesTundraTracker = false;
+	bool usesIndexControllers = false;
+	bool usesViveTracker2018 = false;
+
 	void Diag(const std::string &msg)
 	{
 		if (detailedLogging)

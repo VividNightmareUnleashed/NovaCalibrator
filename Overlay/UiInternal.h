@@ -204,6 +204,17 @@ void UpdateIdentifyPulse(double now);
 VRState LoadVRState();
 VRState PreviewVRState();
 
+// The first-launch setup (UiSetup.cpp), which covers the whole window until
+// it is finished or skipped, and never shows once there is a calibration.
+enum class SetupStep { Welcome, Headset, Trackers, Updates, FirstCalibration, Count };
+extern SetupStep g_setupStep;
+bool SetupShowing();
+void BuildSetup(const VRState &state);
+
+// The language choice, each language written in its own (UiSettings.cpp).
+float LanguagePickerWidth();
+bool LanguagePicker(const char *id, const FlexRect &r);
+
 // The window's pages, each laid out from origin across width; each returns
 // the height it took so the page can scroll.
 float BuildHomePage(const VRState &state, ImVec2 origin, float width);

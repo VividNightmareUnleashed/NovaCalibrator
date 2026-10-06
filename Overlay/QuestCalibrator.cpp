@@ -1308,6 +1308,17 @@ static LaunchOptions ParseCommandLine(LPWSTR lpCmdLine)
 			: cmd == L"-uipreview-chapwarn" ? PreviewScenario::ChaperoneWarning
 			: PreviewScenario::Notices;
 	}
+	else if (cmd == L"-uipreview-setup-welcome" || cmd == L"-uipreview-setup-headset" ||
+		cmd == L"-uipreview-setup-trackers" || cmd == L"-uipreview-setup-updates" || cmd == L"-uipreview-setup-calibrate")
+	{
+		// The first-launch setup, one page each.
+		options.preview = true;
+		options.previewMany = true;
+		options.previewScenario = cmd == L"-uipreview-setup-welcome" ? PreviewScenario::SetupWelcome
+			: cmd == L"-uipreview-setup-headset" ? PreviewScenario::SetupHeadset
+			: cmd == L"-uipreview-setup-trackers" ? PreviewScenario::SetupTrackers
+			: cmd == L"-uipreview-setup-updates" ? PreviewScenario::SetupUpdates : PreviewScenario::SetupCalibrate;
+	}
 	else if (cmd == L"-openvrpath")
 		options.command = Command::OpenVrPath;
 	else if (cmd == L"-installmanifest")

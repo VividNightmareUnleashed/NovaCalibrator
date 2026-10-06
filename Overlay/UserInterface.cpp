@@ -203,6 +203,14 @@ void BuildMainWindow(bool runningInOverlay)
 	SettlePairSystems(state);
 
 	ui::PageBackdrop(ImGui::GetWindowDrawList(), ImVec2(0.0f, 0.0f), io.DisplaySize);
+	// A first launch walks through the setup before anything else.
+	if (SetupShowing())
+	{
+		BuildSetup(state);
+		BuildOverlays(state);
+		ImGui::End();
+		return;
+	}
 	BuildSidebar(runningInOverlay);
 
 	// A page whose module went away falls back to calibration.

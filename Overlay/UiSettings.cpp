@@ -7,6 +7,66 @@
 #include <deque>
 #include <functional>
 
+// ---------------------------------------------------------------------------
+// The language choice, here and on the setup's welcome
+// ---------------------------------------------------------------------------
+
+namespace
+{
+using questcal::i18n::Language;
+const Language kLanguageOrder[] = { Language::English, Language::Italian, Language::Japanese };
+
+// Each language written in its own words, so a player who cannot read the
+// current one still finds theirs. Without a Japanese font its name would draw
+// as boxes, so it is spelt out instead.
+struct LanguageChoices
+{
+	const char *names[3] = {};
+	int current = 0;
+	bool japaneseFont = false;
+};
+
+LanguageChoices Languages()
+{
+	LanguageChoices c;
+	c.japaneseFont = questcal::i18n::FontAvailable(Language::Japanese);
+	c.names[0] = "English";
+	c.names[1] = questcal::i18n::ItalianTable().nativeName.c_str();
+	c.names[2] = c.japaneseFont ? questcal::i18n::JapaneseTable().nativeName.c_str() : "Japanese";
+	// The language drawn, which -lang may set apart from the saved one.
+	const Language chosen = questcal::i18n::CurrentLanguage();
+	for (int i = 0; i < 3; ++i)
+		if (kLanguageOrder[i] == chosen)
+			c.current = i;
+	return c;
+}
+} // namespace
+
+float LanguagePickerWidth()
+{
+	const LanguageChoices c = Languages();
+	return ui::PillSegmentedWidth(c.names, 3, 16.0f, 0.0f, false);
+}
+
+bool LanguagePicker(const char *id, const FlexRect &r)
+{
+	const LanguageChoices c = Languages();
+	const int picked = ui::PillSegmented(id, c.current, c.names, 3, r, 16.0f, false);
+	if (picked == c.current)
+		return false;
+	if (kLanguageOrder[picked] == Language::Japanese && !c.japaneseFont)
+	{
+		CalCtx.ReportError("Japanese needs a Japanese font, and Windows doesn't have one installed. "
+			"Add the Japanese Supplemental Fonts in Windows Settings > System > Optional features.\n");
+		return false;
+	}
+	const std::string previous = CalCtx.language;
+	CalCtx.language = questcal::i18n::LanguageCode(kLanguageOrder[picked]);
+	SaveSettingOrRestore(CalCtx.language, previous);
+	questcal::i18n::SetLanguage(questcal::i18n::LanguageFromCode(CalCtx.language));
+	return true;
+}
+
 namespace
 {
 
@@ -326,41 +386,11 @@ std::function<void(bool)> SettingSwitch(bool &setting)
 
 void GeneralRows(RowPage &page)
 {
-	using questcal::i18n::Language;
 	page.Section("General");
-
-	// Each choice is written in its own language, so a player who cannot read
-	// the current one still finds theirs. Without a Japanese font its name
-	// would draw as boxes.
-	const bool japaneseFont = questcal::i18n::FontAvailable(Language::Japanese);
-	static const Language order[] = { Language::English, Language::Italian, Language::Japanese };
-	const char *languages[] = { "English", questcal::i18n::ItalianTable().nativeName.c_str(),
-		japaneseFont ? questcal::i18n::JapaneseTable().nativeName.c_str() : "Japanese" };
-	// The language drawn, which -lang may set apart from the saved one.
-	const Language chosen = questcal::i18n::CurrentLanguage();
-	int current = 0;
-	for (int i = 0; i < 3; ++i)
-		if (order[i] == chosen)
-			current = i;
-	const bool translated = chosen != Language::English;
-	const float segW = ui::PillSegmentedWidth(languages, 3, 16.0f, 0.0f, false);
+	const bool translated = questcal::i18n::CurrentLanguage() != Language::English;
 	RowPage::Row &language = page.Add(Tr("Language"),
-		translated ? std::string(Tr("This translation may not be accurate.")) : std::string(), segW, 42.0f);
-	language.drawControl = [languages, current, japaneseFont](const FlexRect &r) {
-		const int picked = ui::PillSegmented("##language", current, languages, 3, r, 16.0f, false);
-		if (picked == current)
-			return;
-		if (order[picked] == Language::Japanese && !japaneseFont)
-		{
-			CalCtx.ReportError("Japanese needs a Japanese font, and Windows doesn't have one installed. "
-				"Add the Japanese Supplemental Fonts in Windows Settings > System > Optional features.\n");
-			return;
-		}
-		const std::string previous = CalCtx.language;
-		CalCtx.language = questcal::i18n::LanguageCode(order[picked]);
-		SaveSettingOrRestore(CalCtx.language, previous);
-		questcal::i18n::SetLanguage(questcal::i18n::LanguageFromCode(CalCtx.language));
-	};
+		translated ? std::string(Tr("This translation may not be accurate.")) : std::string(), LanguagePickerWidth(), 42.0f);
+	language.drawControl = [](const FlexRect &r) { LanguagePicker("##language", r); };
 	// A translation says it may be imperfect and where corrections go.
 	if (translated)
 		page.Link(ui::Icon::Globe, "Report on GitHub", ui::col::Link, false,
