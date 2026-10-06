@@ -48,10 +48,10 @@ float LanguagePickerWidth()
 	return ui::PillSegmentedWidth(c.names, 3, 16.0f, 0.0f, false);
 }
 
-bool LanguagePicker(const char *id, const FlexRect &r)
+bool LanguagePicker(const char *id, const FlexRect &r, float lead)
 {
 	const LanguageChoices c = Languages();
-	const int picked = ui::PillSegmented(id, c.current, c.names, 3, r, 16.0f, false);
+	const int picked = ui::PillSegmented(id, c.current, c.names, 3, r, 16.0f, false, lead);
 	if (picked == c.current)
 		return false;
 	if (kLanguageOrder[picked] == Language::Japanese && !c.japaneseFont)

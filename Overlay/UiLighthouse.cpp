@@ -205,7 +205,7 @@ float BuildLighthousePage(const VRState &state, ImVec2 origin, float width)
 		const std::string channel = FormatString("S-%d", s.channel);
 		ui::DrawLine(dl, ui::type::CardTitle, ImVec2(x + 22.0f + 10.0f, lineY), ui::col::Text, channel.c_str());
 		const std::string id = s.id != 0 ? LighthouseVisibility::IdName(s.id) : std::string(Tr("id not logged yet"));
-		const ui::TextStyle idStyle{ ui::Weight::Regular, 13.0f, 28.0f };
+		const ui::TextStyle idStyle{ s.id != 0 ? ui::Weight::Mono : ui::Weight::Regular, 13.0f, 28.0f };
 		const float idW = ui::MeasureLine(idStyle, id.c_str()).x;
 		ui::DrawLine(dl, idStyle, ImVec2(c.max.x - 18.0f - idW, lineY), ui::Rgba(236, 238, 244, 0.50f), id.c_str());
 		const std::string seenLine = Tr(reporting == 0 ? std::string("No reports yet")

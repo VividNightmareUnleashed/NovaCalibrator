@@ -146,7 +146,8 @@ static void StoreFieldAnchor(CalibrationContext &ctx, const questcal::EngineResu
 	ctx.Log(buf);
 	ctx.Outcome("Anchor added",
 		"This spot now has its own correction, blended in as you walk around.",
-		"", "", CalibrationContext::Tone::Good);
+		"", "", CalibrationContext::Tone::Good, CalibrationContext::Event::Anchor,
+		"Anchor added. This spot now has its own correction.");
 }
 
 void calibration_internal::FinishCalibration(CalibrationContext &ctx)
@@ -514,21 +515,26 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 		: "Check the tracker positions in VR. Try again if they look off.";
 	const CalibrationContext::Tone tone = rough ? CalibrationContext::Tone::Warn
 		: CalibrationContext::Tone::Good;
+	// The feed names the pair it was made with.
+	const std::string feed = run.referenceModel.empty() || run.targetModel.empty() ? "Calibration complete."
+		: "Calibrated with " + DeviceName(ctx, run.referenceModel, run.referenceSerial, true) + " and " +
+			DeviceName(ctx, run.targetModel, run.targetSerial, false) + ".";
+	const auto calibrated = CalibrationContext::Event::Calibrated;
 	if (mount.attempted)
 	{
 		// A headset-tracker run is judged on what it was for.
 		if (mount.measured)
-			ctx.Outcome("Calibration complete", quality + " " + mount.note, action, "", tone);
+			ctx.Outcome("Calibration complete", quality + " " + mount.note, action, "", tone, calibrated, feed);
 		else
 		{
 			if (mount.tooFast)
 				ctx.lastRunPassed = false;
 			ctx.Outcome("Done, but the headset tracker wasn't set up",
-				quality + " " + mount.note, mount.action, "", CalibrationContext::Tone::Warn);
+				quality + " " + mount.note, mount.action, "", CalibrationContext::Tone::Warn, calibrated);
 		}
 	}
 	else
-		ctx.Outcome("Calibration complete", quality, action, "", tone);
+		ctx.Outcome("Calibration complete", quality, action, "", tone, calibrated, feed);
 	if (!saved)
 		ctx.Tell("Applied for this session, but it couldn't be saved. Recalibrate after restarting.",
 			CalibrationContext::Tone::Warn);

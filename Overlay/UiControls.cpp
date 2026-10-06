@@ -98,8 +98,9 @@ namespace ui
 		const float gap = icon != Icon::None ? 10.0f : 0.0f;
 		float textW = MeasureLine(style, label).x;
 		// A translation longer than the button was laid out for shrinks to fit
-		// rather than spilling past the edge; PillWidth sizes most buttons.
-		const float room = r.W() - 24.0f - iconW - gap;
+		// rather than spilling past the edge; PillWidth sizes most buttons. A
+		// link has no pill to keep clear of, only its hover margin.
+		const float room = r.W() - (kind == Btn::Link ? 8.0f : 24.0f) - iconW - gap;
 		if (textW > room && room > 0.0f)
 		{
 			const float k = std::max(0.72f, room / textW);
@@ -169,24 +170,24 @@ namespace ui
 	}
 
 	int PillSegmented(const char *id, int value, const char *const items[], int count, const FlexRect &r,
-		float fontSize, bool translate)
+		float fontSize, bool translate, float lead)
 	{
 		ImGui::PushID(id);
 		ImDrawList *dl = ImGui::GetWindowDrawList();
 		FillRounded(dl, r.min, r.max, Rgba(255, 255, 255, 0.07f), r.H() * 0.5f);
 		const float pad = 4.0f;
-		const float itemW = (r.W() - pad * 2.0f) / static_cast<float>(std::max(1, count));
+		const float itemW = (r.W() - pad * 2.0f - lead) / static_cast<float>(std::max(1, count));
 		const float itemH = r.H() - pad * 2.0f;
 		const float thumbX = Ease(ImGui::GetID("thumb"), static_cast<float>(value), 0.045f);
 		if (value >= 0 && value < count)
 		{
-			const ImVec2 a(r.min.x + pad + itemW * thumbX, r.min.y + pad);
+			const ImVec2 a(r.min.x + pad + lead + itemW * thumbX, r.min.y + pad);
 			FillRounded(dl, a, ImVec2(a.x + itemW, a.y + itemH), Rgba(255, 255, 255, 0.18f), itemH * 0.5f);
 		}
 		for (int i = 0; i < count; ++i)
 		{
 			ImGui::PushID(i);
-			const ImVec2 a(r.min.x + pad + itemW * static_cast<float>(i), r.min.y + pad);
+			const ImVec2 a(r.min.x + pad + lead + itemW * static_cast<float>(i), r.min.y + pad);
 			const ImVec2 b(a.x + itemW, a.y + itemH);
 			ImGui::SetCursorScreenPos(a);
 			if (ImGui::InvisibleButton("item", ImVec2(itemW, itemH), ImGuiButtonFlags_EnableNav))

@@ -248,7 +248,7 @@ namespace
 		switch (CalCtx.disableReason)
 		{
 		case Reason::HmdMismatch:
-			return FormatString("%s headset isn't connected. Calibration is off until it's back.",
+			return FormatString("Your %s headset isn't connected, so calibration is off until it's back.",
 				FriendlySystemName(CalCtx.referenceTrackingSystem).c_str());
 		case Reason::DriverUnreachable:
 			return "SteamVR isn't accepting the calibration. Restart SteamVR.";
@@ -345,6 +345,7 @@ namespace
 			hero.description = Tr(DisabledSentence());
 			hero.action = HeroAction::Recalibrate;
 			hero.primary = false;
+			hero.lengthPicker = false;
 			return hero;
 		}
 		if (continuous == ContinuousStatus::Frozen)
@@ -368,7 +369,9 @@ namespace
 		hero.value = Tr(RatingLabel(rating));
 		switch (rating)
 		{
-		case Rating_Good: hero.mark = ui::Mark::Good; hero.valueColour = ui::col::Good; break;
+		// Good stays white beside its green mark; the ratings that need
+		// attention take their colour.
+		case Rating_Good: hero.mark = ui::Mark::Good; hero.valueColour = ui::col::Text; break;
 		case Rating_Decent: hero.mark = ui::Mark::Caution; hero.valueColour = ui::col::Caution; break;
 		case Rating_Poor:
 		case Rating_VeryPoor: hero.mark = ui::Mark::Bad; hero.valueColour = ui::col::Alert; break;

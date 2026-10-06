@@ -185,8 +185,8 @@ en: Upkeep: %u corrections
 it: Mantenimento: correzioni: {0}
 
 # Warnings above the buttons.
-en: %s headset isn't connected. Calibration is off until it's back.
-it: Il visore {0} non è collegato. La calibrazione resta disattivata finché non torna.
+en: Your %s headset isn't connected, so calibration is off until it's back.
+it: Il tuo visore {0} non è collegato, quindi la calibrazione resta disattivata finché non torna.
 en: SteamVR isn't accepting the calibration. Restart SteamVR.
 it: SteamVR non accetta la calibrazione. Riavvia SteamVR.
 en: The app and its SteamVR driver are from different releases. Reinstall QuestCalibrator, then restart SteamVR.
@@ -553,6 +553,10 @@ it: Fatto
 # ---- Run outcomes ----
 en: Calibration complete
 it: Calibrazione completata
+en: Calibration complete.
+it: Calibrazione completata.
+en: Calibrated with %s and %s.
+it: Calibrato con {0} e {1}.
 en: Calibration failed
 it: Calibrazione non riuscita
 en: Calibration stopped
@@ -635,9 +639,11 @@ en: Waiting for %s to settle.
 it: In attesa che {0} si stabilizzi.
 en: Waiting for %s to start tracking.
 it: In attesa che {0} venga tracciato.
-en: The calibration starts on its own in a few seconds. Keep it in view of its base stations.
-it: La calibrazione parte da sola tra qualche secondo. Tienilo in vista delle sue stazioni base.
-en: The calibration starts on its own once it tracks. Wake it and keep it in view.
+en: Calibration starts on its own in a few seconds. Keep the tracker in view of its base stations.
+it: La calibrazione parte da sola tra qualche secondo. Tieni il tracker in vista delle sue stazioni base.
+en: Calibration starts on its own in a few seconds.
+it: La calibrazione parte da sola tra qualche secondo.
+en: Calibration starts on its own once it tracks. Wake it and keep it in view.
 it: La calibrazione parte da sola appena viene tracciato. Riattivalo e tienilo in vista.
 en: %s's base station tracking restarted during the measurement.
 it: Il tracciamento di {0} con le stazioni base è ripartito durante la misura.
@@ -719,6 +725,8 @@ en: Restart QuestCalibrator and try again.
 it: Riavvia QuestCalibrator e riprova.
 en: This spot now has its own correction, blended in as you walk around.
 it: Questo punto ora ha la sua correzione, raccordata mentre ti muovi.
+en: Anchor added. This spot now has its own correction.
+it: Ancora aggiunta. Questo punto ora ha la sua correzione.
 en: If your trackers are a little off in one part of the room, stand there and add an anchor. Nova Calibrator fixes that spot and blends the correction in as you walk toward it.
 it: Se in una parte della stanza i tracker sono un po' sfasati, mettiti lì e aggiungi un'ancora. Nova Calibrator corregge quel punto e applica la correzione gradualmente mentre ti avvicini.
 en: Anchor %zu
@@ -779,14 +787,14 @@ en: No usable readings from the headset and its tracker; continuous calibration 
 it: Nessuna misura utilizzabile dal visore e dal suo tracker; calibrazione continua in attesa.
 en: Readings back; continuous calibration warming up.
 it: Misure di nuovo disponibili; calibrazione continua in avvio.
-en: SteamVR switched the headset tracker off after it sat still for %d minutes. Turn it back on to resume continuous calibration.
-it: SteamVR ha spento il tracker del visore perché è rimasto fermo per {0} minuti. Riaccendilo per riprendere la calibrazione continua.
-en: SteamVR switched the headset tracker off after it sat still. Turn it back on to resume continuous calibration.
-it: SteamVR ha spento il tracker del visore perché è rimasto fermo. Riaccendilo per riprendere la calibrazione continua.
-en: The headset tracker switched off or lost its connection. Turn it back on to resume continuous calibration.
-it: Il tracker del visore si è spento o ha perso la connessione. Riaccendilo per riprendere la calibrazione continua.
-en: To keep SteamVR from doing this, set "Turn off controllers after" to Never in SteamVR's Startup / Shutdown settings.
-it: Per evitare che SteamVR lo faccia, imposta "Spegni i controller dopo" su Mai nelle impostazioni Avvio / Arresto di SteamVR.
+en: SteamVR switched the headset tracker off after it sat still for %d minutes.
+it: SteamVR ha spento il tracker del visore perché è rimasto fermo per {0} minuti.
+en: SteamVR switched the headset tracker off after it sat still.
+it: SteamVR ha spento il tracker del visore perché è rimasto fermo.
+en: The headset tracker switched off or lost its connection.
+it: Il tracker del visore si è spento o ha perso la connessione.
+en: To keep this from happening, set “Turn off controllers after” to Never in SteamVR's Startup / Shutdown settings.
+it: Per evitare che succeda, imposta “Spegni i controller dopo” su Mai nelle impostazioni Avvio / Arresto di SteamVR.
 en: QuestCalibrator: the headset tracker is off. Turn it back on to resume continuous calibration.
 it: QuestCalibrator: il tracker del visore è spento. Riaccendilo per riprendere la calibrazione continua.
 
@@ -795,7 +803,7 @@ en: Check your room boundaries
 it: Controlla i confini della stanza
 en: Nova Calibrator saves and restores your SteamVR chaperone. Tracking drift can still shift it away from your real walls.
 it: Nova Calibrator salva e ripristina il chaperone di SteamVR. La deriva del tracciamento può comunque spostarlo rispetto alle pareti reali.
-en: Keep the Quest boundary turned on too. A protected chaperone doesn't guarantee that your play area is clear or correctly aligned.
+en: Keep the Quest boundary on too. A protected chaperone doesn't guarantee that your play area is clear or correctly aligned.
 it: Tieni attivo anche il confine del Quest. Un chaperone protetto non garantisce che l'area di gioco sia libera o allineata correttamente.
 en: Before you play, check that the walls match your room and leave enough space to move safely, especially when dancing.
 it: Prima di giocare, controlla che le pareti corrispondano alla stanza e lascino spazio per muoverti in sicurezza, soprattutto se balli.

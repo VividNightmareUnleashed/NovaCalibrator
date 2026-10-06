@@ -130,9 +130,10 @@ questcal::update::Snapshot CurrentUpdate()
 }
 
 // An activity entry from secondsAgo, as the monitors would have written it.
-static void PreviewActivity(const char *text, CalibrationContext::Tone tone, double secondsAgo)
+static void PreviewActivity(const char *text, CalibrationContext::Tone tone, double secondsAgo,
+	CalibrationContext::Event event)
 {
-	CalCtx.PushActivity(text, tone);
+	CalCtx.PushActivity(text, tone, event);
 	CalCtx.activity.back().unixTime = static_cast<double>(std::time(nullptr)) - secondsAgo;
 }
 
@@ -270,14 +271,34 @@ void SetupPreviewState()
 	}
 
 	// A recent history for the home screen and the activity sheet, oldest
-	// first, as the monitors and runs write it.
-	PreviewActivity("Calibration complete: Check in VR that your trackers line up with your body.",
-		CalibrationContext::Tone::Good, 26.0 * 3600.0);
-	PreviewActivity("Chaperone restored.", CalibrationContext::Tone::Neutral, 52.0 * 60.0);
-	PreviewActivity("Anchor added: This spot now has its own correction, blended in as you walk around.",
-		CalibrationContext::Tone::Good, 21.0 * 60.0);
-	PreviewActivity("Re-aligned your trackers after your headset's tracking shifted.",
-		CalibrationContext::Tone::Good, 42.0);
+	// first, as the monitors and runs write it: the design's. The activity
+	// sheet's runs on to the tracker switching off.
+	using Event = CalibrationContext::Event;
+	using Tone = CalibrationContext::Tone;
+	const bool sheet = g_uiPreviewScenario == PreviewScenario::Activity;
+	const double minute = 60.0, last = sheet ? 24.0 * minute : 42.0;
+	// Yesterday at 21:47, whatever the time now.
+	const std::time_t now = std::time(nullptr);
+	std::tm local{};
+	const double sinceMidnight = localtime_s(&local, &now) == 0
+		? local.tm_hour * 3600.0 + local.tm_min * 60.0 + local.tm_sec : 12.0 * 3600.0;
+	PreviewActivity("Calibration complete.", Tone::Good, sinceMidnight + (2.0 * 60.0 + 13.0) * minute,
+		Event::Calibrated);
+	PreviewActivity("Calibrated with Touch Pro Right and VIVE Tracker 3.0.", Tone::Good, last + 43.0 * minute,
+		Event::Calibrated);
+	PreviewActivity("Chaperone restored.", Tone::Good, last + 38.0 * minute, Event::Chaperone);
+	if (sheet)
+		PreviewActivity("Anchor added. This spot now has its own correction.", Tone::Good, last + 21.0 * minute,
+			Event::Anchor);
+	PreviewActivity("Re-aligned your trackers after your headset's tracking shifted.", Tone::Good, last,
+		Event::Realigned);
+	if (sheet)
+	{
+		PreviewActivity("Continuous calibration paused: tracking drifted too far to correct safely.", Tone::Warn,
+			13.0 * minute, Event::Paused);
+		PreviewActivity("SteamVR switched the headset tracker off after it sat still for 5 minutes.", Tone::Warn,
+			30.0, Event::TrackerOff);
+	}
 
 	switch (g_uiPreviewScenario)
 	{
@@ -294,7 +315,7 @@ void SetupPreviewState()
 			CalCtx.state = CalibrationState::Begin;
 			CalCtx.run.waitInstruction = "Waiting for VIVE Tracker 3.0 to settle.";
 			CalCtx.run.waitNote =
-				"The calibration starts on its own in a few seconds. Keep it in view of its base stations.";
+				"Calibration starts on its own in a few seconds. Keep the tracker in view of its base stations.";
 			s_guide.stage = GuideStage::Running;
 		}
 		if (g_uiPreviewScenario == PreviewScenario::Move)
@@ -308,7 +329,8 @@ void SetupPreviewState()
 		{
 			CalCtx.lastRunPassed = true;
 			CalCtx.Outcome("Calibration complete", "Check in VR that your trackers line up with your body.",
-				"", "Rotation RMS 2.53 degrees; position RMS 1.0 cm", CalibrationContext::Tone::Good);
+				"", "Rotation RMS 2.53 degrees; position RMS 1.0 cm", CalibrationContext::Tone::Good,
+				CalibrationContext::Event::Calibrated, "Calibrated with Touch Pro Right and VIVE Tracker 3.0.");
 			s_guide.stage = GuideStage::Done;
 		}
 		if (g_uiPreviewScenario == PreviewScenario::Failed)
@@ -359,7 +381,7 @@ void SetupPreviewState()
 		CalCtx.continuousDeviation.tiltDeg = 0.9;
 		CalCtx.continuousDeviation.posM = 0.11;
 		CalCtx.Tell("Continuous calibration paused: tracking drifted too far to correct safely.",
-			CalibrationContext::Tone::Warn);
+			CalibrationContext::Tone::Warn, CalibrationContext::Event::Paused);
 		break;
 	case PreviewScenario::TrackerOff:
 		// The headset came off for a while and SteamVR switched its tracker
@@ -370,9 +392,10 @@ void SetupPreviewState()
 		CalCtx.continuousDeviation.valid = false;
 		// Unmaintained for long enough that the drift evidence calls it bad.
 		CalCtx.driftScore = questcal::DriftVeryPoorScore;
-		CalCtx.Tell("SteamVR switched the headset tracker off after it sat still for 5 minutes. Turn it back on to resume continuous calibration.",
-			CalibrationContext::Tone::Warn);
-		CalCtx.Tell("To keep SteamVR from doing this, set \"Turn off controllers after\" to Never in SteamVR's Startup / Shutdown settings.");
+		CalCtx.Tell("SteamVR switched the headset tracker off after it sat still for 5 minutes.",
+			CalibrationContext::Tone::Warn, CalibrationContext::Event::TrackerOff);
+		CalCtx.Tell("To keep this from happening, set \xE2\x80\x9CTurn off controllers after\xE2\x80\x9D to Never in "
+			"SteamVR's Startup / Shutdown settings.", CalibrationContext::Tone::Neutral, CalibrationContext::Event::TrackerOff);
 		break;
 	case PreviewScenario::SetupWelcome:
 	case PreviewScenario::SetupHeadset:

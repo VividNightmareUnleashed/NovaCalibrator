@@ -11,6 +11,8 @@ static int s_guideTextureKind = -1;
 // Whether the result shows its detail lines; OpenGuide seeds it from
 // advanced mode.
 bool s_modalDetails = false;
+// The detail lines are measurements, set in the design's monospace face.
+static const ui::TextStyle kDetail{ ui::Weight::Mono, 15.0f, 20.0f };
 
 void OpenGuide(bool anchor, bool mountRun)
 {
@@ -260,7 +262,7 @@ static void DemoWell(ImDrawList *dl, const FlexRect &area, bool controls)
 	const ImU32 fill = ui::Rgba(255, 255, 255, 0.12f), ink = ui::Rgba(236, 238, 244, 0.90f);
 	const ImVec2 pause(area.max.x - 14.0f - 20.0f, area.max.y - 12.0f - 20.0f);
 	const ImVec2 replay(pause.x - 48.0f, pause.y);
-	if (ui::RoundButton("##replaydemo", replay, 40.0f, ui::Icon::Refresh, 18.0f, fill, ink))
+	if (ui::RoundButton("##replaydemo", replay, 40.0f, ui::Icon::Replay, 18.0f, fill, ink))
 	{
 		s_guide.animationTime = 0.0;
 		s_guide.animate = true;
@@ -677,11 +679,11 @@ static void ResultStage(const FlexRect &c)
 	if (!details.empty() && s_modalDetails)
 	{
 		detailBox = fl.Column(root);
-		YGNodeStyleSetMargin(detailBox, YGEdgeTop, 18.0f);
+		YGNodeStyleSetMargin(detailBox, YGEdgeTop, 20.0f);
 		YGNodeStyleSetPadding(detailBox, YGEdgeVertical, 12.0f);
 		YGNodeStyleSetPadding(detailBox, YGEdgeHorizontal, 18.0f);
 		YGNodeStyleSetMaxWidth(detailBox, colW);
-		detailText = ui::TextNode(fl, detailBox, ui::type::Footnote, detailJoined);
+		detailText = ui::TextNode(fl, detailBox, kDetail, detailJoined);
 	}
 	YGNodeRef toggle = nullptr;
 	const char *toggleLabel = s_modalDetails ? "Hide details" : "Show details";
@@ -710,7 +712,7 @@ static void ResultStage(const FlexRect &c)
 		const FlexRect box = fl.Rect(detailBox);
 		ui::FillRounded(dl, box.min, box.max, ui::col::Well, 14.0f);
 		const FlexRect text = fl.Rect(detailText);
-		ui::DrawText(dl, ui::type::Footnote, text.min, text.W(), ui::col::Muted, detailJoined.c_str());
+		ui::DrawText(dl, kDetail, text.min, text.W(), ui::col::Muted, detailJoined.c_str());
 	}
 	if (toggle && ui::PillButton("##details", toggleLabel, ui::Btn::Link, fl.Rect(toggle), ui::Icon::None, 17.0f))
 		s_modalDetails = !s_modalDetails;
@@ -773,7 +775,8 @@ void BuildCalibrateSheet(const VRState &state)
 		{
 			CalCtx.lastRunPassed = true;
 			CalCtx.Outcome("Calibration complete", "Check in VR that your trackers line up with your body.", "", "",
-				CalibrationContext::Tone::Good);
+				CalibrationContext::Tone::Good, CalibrationContext::Event::Calibrated,
+				"Calibrated with Touch Pro Right and VIVE Tracker 3.0.");
 		}
 		s_guide.stage = GuideStage::Done;
 	}
