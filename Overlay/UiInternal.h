@@ -10,6 +10,7 @@
 #include "ProfileValidation.h"
 #include "Updater.h"
 #include "UiLayout.h"
+#include "UiKit.h"
 #include "Localization.h"
 #include "../common/Protocol.h"
 #include "../common/Version.h"

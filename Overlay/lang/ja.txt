@@ -1061,3 +1061,11 @@ en: Base station changes haven't affected drift checks this session.
 ja: このセッションでは、ベースステーションの変化はドリフト確認に影響していません。
 en: Read from %s
 ja: 読み込み元：{0}
+
+# The calibration steps, as the sheet's stepper names them.
+en: Get set
+ja: 準備
+en: Move
+ja: 動かす
+en: Check
+ja: 確認

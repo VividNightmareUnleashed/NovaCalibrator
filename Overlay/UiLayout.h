@@ -3,6 +3,9 @@
 #include <imgui/imgui.h>
 #include <yoga/Yoga.h>
 
+#include <deque>
+#include <functional>
+
 // Flex layout for the screens, computed by Yoga and read back as screen
 // rectangles that ImGui widgets and draw-list calls are placed at. A web
 // reference's flex, gap, padding and size values go on the nodes verbatim,
@@ -36,6 +39,10 @@ public:
 	YGNodeRef Row(YGNodeRef parent);
 	// A leaf the size of one line of text in font; the caller draws the text.
 	YGNodeRef Text(YGNodeRef parent, ImFont *font, const char *text);
+	// A leaf whose size comes from measure(maxWidth), as wrapping text does:
+	// maxWidth is the width the layout offers, or FLT_MAX when nothing limits
+	// it. The layout keeps the function until it is destroyed.
+	YGNodeRef Measured(YGNodeRef parent, std::function<ImVec2(float maxWidth)> measure);
 
 	// Lay the tree out with the root's top-left corner at origin. A root with
 	// no size of its own takes exactly width by height; pass YGUndefined for
@@ -49,4 +56,6 @@ private:
 	YGConfigRef config;
 	YGNodeRef root;
 	ImVec2 origin;
+	// A deque, so a node's context pointer stays valid as more are added.
+	std::deque<std::function<ImVec2(float)>> measures;
 };

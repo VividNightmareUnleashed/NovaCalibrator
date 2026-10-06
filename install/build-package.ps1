@@ -105,6 +105,7 @@ Copy-Item (Join-Path $repoRoot 'lib\imgui\LICENSE.txt')                  (Join-P
 Copy-Item (Join-Path $repoRoot 'lib\glfw\COPYING.txt')                   (Join-Path $noticesStage 'GLFW-COPYING.txt')
 Copy-Item (Join-Path $repoRoot 'lib\yoga\LICENSE')                       (Join-Path $noticesStage 'Yoga-LICENSE.txt')
 Copy-Item (Join-Path $repoRoot 'lib\monocypher\LICENCE.md')              (Join-Path $noticesStage 'Monocypher-LICENCE.txt')
+Copy-Item (Join-Path $repoRoot 'lib\inter\LICENSE.txt')                  (Join-Path $noticesStage 'Inter-OFL.txt')
 Copy-Item (Join-Path $PSScriptRoot 'notices\picojson-LICENSE.txt') $noticesStage
 Copy-Item (Join-Path $PSScriptRoot 'notices\gl3w-LICENSE.txt') $noticesStage
 Copy-Item (Join-Path $PSScriptRoot 'notices\Khronos-*-LICENSE.txt') $noticesStage
