@@ -30,7 +30,8 @@ $Exe = (Resolve-Path -LiteralPath $Exe).Path
 $Screens = @('-uipreview', '-uipreview-many', '-uipreview-empty', '-uipreview-frozen', '-uipreview-trackeroff',
     '-uipreview-notices', '-uipreview-pair', '-uipreview-guide', '-uipreview-guide-wait', '-uipreview-move',
     '-uipreview-result', '-uipreview-failed', '-uipreview-chaperone', '-uipreview-chapwarn', '-uipreview-anchors',
-    '-uipreview-activity', '-uipreview-clear', '-uipreview-lighthouse', '-uipreview-settings')
+    '-uipreview-activity', '-uipreview-clear', '-uipreview-lighthouse', '-uipreview-settings', '-uipreview-settings-more',
+    '-uipreview-editor', '-uipreview-credits')
 $Languages = @('en', 'ja', 'it')
 
 New-Item -ItemType Directory -Force -Path $Out | Out-Null

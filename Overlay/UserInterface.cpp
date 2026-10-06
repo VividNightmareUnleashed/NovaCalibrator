@@ -7,9 +7,6 @@
 bool g_uiPreviewMode = false;
 bool g_uiPreviewMany = false;
 PreviewScenario g_uiPreviewScenario = PreviewScenario::Healthy;
-ImFont *g_fontBody = nullptr;
-ImFont *g_fontSmall = nullptr;
-ImFont *g_fontTitle = nullptr;
 
 IdentifyPulseState g_identifyPulse;
 Page g_page = Page::Calibration;
@@ -109,16 +106,32 @@ static void BuildSidebar(bool runningInOverlay)
 // Pages
 // ---------------------------------------------------------------------------
 
-// A page that has not moved to the design kit yet: its old flowing layout,
-// inset by the page margins.
-static float LegacyPage(void (*build)(const VRState &), const VRState &state, ImVec2 origin, float width)
+static const char *PageTitle(Page page)
 {
-	ImGui::SetCursorScreenPos(ImVec2(origin.x + 40.0f, origin.y));
-	ImGui::BeginChild("##legacy", ImVec2(width - 80.0f, 0.0f), ImGuiChildFlags_AutoResizeY, ImGuiWindowFlags_NoBackground);
-	build(state);
-	ImGui::Dummy(ImVec2(0.0f, 8.0f));
-	ImGui::EndChild();
-	return ImGui::GetItemRectSize().y;
+	switch (page)
+	{
+	case Page::Lighthouse: return "Lighthouse";
+	case Page::Settings: return "Settings";
+	default: return "Calibration";
+	}
+}
+
+// Once the page has scrolled its big title away, the title stays in a bar
+// across the top, fading in as the big one leaves.
+static void CompactTitle()
+{
+	const float t = std::clamp((ImGui::GetScrollY() - 24.0f) / 28.0f, 0.0f, 1.0f);
+	if (t <= 0.0f)
+		return;
+	ImDrawList *dl = ImGui::GetWindowDrawList();
+	const ImVec2 a = ImGui::GetWindowPos();
+	const float w = ImGui::GetWindowWidth() - (ImGui::GetScrollMaxY() > 0.0f ? ImGui::GetStyle().ScrollbarSize : 0.0f);
+	const ImVec2 b(a.x + w, a.y + 56.0f);
+	dl->AddRectFilled(a, b, ui::Fade(ui::Rgba(36, 38, 43, 0.94f), t));
+	dl->AddRectFilled(ImVec2(a.x, b.y - 1.0f), b, ui::Fade(ui::col::Hairline, t));
+	const char *title = Tr(PageTitle(g_page));
+	const ui::TextStyle style{ ui::Weight::SemiBold, 17.0f, 56.0f };
+	ui::DrawLine(dl, style, ImVec2(a.x + (w - ui::MeasureLine(style, title).x) * 0.5f, a.y), ui::Fade(ui::col::Text, t), title);
 }
 
 static void BuildPage(const VRState &state)
@@ -136,14 +149,15 @@ static void BuildPage(const VRState &state)
 		height = BuildHomePage(state, pageOrigin, width);
 		break;
 	case Page::Lighthouse:
-		height = LegacyPage(BuildLighthouseScreen, state, pageOrigin, width);
+		height = BuildLighthousePage(state, pageOrigin, width);
 		break;
 	case Page::Settings:
-		height = LegacyPage(BuildSettingsScreen, state, pageOrigin, width);
+		height = BuildSettingsPage(state, pageOrigin, width);
 		break;
 	}
 	ImGui::SetCursorScreenPos(origin);
 	ImGui::Dummy(ImVec2(width, top + height + 30.0f));
+	CompactTitle();
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +209,10 @@ void BuildMainWindow(bool runningInOverlay)
 	if (g_page == Page::Lighthouse && !questcal::Modules::On(CalCtx.modules.lighthouse))
 		g_page = Page::Calibration;
 	ImGui::SetCursorScreenPos(ImVec2(kSidebarW, 0.0f));
+	// -uipreview-settings-more shows the page scrolled to its end (ImGui
+	// clamps the request; FLT_MAX would mean "no request").
+	if (g_uiPreviewMode && g_uiPreviewScenario == PreviewScenario::SettingsMore)
+		ImGui::SetNextWindowScroll(ImVec2(0.0f, 100000.0f));
 	// NavFlattened: keyboard focus walks straight from the sidebar into the
 	// page's controls instead of stopping on the child as one item.
 	ImGui::BeginChild("##page", ImVec2(io.DisplaySize.x - kSidebarW, io.DisplaySize.y), ImGuiChildFlags_NavFlattened,

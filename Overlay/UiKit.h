@@ -223,7 +223,7 @@ namespace ui
 	constexpr float kSwitchH = 34.0f;
 
 	// A row of choices in a rounded track; the chosen one carries a lit pill.
-	float PillSegmentedWidth(const char *const items[], int count, float fontSize, float minItemW);
+	float PillSegmentedWidth(const char *const items[], int count, float fontSize, float minItemW, bool translate = true);
 	int PillSegmented(const char *id, int value, const char *const items[], int count, const FlexRect &r,
 		float fontSize = 16.0f, bool translate = true);
 
@@ -261,4 +261,14 @@ namespace ui
 
 	// A tooltip beside the pointer (or under the focused control).
 	void Tip(const char *english);
+
+	// A menu of actions dropped from a control: ImGui::OpenPopup(id) opens
+	// it; while BeginMenuPopup returns true, add MenuItems and close it with
+	// EndMenuPopup. pivot places the menu's corner at anchor ((1, 0) hangs it
+	// from its top-right corner).
+	bool BeginMenuPopup(const char *id, ImVec2 anchor, ImVec2 pivot, float width);
+	void EndMenuPopup();
+	// One action in the menu; pressing it also closes the menu.
+	bool MenuItem(const char *id, Icon icon, const char *english, ImU32 ink = col::Text);
+	constexpr float kMenuItemH = 44.0f;
 }

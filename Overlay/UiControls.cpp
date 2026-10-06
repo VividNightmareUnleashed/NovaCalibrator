@@ -159,12 +159,12 @@ namespace ui
 		return changed;
 	}
 
-	float PillSegmentedWidth(const char *const items[], int count, float fontSize, float minItemW)
+	float PillSegmentedWidth(const char *const items[], int count, float fontSize, float minItemW, bool translate)
 	{
 		const TextStyle style{ Weight::SemiBold, fontSize, fontSize };
 		float itemW = minItemW;
 		for (int i = 0; i < count; ++i)
-			itemW = std::max(itemW, MeasureLine(style, Tr(items[i])).x + 32.0f);
+			itemW = std::max(itemW, MeasureLine(style, translate ? Tr(items[i]) : items[i]).x + 32.0f);
 		return std::ceil(itemW * static_cast<float>(count) + 8.0f);
 	}
 
@@ -426,5 +426,44 @@ namespace ui
 	void Tip(const char *english)
 	{
 		ShowTip(english);
+	}
+
+	bool BeginMenuPopup(const char *id, ImVec2 anchor, ImVec2 pivot, float width)
+	{
+		ImGui::SetNextWindowPos(anchor, ImGuiCond_Always, pivot);
+		ImGui::SetNextWindowSize(ImVec2(width, 0.0f), ImGuiCond_Always);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 6.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 16.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
+		const bool open = ImGui::BeginPopup(id, ImGuiWindowFlags_NoMove);
+		ImGui::PopStyleVar(3);
+		if (open)
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 2.0f));
+		return open;
+	}
+
+	void EndMenuPopup()
+	{
+		ImGui::PopStyleVar();
+		ImGui::EndPopup();
+	}
+
+	bool MenuItem(const char *id, Icon icon, const char *english, ImU32 ink)
+	{
+		const ImVec2 a = ImGui::GetCursorScreenPos();
+		const ImVec2 size(ImGui::GetContentRegionAvail().x, kMenuItemH);
+		const bool pressed = ImGui::InvisibleButton(id, size, ImGuiButtonFlags_EnableNav);
+		const ImVec2 b(a.x + size.x, a.y + size.y);
+		ImDrawList *dl = ImGui::GetWindowDrawList();
+		if (ImGui::IsItemHovered())
+			FillRounded(dl, a, b, Rgba(255, 255, 255, ImGui::IsItemActive() ? 0.06f : 0.09f), 11.0f);
+		FocusRing(dl, a, b, 11.0f);
+		if (icon != Icon::None)
+			DrawIcon(dl, icon, ImVec2(a.x + 14.0f + 9.0f, a.y + size.y * 0.5f), 18.0f, ink);
+		DrawLine(dl, TextStyle{ Weight::Medium, 16.0f, size.y }, ImVec2(a.x + 44.0f, a.y), ink,
+			Ellipsize(TextStyle{ Weight::Medium, 16.0f, size.y }, Tr(english), size.x - 56.0f).c_str());
+		if (pressed)
+			ImGui::CloseCurrentPopup();
+		return pressed;
 	}
 }

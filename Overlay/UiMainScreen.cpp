@@ -63,26 +63,6 @@ ContinuousStatus ContinuousStatusNow()
 	}
 }
 
-// The state as one or two words, for the settings row where the feature's
-// name is the row title and the setup button beneath says what to do.
-const char *ContinuousStateWord(ContinuousStatus status)
-{
-	switch (status)
-	{
-	case ContinuousStatus::Off:        return "Off";
-	case ContinuousStatus::NoTracker:  return "Needs a tracker";
-	case ContinuousStatus::NeedsMount: return "Needs setup";
-	case ContinuousStatus::NotRunning: return "Waiting";
-	case ContinuousStatus::TrackerOff: return "Tracker off";
-	case ContinuousStatus::Tracking:   return "Active";
-	case ContinuousStatus::Coasting:   return "Waiting";
-	case ContinuousStatus::HeadsetUnseen: return "Waiting";
-	case ContinuousStatus::Frozen:     return "Paused";
-	case ContinuousStatus::Holding:    return "Waiting";
-	default:                           return "Warming up";
-	}
-}
-
 // The home screen's line about the loop, as a whole sentence so it reads
 // (and translates) as one. Written for the question the player has ("will
 // this fix itself?"): waiting states resolve on their own, paused ones name
@@ -106,19 +86,6 @@ const char *ContinuousStatusLine(ContinuousStatus status)
 			: "Continuous calibration is paused. Readings drifted too far to correct.";
 	case ContinuousStatus::Holding:    return "Continuous calibration is waiting. It resumes when tracking settles.";
 	default:                           return "Continuous calibration is warming up.";
-	}
-}
-
-// Whether the loop is doing its job, paused for a reason that clears itself,
-// or needs the player: the colour every rendering of the status shares.
-ImVec4 ContinuousStatusColor(ContinuousStatus status)
-{
-	switch (status)
-	{
-	case ContinuousStatus::Tracking:   return Pal::Good;
-	case ContinuousStatus::Frozen:     return Pal::Bad;
-	case ContinuousStatus::Off:        return Pal::Dim;
-	default:                           return Pal::Warn;
 	}
 }
 
@@ -208,19 +175,6 @@ const char *RatingLabel(CalRating r)
 	return r == Rating_Unknown ? "Not measured" : RatingLabels[r];
 }
 
-ImVec4 RatingColor(CalRating r)
-{
-	switch (r)
-	{
-	// Unknown claims nothing in either direction, so it gets the neutral ink.
-	case Rating_Unknown: return Pal::Dim;
-	case Rating_Good:    return Pal::Good;
-	case Rating_Decent:  return Pal::Warn;
-	case Rating_Poor:    return Pal::Bad;
-	default:             return Pal::VeryBad;
-	}
-}
-
 // The recalibration nudge, derived from the rating alone so every screen gives
 // the same advice. Null when there is nothing to advise.
 const char *RecalibrationNudge(CalRating rating)
@@ -253,21 +207,6 @@ std::optional<std::string> FormatUnixAge(double unixTime)
 	if (hours < 48.0)
 		return FormatString("%.1f h ago", hours);
 	return FormatString("%.0f days ago", hours / 24.0);
-}
-
-// The age of the alignment, from the same base UpdateDriftScore ages from:
-// the later of the manual solve and the last auto-correction. Anything shown
-// beside a score-derived verdict must use that base and say which one it is.
-std::optional<std::string> FormatAlignmentAge()
-{
-	if (CalCtx.lastAutoCorrectionUnixTime > CalCtx.calibrationUnixTime)
-	{
-		if (auto adjusted = FormatUnixAge(CalCtx.lastAutoCorrectionUnixTime))
-			return "adjusted " + *adjusted;
-	}
-	if (auto calibrated = FormatUnixAge(CalCtx.calibrationUnixTime))
-		return "calibrated " + *calibrated;
-	return std::nullopt;
 }
 
 // Snapshot the live chaperone and arm auto-restore (the "protect" action).
@@ -679,12 +618,28 @@ float BuildHomePage(const VRState &state, ImVec2 origin, float width)
 			ShowTip("How long calibration collects tracking data. Longer can be more accurate.\nMove gently at every setting.");
 	}
 	{
+		// The less-used actions. Before there is a calibration to clear, the
+		// pair is the only one, and the button goes straight to it.
 		const FlexRect r = fl.Rect(more);
-		if (ui::RoundButton("##pair", r.Center(), 48.0f, ui::Icon::More, 20.0f, ui::Rgba(255, 255, 255, 0.07f),
+		const bool menu = CalCtx.validProfile;
+		if (ui::RoundButton("##more", r.Center(), 48.0f, ui::Icon::More, 20.0f, ui::Rgba(255, 255, 255, 0.07f),
 			ui::Rgba(236, 238, 244, 0.85f)))
-			OpenSheet(Sheet::Pair);
-		if (ImGui::IsItemHovered())
-			ShowTip("Choose the pair to calibrate");
+		{
+			if (menu)
+				ImGui::OpenPopup("##moremenu");
+			else
+				OpenSheet(Sheet::Pair);
+		}
+		if (ImGui::IsItemHovered() && !ImGui::IsPopupOpen("##moremenu"))
+			ShowTip(menu ? "More actions" : "Choose the pair to calibrate");
+		if (ui::BeginMenuPopup("##moremenu", ImVec2(r.min.x, r.max.y + 8.0f), ImVec2(0.0f, 0.0f), 280.0f))
+		{
+			if (ui::MenuItem("##pairitem", ui::Icon::Controller, "Choose the pair"))
+				OpenSheet(Sheet::Pair);
+			if (ui::MenuItem("##clearitem", ui::Icon::Trash, "Clear calibration", ui::col::DangerInk))
+				OpenDialog(Dialog::ClearCalibration);
+			ui::EndMenuPopup();
+		}
 	}
 
 	for (size_t i = 0; i < notices.size(); ++i)

@@ -138,7 +138,10 @@ namespace ui
 		// Where the line starting at s ends, for text with Japanese in it.
 		const char *CjkWrapPosition(ImFont *font, float size, const char *s, const char *end, float maxWidth)
 		{
+			// Baked at a rounded size, so advances scale to the size asked for,
+			// as ImGui's own measuring does.
 			ImFontBaked *baked = font->GetFontBaked(size);
+			const float scale = size / baked->Size;
 			const char *lastBreak = nullptr;
 			unsigned int beforePrev = 0, prev = 0;
 			float width = 0.0f;
@@ -154,7 +157,7 @@ namespace ui
 					if (allowed)
 						lastBreak = p;
 				}
-				width += baked->GetCharAdvance(static_cast<ImWchar>(c));
+				width += baked->GetCharAdvance(static_cast<ImWchar>(c)) * scale;
 				if (width > maxWidth && p > s)
 					return lastBreak ? lastBreak : p;
 				beforePrev = prev;
@@ -162,6 +165,65 @@ namespace ui
 				p += n;
 			}
 			return end;
+		}
+	}
+
+	namespace
+	{
+		using Line = std::pair<const char *, const char *>;
+
+		// One paragraph (no newline in it) broken into lines that fit width.
+		std::vector<Line> WrapParagraph(ImFont *font, float size, const char *s, const char *end, float width, bool cjk)
+		{
+			std::vector<Line> lines;
+			while (s < end)
+			{
+				const char *lineEnd = end;
+				if (width > 0.0f)
+				{
+					lineEnd = cjk ? CjkWrapPosition(font, size, s, end, width)
+						: font->CalcWordWrapPosition(size, s, end, width);
+					if (lineEnd <= s)
+					{
+						unsigned int c = 0;
+						lineEnd = s + std::max(1, ImTextCharFromUtf8(&c, s, end));
+					}
+				}
+				const char *trimmed = lineEnd;
+				while (trimmed > s && (trimmed[-1] == ' ' || trimmed[-1] == '\t'))
+					--trimmed;
+				lines.emplace_back(s, trimmed);
+				s = lineEnd;
+				while (s < end && (*s == ' ' || *s == '\t'))
+					++s;
+			}
+			return lines;
+		}
+
+		// A single short word alone on a paragraph's last line reads as an
+		// accident, so the line above gives it a neighbour when that keeps the
+		// paragraph's line count (CSS's text-wrap: pretty, in its simplest
+		// form).
+		void AvoidOrphan(std::vector<Line> &lines, ImFont *font, float size, const char *s, const char *end, float width)
+		{
+			if (lines.size() < 2 || width <= 0.0f)
+				return;
+			const Line last = lines.back();
+			if (std::find(last.first, last.second, ' ') != last.second)
+				return;
+			const float lastW = font->CalcTextSizeA(size, FLT_MAX, 0.0f, last.first, last.second).x;
+			if (lastW > width * 0.25f)
+				return;
+			const Line &above = lines[lines.size() - 2];
+			const char *space = above.second;
+			while (space > above.first && space[-1] != ' ')
+				--space;
+			if (space <= above.first)
+				return;
+			const float moved = font->CalcTextSizeA(size, FLT_MAX, 0.0f, space, above.second).x;
+			std::vector<Line> retry = WrapParagraph(font, size, s, end, width - moved - 1.0f, false);
+			if (retry.size() == lines.size())
+				lines = std::move(retry);
 		}
 	}
 
@@ -182,28 +244,15 @@ namespace ui
 			if (s == paragraphEnd)
 				out.lines.emplace_back(s, s);
 			const bool cjk = maxWidth > 0.0f && HasCjk(s, paragraphEnd);
-			while (s < paragraphEnd)
+			std::vector<Line> lines = WrapParagraph(font, glyph, s, paragraphEnd, maxWidth, cjk);
+			if (!cjk)
+				AvoidOrphan(lines, font, glyph, s, paragraphEnd, maxWidth);
+			for (const Line &line : lines)
 			{
-				const char *lineEnd = paragraphEnd;
-				if (maxWidth > 0.0f)
-				{
-					lineEnd = cjk ? CjkWrapPosition(font, glyph, s, paragraphEnd, maxWidth)
-						: font->CalcWordWrapPosition(glyph, s, paragraphEnd, maxWidth);
-					if (lineEnd <= s)
-					{
-						unsigned int c = 0;
-						lineEnd = s + std::max(1, ImTextCharFromUtf8(&c, s, paragraphEnd));
-					}
-				}
-				const char *trimmed = lineEnd;
-				while (trimmed > s && (trimmed[-1] == ' ' || trimmed[-1] == '\t'))
-					--trimmed;
-				out.lines.emplace_back(s, trimmed);
-				out.width = std::max(out.width, font->CalcTextSizeA(glyph, FLT_MAX, 0.0f, s, trimmed).x);
-				s = lineEnd;
-				while (s < paragraphEnd && (*s == ' ' || *s == '\t'))
-					++s;
+				out.lines.push_back(line);
+				out.width = std::max(out.width, font->CalcTextSizeA(glyph, FLT_MAX, 0.0f, line.first, line.second).x);
 			}
+			s = paragraphEnd;
 			if (!newline)
 				break;
 			s = newline + 1;

@@ -47,6 +47,20 @@ en: Dismiss
 ja: 閉じる
 en: Settings
 ja: 設定
+en: General
+ja: 一般
+en: Experimental
+ja: 実験的
+en: Updates
+ja: アップデート
+en: Support
+ja: サポート
+en: Credits
+ja: クレジット
+en: More actions
+ja: その他の操作
+en: Pick a tracker
+ja: トラッカーを選択
 en: Soon
 ja: 近日公開
 en: Version %s
@@ -55,20 +69,12 @@ ja: バージョン {0}
 # ---- Continuous calibration state ----
 en: Off
 ja: オフ
-en: Needs a tracker
-ja: トラッカーが必要
-en: Needs setup
-ja: 要セットアップ
 en: Waiting
 ja: 待機中
 en: Active
 ja: 動作中
 en: Paused
 ja: 一時停止
-en: Warming up
-ja: 準備中
-en: Tracker off
-ja: トラッカーがオフ
 en: Continuous calibration is off.
 ja: 連続キャリブレーションはオフです。
 en: Continuous calibration needs a headset tracker. Pick one in Settings.
@@ -299,8 +305,6 @@ en: This translation may not be accurate.
 ja: この翻訳は正確でない場合があります。
 en: Japanese needs a Japanese font, and Windows doesn't have one installed. Add the Japanese Supplemental Fonts in Windows Settings > System > Optional features.
 ja: 日本語の表示には日本語フォントが必要ですが、Windows にインストールされていません。Windows の設定 > システム > オプション機能 から「日本語の補助フォント」を追加してください。
-en: Feel free to send any feedback:
-ja: ご意見・ご指摘はお気軽にお寄せください：
 en: Report on GitHub
 ja: GitHub で報告
 en: Advanced mode
@@ -309,12 +313,10 @@ en: Shows calibration measurements, drift readings and extra settings.
 ja: キャリブレーションの測定値、ドリフトの数値、追加の設定を表示します。
 en: Alignment notifications in VR
 ja: VR 内の位置合わせ通知
-en: A SteamVR notification when the calibration looks off or continuous calibration pauses.
-ja: キャリブレーションのずれや連続キャリブレーションの一時停止を、SteamVR の通知で知らせます。
+en: Get a SteamVR notification when the alignment looks off or continuous calibration pauses.
+ja: 位置合わせがずれたときや、連続キャリブレーションが一時停止したときに、SteamVR の通知を受け取ります。
 en: Field anchors
 ja: フィールドアンカー
-en: Corrects the alignment in the spots where you added an anchor.
-ja: アンカーを追加した場所で位置合わせを補正します。
 en: Clear anchors
 ja: アンカーを消去
 en: Keep anchors
@@ -329,16 +331,14 @@ en: Those spots go back to the main calibration. The calibration itself is kept.
 ja: それらの場所はメインのキャリブレーションに戻ります。キャリブレーション自体は残ります。
 en: %zu anchor%s saved
 ja: {0} 件のアンカーを保存済み
-en: Anchor %zu at (%+.1f, %+.1f): %.1f cm / %.2f deg from base
-ja: アンカー {0}（{1}, {2}）：基準から {3} cm / {4}°
-en: Solve playspace scale (experimental)
-ja: プレイスペースのスケールを推定（実験的）
-en: Measures whether the two systems disagree on distances. Leave off unless you know you need it.
-ja: 2 つのシステムで距離の測り方が違うかどうかを測定します。必要な場合以外はオフのままにしてください。
+en: Measure playspace scale
+ja: プレイスペースのスケールを測定
+en: Checks whether your headset and SteamVR measure distances differently. Leave it off unless you need it.
+ja: ヘッドセットと SteamVR で距離の測り方が違うかどうかを確認します。必要な場合以外はオフのままにしてください。
 en: Correct for tracking delay
 ja: トラッキング遅延を補正
-en: Uses the delay between the two systems measured during calibration.
-ja: キャリブレーション中に測定した、2 つのシステム間の遅延を使います。
+en: Makes up for the lag between your headset and SteamVR, measured when you calibrate.
+ja: キャリブレーション時に測定した、ヘッドセットと SteamVR の間の遅れを補正します。
 en: Continuous calibration
 ja: 連続キャリブレーション
 en: Keeps devices aligned while you play, using a tracker strapped to your headset.
@@ -357,32 +357,22 @@ en: Hide the headset tracker from games
 ja: ヘッドセットトラッカーをゲームから隠す
 en: Moves it far out of reach in games so full-body setups never\nmistake it for a body tracker. Calibration still sees it.
 ja: ゲーム内では遠くへ移動させ、フルボディ設定で\n体のトラッカーと間違われないようにします。キャリブレーションからは見えたままです。
-en: Keep tracking delay up to date
-ja: トラッキング遅延を常に更新
+en: Re-measure tracking delay while you play
+ja: プレイ中にトラッキング遅延を測り直す
 en: Re-measures the delay between the two systems during play, using\nthe headset tracker. Off keeps the value from calibration.
 ja: プレイ中もヘッドセットトラッカーを使って、2 つのシステム間の遅延を\n測り直します。オフにするとキャリブレーション時の値を使います。
 en: Ask before applying each correction
 ja: 補正ごとに確認する
-en: Each correction waits until you pull a controller trigger.\nRecent activity on the main screen lists each one.
-ja: 補正はコントローラーのトリガーを引くまで適用されません。\nメイン画面の「最近のアクティビティ」に表示されます。
+en: Each correction waits until you pull a controller trigger.\nRecent activity on the Calibration page lists each one.
+ja: 補正はコントローラーのトリガーを引くまで適用されません。\nキャリブレーションページの「最近のアクティビティ」に表示されます。
 en: Strap a tracker to your headset and pick it above.
 ja: ヘッドセットにトラッカーを固定し、上で選択してください。
 en: Recalibrate with the headset tracker (%.0f s)
 ja: ヘッドセットトラッカーで再キャリブレーション（{0} 秒）
 en: Set up headset tracker (%.0f s)
 ja: ヘッドセットトラッカーをセットアップ（{0} 秒）
-en: Turn off to let the Quest boundary import win each session;\nthe protected chaperone then only applies when you press Restore.
-ja: オフにすると、毎回 Quest の境界線の取り込みが優先されます。\n保護したシャペロンは「復元」を押したときだけ適用されます。
-en: Restore protected chaperone automatically
-ja: 保護したシャペロンを自動で復元
 en: Only the play area center was saved (no walls), so there's nothing to restore automatically.
 ja: プレイエリアの中心だけが保存されている（壁なし）ため、自動で復元するものはありません。
-en: %zu wall%s, %.1f x %.1f m, protected %s
-ja: 壁 {0} 面、{2} × {3} m、保護：{4}
-en: age unknown
-ja: 時期不明
-en: Restore chaperone now
-ja: 今すぐシャペロンを復元
 en: Automatic updates
 ja: 自動アップデート
 en: Downloads verified updates. Close Steam before installing them.
@@ -393,8 +383,8 @@ en: Downloading %s  %u%%
 ja: {0} をダウンロード中  {1}%
 en: You're up to date (%s)
 ja: 最新版です（{0}）
-en: Version %s is downloaded and verified
-ja: バージョン {0} をダウンロードして検証しました
+en: Version %s is ready to install
+ja: バージョン {0} をインストールできます
 en: Update check failed
 ja: アップデートの確認に失敗しました
 en: Update check failed: %s
@@ -409,21 +399,25 @@ en: Check again
 ja: 再確認
 en: Detailed calibration logging
 ja: 詳細なキャリブレーションログ
-en: Records extra tracking and calibration details. Saved diagnostics remove your name and folder paths.
-ja: トラッキングとキャリブレーションの詳細を記録します。保存した診断ファイルからは名前とフォルダーのパスが除かれます。
+en: Records extra tracking and calibration details. Saved files leave out your name and folder paths.
+ja: トラッキングとキャリブレーションの詳細を記録します。保存したファイルには、名前とフォルダーのパスは含まれません。
 en: Save diagnostics file
 ja: 診断ファイルを保存
 en: Diagnostics saved to %s
 ja: 診断ファイルを保存しました：{0}
-en: Motion demo credits
-ja: モーションデモのクレジット
+en: Motion demos
+ja: モーションデモ
+en: Nova Calibrator is made by %s and builds on %s by %s.
+ja: Nova Calibrator は {0} が制作し、{2} による {1} をもとにしています。
+en: GitHub
+ja: GitHub
 en: Edit calibration (advanced)
 ja: キャリブレーションを編集（上級者向け）
 en: Edit calibration
 ja: キャリブレーションを編集
 
 # Calibration editor.
-en: ROTATION (DEGREES)
+en: Rotation, degrees
 ja: 回転（度）
 en: Yaw
 ja: ヨー
@@ -431,10 +425,14 @@ en: Pitch
 ja: ピッチ
 en: Roll
 ja: ロール
-en: TRANSLATION (CENTIMETERS)
+en: Translation, centimeters
 ja: 移動（cm）
-en: SCALE
+en: Scale
 ja: スケール
+en: Fine-tune the calibration by hand. Nothing changes until you save.
+ja: キャリブレーションを手動で微調整します。保存するまで何も変わりません。
+en: Playspace scale
+ja: プレイスペースのスケール
 en: These values can't be applied. Use plain numbers within range. The saved calibration is unchanged.
 ja: この値は適用できません。範囲内の数値を入力してください。保存されたキャリブレーションは変更されていません。
 en: Save calibration
@@ -593,12 +591,8 @@ en: Make bigger turns, and keep them pressed together.
 ja: もっと大きく回し、2 つをしっかり押し当てたままにしてください。
 en: The devices only rotated in one direction.
 ja: デバイスが 1 方向にしか回転しませんでした。
-en: The devices didn't rotate in enough directions.
-ja: デバイスを回した方向が足りませんでした。
 en: Turn and tilt both devices together in different directions.
 ja: 2 つのデバイスを一緒に、いろいろな方向へひねったり傾けたりしてください。
-en: Turn and tilt both devices together, then try again.
-ja: 2 つのデバイスを一緒にひねったり傾けたりしてから、もう一度お試しください。
 en: The devices' rotation readings didn't match closely enough.
 ja: 2 つのデバイスの回転の測定値が十分に一致しませんでした。
 en: Hold them firmly together and try again.
@@ -757,10 +751,6 @@ en: Re-aligned your trackers after your headset's tracking shifted.
 ja: ヘッドセットのトラッキングがずれたため、トラッカーを合わせ直しました。
 en: Continuous calibration went back to the alignment it had before it last re-aligned your trackers.
 ja: 連続キャリブレーションが、直前にトラッカーを合わせ直す前の位置合わせに戻しました。
-en: Continuous calibration paused: the headset tracker's base station tracking restarted and doesn't match the headset yet. It resumes on its own once that settles.
-ja: 連続キャリブレーションを一時停止しました：ヘッドセットトラッカーのベースステーションによるトラッキングが再開され、まだヘッドセットと一致していません。安定すると自動で再開します。
-en: QuestCalibrator: continuous calibration paused while the headset tracker's base station tracking settles. It resumes on its own, so don't recalibrate yet.
-ja: QuestCalibrator：ヘッドセットトラッカーのベースステーションによるトラッキングが安定するまで、連続キャリブレーションを一時停止しています。自動で再開するので、まだ再キャリブレーションしないでください。
 en: Tracking is noisy here; continuous calibration is waiting and resumes on its own.
 ja: この場所ではトラッキングが不安定なため、連続キャリブレーションは待機中です。自動で再開します。
 en: QuestCalibrator: tracking is noisy here. Continuous calibration is waiting and resumes on its own.
@@ -1055,8 +1045,18 @@ en: Base stations appear here once SteamVR has written %s
 ja: SteamVR が {0} を書き込むと、ここにベースステーションが表示されます
 en: its vrserver log.
 ja: vrserver のログ
-en: BASE STATIONS
+en: Base stations
 ja: ベースステーション
+en: Which base stations each device can see, live from SteamVR's log.
+ja: 各デバイスから見えるベースステーションを、SteamVR のログからリアルタイムで表示します。
+en: Device
+ja: デバイス
+en: Dropped out once
+ja: 途切れ 1 回
+en: Dropped out twice
+ja: 途切れ 2 回
+en: Dropped out %u times
+ja: 途切れ {0} 回
 en: None named yet. Each base station appears as SteamVR reports it.
 ja: まだありません。SteamVR が報告すると、ベースステーションが表示されます。
 en: id not logged yet
@@ -1065,20 +1065,18 @@ en: No reports yet
 ja: 報告なし
 en: Seen by %d of %d
 ja: {1} 台中 {0} 台から見えています
-en: No dropouts this session
-ja: このセッションで途切れなし
+en: No dropouts
+ja: 途切れなし
 en: Dropped out %u time%s
 ja: 途切れ {0} 回
 en: Dropped out %u time%s · the last one left %u time%s
 ja: 途切れ {0} 回・最後の 1 基として {2} 回
-en: IN VIEW OF EACH DEVICE
-ja: デバイスごとの見通し
+en: What each device sees
+ja: デバイスごとの見え方
 en: Not in the log yet
 ja: ログにまだありません
 en: %d of %d in view
 ja: {0}/{1} 基が見える
-en: no dropouts
-ja: 途切れなし
 en: %u dropout%s
 ja: 途切れ {0} 回
 en: %u dropout%s, %u full loss%s
@@ -1109,8 +1107,6 @@ en: could not start tracking from %s
 ja: {0} からトラッキングを開始できなかった
 en: Japanese
 ja: 日本語
-en: Italiano
-ja: Italiano
 
 # Names shown as they are.
 en: VividNightmareUnleashed

@@ -523,11 +523,8 @@ public:
 		ui::SetFont(ui::Weight::Medium, AddInterFont(io, "FONT_INTER_MEDIUM", 17.0f, ui::Weight::Medium));
 		ui::SetFont(ui::Weight::SemiBold, AddInterFont(io, "FONT_INTER_SEMIBOLD", 17.0f, ui::Weight::SemiBold));
 		ui::SetFont(ui::Weight::Bold, AddInterFont(io, "FONT_INTER_BOLD", 17.0f, ui::Weight::Bold));
-		// The fixed sizes the screens not yet on the design kit still draw at.
-		g_fontBody = AddInterFont(io, "FONT_INTER_REGULAR", 21.0f, ui::Weight::Regular);
-		g_fontSmall = AddInterFont(io, "FONT_INTER_REGULAR", 14.0f, ui::Weight::Regular);
-		g_fontTitle = AddInterFont(io, "FONT_INTER_SEMIBOLD", 27.0f, ui::Weight::SemiBold);
-		io.FontDefault = g_fontBody;
+		// What ImGui's own widgets draw with when nothing pushes a size.
+		io.FontDefault = ui::FontOf(ui::Weight::Regular);
 
 		ImGui_ImplGlfw_InitForOpenGL(window, true);
 		glfwBackendStarted = true;
@@ -1285,11 +1282,14 @@ static LaunchOptions ParseCommandLine(LPWSTR lpCmdLine)
 		options.previewMany = true;
 		options.previewScenario = PreviewScenario::Lighthouse;
 	}
-	else if (cmd == L"-uipreview-settings")
+	else if (cmd == L"-uipreview-settings" || cmd == L"-uipreview-settings-more" || cmd == L"-uipreview-editor" ||
+		cmd == L"-uipreview-credits")
 	{
 		options.preview = true;
 		options.previewMany = true;
-		options.previewScenario = PreviewScenario::Settings;
+		options.previewScenario = cmd == L"-uipreview-settings" ? PreviewScenario::Settings
+			: cmd == L"-uipreview-settings-more" ? PreviewScenario::SettingsMore
+			: cmd == L"-uipreview-editor" ? PreviewScenario::Editor : PreviewScenario::Credits;
 	}
 	else if (cmd == L"-uipreview-move" || cmd == L"-uipreview-pair" || cmd == L"-uipreview-chaperone" ||
 		cmd == L"-uipreview-anchors" || cmd == L"-uipreview-activity" || cmd == L"-uipreview-clear" ||
