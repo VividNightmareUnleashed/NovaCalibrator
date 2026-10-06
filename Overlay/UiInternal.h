@@ -45,6 +45,7 @@ struct VRDevice
 	std::string model;
 	std::string serial;
 	std::string trackingSystem;
+	std::string renderModel; // SteamVR's model of it, such as "{htc}vr_tracker_vive_3_0"
 	std::string iconPath;   // absolute path to the SteamVR device icon, matched to state (ready/low/off)
 	vr::ETrackedControllerRole controllerRole = vr::TrackedControllerRole_Invalid;
 	bool connected = true;
@@ -263,8 +264,14 @@ std::string ActivityClock(double unixTime);
 // CalCtx.activity's indices in the order the feed is read: newest first.
 std::vector<size_t> ActivityNewestFirst();
 
-// Pictures (UiWidgets.cpp): a built-in PNG resource as a texture, loaded once.
-const DeviceIconTex *ArtTexture(const char *resource);
-// A device's picture fitted into box: SteamVR's own art for it, or its vector
-// glyph when there is none.
+// Pictures (UiWidgets.cpp): a built-in PNG resource as a texture, loaded once,
+// in colour or in grey.
+const DeviceIconTex *ArtTexture(const char *resource, bool grey = false);
+// A built-in picture fitted into box, mirrored left to right when asked;
+// false when it could not load.
+bool DrawPicture(ImDrawList *dl, const char *resource, const FlexRect &box, bool mirrored = false,
+	bool grey = false, float alpha = 1.0f);
+// A device's picture fitted into box (DevicePictures.h), its driver's own
+// SteamVR icon for a device none of them shows, and its vector glyph only
+// when the driver has no icon either.
 void DrawDeviceArt(ImDrawList *dl, const VRDevice &dev, const FlexRect &box, ImU32 fallbackInk);

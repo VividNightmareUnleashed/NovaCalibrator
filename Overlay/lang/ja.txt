@@ -405,8 +405,8 @@ en: Save diagnostics file
 ja: 診断ファイルを保存
 en: Diagnostics saved to %s
 ja: 診断ファイルを保存しました：{0}
-en: Motion demos
-ja: モーションデモ
+en: Pictures and models
+ja: 画像とモデル
 en: Nova Calibrator is made by %s and builds on %s by %s.
 ja: Nova Calibrator は {0} が制作し、{2} による {1} をもとにしています。
 en: GitHub

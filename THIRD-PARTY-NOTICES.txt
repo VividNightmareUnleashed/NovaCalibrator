@@ -25,6 +25,7 @@ Contents
   12. gl3w ....................................... Public domain
   13. Khronos OpenGL headers ..................... MIT-style (Khronos)
   14. Guidance image models ...................... CC BY 4.0, CC BY 3.0, MIT
+  15. Device pictures
 
 
 ================================================================================
@@ -636,3 +637,11 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS
 OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
 WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
 OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+================================================================================
+15. Device pictures
+================================================================================
+
+The controller and tracker pictures are renders of the device models that
+ship with SteamVR (Valve). The headset pictures are product photos from Meta,
+Valve, Pico and Samsung. Each device's name and picture belong to its maker.

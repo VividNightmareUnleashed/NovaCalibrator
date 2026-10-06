@@ -2,3 +2,26 @@
 // welcome screen's size and the sidebar's.
 ART_ICON RCDATA "assets\\nova-icon-256.png"
 ART_ICON_SMALL RCDATA "assets\\nova-icon-small-128.png"
+
+// Device pictures (DevicePictures.h): the design's renders of SteamVR's own
+// models and its headset photos, and renders in its studio for the devices
+// it does not show, packed by tools/pack-device-art.py.
+DEVICE_HEADSET_QUEST RCDATA "assets\\devices\\headset-quest.png"
+DEVICE_HEADSET_STEAM_FRAME RCDATA "assets\\devices\\headset-steam-frame.png"
+DEVICE_HEADSET_PICO_4_ULTRA RCDATA "assets\\devices\\headset-pico-4-ultra.png"
+DEVICE_HEADSET_GALAXY_XR RCDATA "assets\\devices\\headset-galaxy-xr.png"
+DEVICE_TOUCH_PRO RCDATA "assets\\devices\\touch-pro.png"
+DEVICE_TOUCH_PRO_LEFT RCDATA "assets\\devices\\touch-pro-left.png"
+DEVICE_TOUCH_PLUS RCDATA "assets\\devices\\touch-plus.png"
+DEVICE_TOUCH_QUEST_2 RCDATA "assets\\devices\\touch-quest-2.png"
+DEVICE_TOUCH_QUEST_1 RCDATA "assets\\devices\\touch-quest-1.png"
+DEVICE_INDEX_CONTROLLER RCDATA "assets\\devices\\index-controller.png"
+DEVICE_INDEX_CONTROLLER_LEFT RCDATA "assets\\devices\\index-controller-left.png"
+DEVICE_VIVE_WAND RCDATA "assets\\devices\\vive-wand.png"
+DEVICE_STEAM_FRAME_CONTROLLER RCDATA "assets\\devices\\steam-frame-controller.png"
+DEVICE_PICO_4_CONTROLLER RCDATA "assets\\devices\\pico-4-controller.png"
+DEVICE_PICO_4_ULTRA_CONTROLLER RCDATA "assets\\devices\\pico-4-ultra-controller.png"
+DEVICE_FOCUS_3_CONTROLLER RCDATA "assets\\devices\\focus-3-controller.png"
+DEVICE_VIVE_TRACKER_3 RCDATA "assets\\devices\\vive-tracker-3.png"
+DEVICE_VIVE_TRACKER_2018 RCDATA "assets\\devices\\vive-tracker-2018.png"
+DEVICE_TUNDRA_TRACKER RCDATA "assets\\devices\\tundra-tracker.png"

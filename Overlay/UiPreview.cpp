@@ -35,6 +35,7 @@ VRState PreviewVRState()
 	hmd.id = 0;
 	hmd.deviceClass = vr::TrackedDeviceClass_HMD;
 	hmd.model = "Meta Quest Pro";
+	hmd.renderModel = "oculusHmdRenderModel";
 	hmd.serial = "1PASH5D1P17365";
 	hmd.trackingSystem = "oculus";
 	hmd.iconPath = PreviewIconPath("oculus\\resources\\icons\\quest_headset_ready_2x.png");
@@ -45,6 +46,7 @@ VRState PreviewVRState()
 	touchPro.id = 3 + kPreviewManyTrackerCount;
 	touchPro.deviceClass = vr::TrackedDeviceClass_Controller;
 	touchPro.model = "Touch Pro Right";
+	touchPro.renderModel = "oculus_quest_pro_controller_right";
 	touchPro.serial = "PREVIEW-TOUCH-PRO-RIGHT";
 	touchPro.trackingSystem = "oculus";
 	touchPro.controllerRole = vr::TrackedControllerRole_RightHand;
@@ -59,6 +61,7 @@ VRState PreviewVRState()
 	right.id = 1;
 	right.deviceClass = vr::TrackedDeviceClass_Controller;
 	right.model = "Knuckles Right";
+	right.renderModel = "{indexcontroller}valve_controller_knu_1_0_right";
 	right.serial = "LHR-A3C36EA5";
 	right.trackingSystem = "lighthouse";
 	right.controllerRole = vr::TrackedControllerRole_RightHand;
@@ -71,6 +74,7 @@ VRState PreviewVRState()
 	left.id = 2;
 	left.deviceClass = vr::TrackedDeviceClass_Controller;
 	left.model = "Knuckles Left";
+	left.renderModel = "{indexcontroller}valve_controller_knu_1_0_left";
 	left.serial = "LHR-841C98C3";
 	left.trackingSystem = "lighthouse";
 	left.controllerRole = vr::TrackedControllerRole_LeftHand;
@@ -85,7 +89,10 @@ VRState PreviewVRState()
 		VRDevice tracker;
 		tracker.id = 3 + i;
 		tracker.deviceClass = vr::TrackedDeviceClass_GenericTracker;
-		tracker.model = "VIVE Tracker 3.0";
+		// -uipreview-many has the design's Tundra Tracker on the chest.
+		const bool tundra = g_uiPreviewMany && i == 3;
+		tracker.model = tundra ? "Tundra Tracker" : "VIVE Tracker 3.0";
+		tracker.renderModel = tundra ? "{tundra_labs}tundra_tracker" : "{htc}vr_tracker_vive_3_0";
 		char serial[32];
 		snprintf(serial, sizeof serial, "LHR-77E5A2%02X", 0x11 + i);
 		tracker.serial = serial;
@@ -152,12 +159,13 @@ void SetupPreviewState()
 	CalCtx.referenceTrackingSystem = "oculus";
 	CalCtx.targetTrackingSystem = "lighthouse";
 
-	// Two of the fake trackers carry player-given names so the named and
+	// Three of the fake trackers carry player-given names so the named and
 	// unnamed row treatments sit side by side.
 	if (g_uiPreviewMany)
 	{
 		CalCtx.deviceNames["LHR-77E5A212"] = "Hip";
 		CalCtx.deviceNames["LHR-77E5A213"] = "Left foot";
+		CalCtx.deviceNames["LHR-77E5A214"] = "Chest";
 	}
 
 	CalCtx.lastResult.valid = true;

@@ -25,13 +25,16 @@ struct TrackerKind
 	const char *english;
 	bool CalibrationContext::*uses;
 	bool untested;
+	const char *picture;
 	ui::Icon glyph;
 };
 const TrackerKind kKinds[] = {
-	{ "VIVE Tracker 3.0", &CalibrationContext::usesViveTracker3, false, ui::Icon::Tracker },
-	{ "Tundra Tracker", &CalibrationContext::usesTundraTracker, true, ui::Icon::Tracker },
-	{ "Index Controllers", &CalibrationContext::usesIndexControllers, false, ui::Icon::Controller },
-	{ "VIVE Tracker (2018)", &CalibrationContext::usesViveTracker2018, true, ui::Icon::Tracker },
+	{ "VIVE Tracker 3.0", &CalibrationContext::usesViveTracker3, false, "DEVICE_VIVE_TRACKER_3", ui::Icon::Tracker },
+	{ "Tundra Tracker", &CalibrationContext::usesTundraTracker, true, "DEVICE_TUNDRA_TRACKER", ui::Icon::Tracker },
+	{ "Index Controllers", &CalibrationContext::usesIndexControllers, false, "DEVICE_INDEX_CONTROLLER",
+		ui::Icon::Controller },
+	{ "VIVE Tracker (2018)", &CalibrationContext::usesViveTracker2018, true, "DEVICE_VIVE_TRACKER_2018",
+		ui::Icon::Tracker },
 };
 constexpr int kKindCount = static_cast<int>(sizeof kKinds / sizeof kKinds[0]);
 
@@ -63,14 +66,6 @@ int ConnectedOfKind(const VRState &state, int kind)
 	return count;
 }
 
-const VRDevice *FirstOfKind(const VRState &state, int kind)
-{
-	for (const auto &dev : state.devices)
-		if (dev.connected && KindOf(dev) == kind)
-			return &dev;
-	return nullptr;
-}
-
 const VRDevice *Headset(const VRState &state)
 {
 	for (const auto &dev : state.devices)
@@ -79,14 +74,13 @@ const VRDevice *Headset(const VRState &state)
 	return nullptr;
 }
 
-// A kind's picture: a connected one's art, or its glyph.
-void DrawKindArt(ImDrawList *dl, const VRState &state, int kind, const FlexRect &box, bool faded)
+// A kind's picture, in grey when none of that kind is on.
+void DrawKindArt(ImDrawList *dl, int kind, const FlexRect &box, bool faded)
 {
-	if (const VRDevice *dev = FirstOfKind(state, kind))
-		DrawDeviceArt(dl, *dev, box, ui::col::Muted);
-	else
+	if (!DrawPicture(dl, kKinds[kind].picture, box, false, faded, faded ? 0.45f : 1.0f))
 		ui::DrawIcon(dl, kKinds[kind].glyph, box.Center(), box.W() * 0.62f, faded ? ui::col::Faint : ui::col::Muted, 1.6f);
 }
+
 
 struct SetupState
 {
@@ -310,18 +304,38 @@ void HeadsetStep(const VRState &state)
 	YGNodeRef card = page.fl.Column(page.root);
 	YGNodeStyleSetMargin(card, YGEdgeTop, 28.0f);
 	YGNodeRef quest = page.fl.Box(card, 680.0f, 80.0f);
-	static const char *const later[] = { "Steam Frame", "Pico", "Samsung Galaxy XR" };
+	struct Later
+	{
+		const char *name;
+		const char *picture;
+	};
+	static const Later later[] = {
+		{ "Steam Frame", "DEVICE_HEADSET_STEAM_FRAME" },
+		{ "Pico", "DEVICE_HEADSET_PICO_4_ULTRA" },
+		{ "Samsung Galaxy XR", "DEVICE_HEADSET_GALAXY_XR" },
+	};
 	YGNodeRef others[3];
 	for (int k = 0; k < 3; ++k)
 		others[k] = page.fl.Box(card, 680.0f, 72.0f);
 	page.Compute();
 
-	// Only the Quest's own picture: no other headset's photo ships.
+	// The headsets side by side, the Quest in front: Steam Frame, Quest,
+	// Pico, Galaxy XR.
 	const FlexRect h = page.fl.Rect(hero);
-	if (headset)
-		DrawDeviceArt(dl, *headset, h, ui::col::Muted);
-	else
-		ui::DrawIcon(dl, ui::Icon::Headset, h.Center(), 84.0f, ui::col::Muted, 1.6f);
+	const char *const questPicture = "DEVICE_HEADSET_QUEST";
+	const char *const lineup[4] = { later[0].picture, questPicture, later[1].picture, later[2].picture };
+	const float sizes[4] = { 96.0f, 112.0f, 96.0f, 96.0f }, overlaps[3] = { 14.0f, 14.0f, 10.0f };
+	FlexRect boxes[4];
+	float hx = h.Center().x - (96.0f + 112.0f + 96.0f + 96.0f - 14.0f - 14.0f - 10.0f) * 0.5f;
+	for (int i = 0; i < 4; ++i)
+	{
+		boxes[i].min = ImVec2(hx, h.max.y - sizes[i] - (i == 1 ? 0.0f : 6.0f));
+		boxes[i].max = ImVec2(hx + sizes[i], boxes[i].min.y + sizes[i]);
+		if (i < 3)
+			hx += sizes[i] - overlaps[i];
+	}
+	for (int i : { 0, 2, 3, 1 })
+		DrawPicture(dl, lineup[i], boxes[i]);
 	page.DrawTexts(dl, ui::col::Text, kLeadInk);
 	const FlexRect c = page.fl.Rect(card);
 	ui::Card(dl, c.min, c.max);
@@ -332,10 +346,7 @@ void HeadsetStep(const VRState &state)
 	FlexRect art;
 	art.min = ImVec2(q.min.x + 16.0f - 8.0f, q.Center().y - 32.0f);
 	art.max = ImVec2(art.min.x + 64.0f, art.min.y + 64.0f);
-	if (headset)
-		DrawDeviceArt(dl, *headset, art, ui::col::Muted);
-	else
-		ui::DrawIcon(dl, ui::Icon::Headset, art.Center(), 44.0f, ui::col::Muted, 1.6f);
+	DrawPicture(dl, questPicture, art);
 	RowText(dl, q, q.min.x + 80.0f, "Meta Quest", Tr("Quest 2, Quest 3, Quest 3S and Quest Pro"), ui::col::Text,
 		ui::Rgba(236, 238, 244, 0.68f));
 	float endX = q.max.x - 22.0f;
@@ -355,8 +366,11 @@ void HeadsetStep(const VRState &state)
 	{
 		const FlexRect r = page.fl.Rect(others[k]);
 		ui::Hairline(dl, r.min.x + 80.0f, r.max.x, r.min.y);
-		ui::DrawIcon(dl, ui::Icon::Headset, ImVec2(r.min.x + 16.0f + 24.0f, r.Center().y), 40.0f, ui::col::Faint, 1.6f);
-		RowText(dl, r, r.min.x + 80.0f, later[k], nullptr, ui::Rgba(236, 238, 244, 0.56f), 0);
+		FlexRect picture;
+		picture.min = ImVec2(r.min.x + 16.0f - 8.0f, r.Center().y - 32.0f);
+		picture.max = ImVec2(picture.min.x + 64.0f, picture.min.y + 64.0f);
+		DrawPicture(dl, later[k].picture, picture, false, true, 0.55f);
+		RowText(dl, r, r.min.x + 80.0f, later[k].name, nullptr, ui::Rgba(236, 238, 244, 0.56f), 0);
 		const char *soon = Tr("Coming later");
 		const ui::TextStyle pill{ ui::Weight::SemiBold, 14.0f, 30.0f };
 		const float w = ui::MeasureLine(pill, soon).x + 24.0f;
@@ -400,19 +414,21 @@ void TrackersStep(const VRState &state)
 	YGNodeStyleSetWidth(note, 680.0f);
 	page.Compute();
 
-	// The kinds side by side: controller, tracker, tracker.
+	// The kinds side by side, the VIVE Tracker 3.0 in front: controller,
+	// tracker, tracker.
 	const FlexRect h = page.fl.Rect(hero);
 	const int heroKinds[3] = { 2, 0, 1 };
 	const float heroSizes[3] = { 118.0f, 124.0f, 100.0f };
+	FlexRect boxes[3];
 	float hx = h.Center().x - (118.0f + 124.0f + 100.0f - 22.0f - 16.0f) * 0.5f;
 	for (int i = 0; i < 3; ++i)
 	{
-		FlexRect box;
-		box.min = ImVec2(hx, h.max.y - heroSizes[i] - (i == 2 ? 4.0f : 0.0f));
-		box.max = ImVec2(hx + heroSizes[i], box.min.y + heroSizes[i]);
-		DrawKindArt(dl, state, heroKinds[i], box, false);
+		boxes[i].min = ImVec2(hx, h.max.y - heroSizes[i] - (i == 2 ? 4.0f : 0.0f));
+		boxes[i].max = ImVec2(hx + heroSizes[i], boxes[i].min.y + heroSizes[i]);
 		hx += heroSizes[i] - (i == 0 ? 22.0f : 16.0f);
 	}
+	for (int i : { 0, 2, 1 })
+		DrawKindArt(dl, heroKinds[i], boxes[i], false);
 	page.DrawTexts(dl, ui::col::Text, kLeadInk);
 	const FlexRect c = page.fl.Rect(card);
 	ui::Card(dl, c.min, c.max);
@@ -437,7 +453,7 @@ void TrackersStep(const VRState &state)
 		FlexRect art;
 		art.min = ImVec2(r.min.x + 16.0f - 6.0f, r.Center().y - 30.0f);
 		art.max = ImVec2(art.min.x + 60.0f, art.min.y + 60.0f);
-		DrawKindArt(dl, state, k, art, !available);
+		DrawKindArt(dl, k, art, !available);
 		const std::string sub = available ? Tr(FormatString("%d connected", connected)) : std::string(Tr("Not connected"));
 		RowText(dl, r, r.min.x + 16.0f + 60.0f - 10.0f + 16.0f, Tr(kKinds[k].english), sub.c_str(),
 			available ? ui::col::Text : ui::col::Faint, available ? kLeadInk : ui::Rgba(236, 238, 244, 0.40f));
