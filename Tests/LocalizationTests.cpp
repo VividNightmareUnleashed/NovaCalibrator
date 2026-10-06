@@ -196,6 +196,14 @@ const std::vector<ShownCall> &ShownCalls()
 		{ "ToggleRow", false, { 2, 4 } },
 		{ "ShowTip", false, { 0 } },
 		{ "NestedToggle", false, { 3, 5 } },
+		// The design kit's controls (Overlay/UiKit.h).
+		{ "PillButton", false, { 1 } },
+		{ "PillWidth", false, { 0 } },
+		{ "BadgeWidth", false, { 0 } },
+		{ "BadgePill", false, { 2 } },
+		{ "NavRow", false, { 3, 6, 7 } },
+		{ "ToolTile", false, { 3 } },
+		{ "Tip", false, { 0 } },
 	};
 	return calls;
 }
@@ -378,7 +386,7 @@ void EnglishPassesThrough(Check check)
 {
 	SetLanguage(Language::English);
 	BeginFrame();
-	const char *text = "Start calibration";
+	const char *text = "Calibrate";
 	check("i18n english identity", Tr(text) == text, "English returns the argument itself");
 	check("i18n english string", Tr(std::string("Recalibrate.\n")) == "Recalibrate.\n",
 		"English leaves formatting alone");
@@ -389,7 +397,7 @@ void JapaneseLookups(Check check)
 	SetLanguage(Language::Japanese);
 	BeginFrame();
 
-	check("i18n exact", std::string(Tr("Start calibration")) == Japanese("Start calibration"),
+	check("i18n exact", std::string(Tr("Calibrate")) == Japanese("Calibrate"),
 		"an exact key");
 
 	// A pattern, with a device name that has no entry of its own.
@@ -400,23 +408,23 @@ void JapaneseLookups(Check check)
 
 	// A captured value that is itself text gets translated.
 	check("i18n nested capture",
-		Tr(std::string("last adjusted 3 min ago")) ==
-			Fill(Japanese("last adjusted %s"), Fill(Japanese("%d min ago"), "3")),
+		Tr(std::string("Last adjusted 3 min ago.")) ==
+			Fill(Japanese("Last adjusted %s."), Fill(Japanese("%d min ago"), "3")),
 		"an age inside a sentence is translated too");
 
 	// The activity feed joins headline and body with ": ".
 	check("i18n headline and body",
-		Tr(std::string("Calibration failed: The devices didn't rotate far enough.")) ==
+		Tr(std::string("Calibration failed: The devices didn't turn far enough.")) ==
 			std::string(Japanese("Calibration failed")) + "\xEF\xBC\x9A" +
-				Japanese("The devices didn't rotate far enough."),
+				Japanese("The devices didn't turn far enough."),
 		"each half of an activity line is translated");
 
 	// An outcome body built from several sentences, with the trailing
 	// newline the log kept.
 	check("i18n sentences",
-		Tr(std::string("Check that the tracker positions line up in VR. Headset tracker set up. "
+		Tr(std::string("Check in VR that your trackers line up with your body. Headset tracker set up. "
 			"Turn on continuous calibration in Settings to use it.\n")) ==
-			std::string(Japanese("Check that the tracker positions line up in VR.")) +
+			std::string(Japanese("Check in VR that your trackers line up with your body.")) +
 				Japanese("Headset tracker set up.") +
 				Japanese("Turn on continuous calibration in Settings to use it.") + "\n",
 		"joined sentences are translated one by one");
@@ -447,16 +455,16 @@ void ItalianLookups(Check check)
 	SetLanguage(Language::Italian);
 	BeginFrame();
 
-	check("i18n it exact", std::string(Tr("Start calibration")) == Italian("Start calibration"),
+	check("i18n it exact", std::string(Tr("Calibrate")) == Italian("Calibrate"),
 		"an exact key");
 	check("i18n it headline and body",
-		Tr(std::string("Calibration failed: The devices didn't rotate far enough.")) ==
+		Tr(std::string("Calibration failed: The devices didn't turn far enough.")) ==
 			std::string(Italian("Calibration failed")) + ": " +
-				Italian("The devices didn't rotate far enough."),
+				Italian("The devices didn't turn far enough."),
 		"an activity line keeps a plain colon");
 	check("i18n it sentences",
-		Tr(std::string("Check that the tracker positions line up in VR. Headset tracker set up.")) ==
-			std::string(Italian("Check that the tracker positions line up in VR.")) + " " +
+		Tr(std::string("Check in VR that your trackers line up with your body. Headset tracker set up.")) ==
+			std::string(Italian("Check in VR that your trackers line up with your body.")) + " " +
 				Italian("Headset tracker set up."),
 		"joined sentences keep their space");
 	check("i18n it code", LanguageFromCode("it") == Language::Italian &&

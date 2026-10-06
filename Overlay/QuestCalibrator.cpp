@@ -27,10 +27,12 @@
 // needs it (shell32.lib is already linked by the project).
 #include <shellapi.h>
 #include <openvr.h>
+#include <cstdint>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -282,41 +284,110 @@ static ManifestInstallResult EnsureManifestRegistration(bool forceAutoLaunch)
 	return result;
 }
 
-// The first of these fonts Windows has, read whole.
-static std::vector<char> ReadWindowsFont(std::initializer_list<const wchar_t *> candidates)
+// A font file in Windows' Fonts folder, read whole once and kept for the
+// life of the process (the font atlas reads it); empty when it is missing.
+static const std::vector<char> &WindowsFontFile(const wchar_t *name)
 {
-	std::vector<char> data;
+	static std::map<std::wstring, std::vector<char>> files;
+	if (const auto found = files.find(name); found != files.end())
+		return found->second;
+	std::vector<char> &data = files[name];
 	wchar_t windows[MAX_PATH] = {};
 	const UINT len = GetWindowsDirectoryW(windows, MAX_PATH);
 	if (len == 0 || len >= MAX_PATH)
 		return data;
-	for (const wchar_t *name : candidates)
-	{
-		std::error_code ec;
-		const std::filesystem::path path = std::filesystem::path(windows) / L"Fonts" / name;
-		const auto size = std::filesystem::file_size(path, ec);
-		if (ec || size == 0 || size > 64u * 1024u * 1024u)
-			continue;
-		std::ifstream in(path, std::ios::binary);
-		data.resize(static_cast<size_t>(size));
-		if (in.read(data.data(), static_cast<std::streamsize>(size)))
-			break;
+	std::error_code ec;
+	const std::filesystem::path path = std::filesystem::path(windows) / L"Fonts" / name;
+	const auto size = std::filesystem::file_size(path, ec);
+	if (ec || size == 0 || size > 64u * 1024u * 1024u)
+		return data;
+	std::ifstream in(path, std::ios::binary);
+	data.resize(static_cast<size_t>(size));
+	if (!in.read(data.data(), static_cast<std::streamsize>(size)))
 		data.clear();
-	}
 	return data;
+}
+
+// The face's ascent-to-descent span over its em, from its hhea and head
+// tables: the measure ImGui sizes a font by. Zero when the data holds no such
+// face, so a missing face is never handed to the font atlas.
+static float FontFaceSpan(const std::vector<char> &data, int face)
+{
+	const auto u16 = [&](size_t at) -> int {
+		return at + 2 <= data.size()
+			? (static_cast<unsigned char>(data[at]) << 8) | static_cast<unsigned char>(data[at + 1]) : -1;
+	};
+	const auto u32 = [&](size_t at) -> long long {
+		const int hi = u16(at), lo = u16(at + 2);
+		return hi < 0 || lo < 0 ? -1 : (static_cast<long long>(hi) << 16) | lo;
+	};
+	long long offset = 0;
+	if (u32(0) == 0x74746366)   // "ttcf": a collection
+	{
+		if (face < 0 || face >= u32(8))
+			return 0.0f;
+		offset = u32(12 + 4 * static_cast<size_t>(face));
+	}
+	else if (face != 0)
+		return 0.0f;
+	if (offset < 0)
+		return 0.0f;
+	const int tables = u16(static_cast<size_t>(offset) + 4);
+	int unitsPerEm = 0, ascent = 0, descent = 0;
+	bool head = false, hhea = false;
+	for (int i = 0; i < tables; ++i)
+	{
+		const size_t record = static_cast<size_t>(offset) + 12 + 16 * static_cast<size_t>(i);
+		const long long tag = u32(record), at = u32(record + 8);
+		if (tag < 0 || at < 0)
+			return 0.0f;
+		if (tag == 0x68656164)   // "head"
+		{
+			unitsPerEm = u16(static_cast<size_t>(at) + 18);
+			head = unitsPerEm > 0;
+		}
+		else if (tag == 0x68686561)   // "hhea"
+		{
+			ascent = static_cast<int16_t>(u16(static_cast<size_t>(at) + 4));
+			descent = static_cast<int16_t>(u16(static_cast<size_t>(at) + 6));
+			hhea = u16(static_cast<size_t>(at) + 6) >= 0;
+		}
+	}
+	return head && hhea && ascent > descent ? static_cast<float>(ascent - descent) / static_cast<float>(unitsPerEm) : 0.0f;
+}
+
+// One face of a font file Windows has.
+struct WindowsFace
+{
+	const std::vector<char> *data = nullptr;
+	int index = 0;
+	float span = 0.0f;
+};
+
+// The first of these faces (file, index in the collection) Windows has.
+static WindowsFace FindWindowsFace(std::initializer_list<std::pair<const wchar_t *, int>> candidates)
+{
+	for (const auto &[name, index] : candidates)
+	{
+		const std::vector<char> &data = WindowsFontFile(name);
+		if (const float span = FontFaceSpan(data, index); span > 0.0f)
+			return { &data, index, span };
+	}
+	return {};
 }
 
 // Japanese is drawn from a font Windows already has rather than a bundled
 // one: Yu Gothic ships with Windows 10 and 11, Meiryo and MS Gothic before it.
-// The heavier Inter weights get Yu Gothic's bold where Windows has it. Each
-// file is read once and shared by every font that uses it.
-static const std::vector<char> &JapaneseFontData(bool bold)
+// Each is its family's UI face, whose kana are spaced like the letters beside
+// them, at the weight nearest the Inter one it backs.
+static const WindowsFace &JapaneseFace(ui::Weight weight)
 {
-	static const std::vector<char> regular = ReadWindowsFont({ L"YuGothM.ttc", L"YuGothR.ttc", L"meiryo.ttc", L"msgothic.ttc" });
-	if (!bold)
-		return regular;
-	static const std::vector<char> heavy = ReadWindowsFont({ L"YuGothB.ttc", L"meiryob.ttc" });
-	return heavy.empty() ? regular : heavy;
+	static const WindowsFace regular =
+		FindWindowsFace({ { L"YuGothM.ttc", 1 }, { L"YuGothR.ttc", 1 }, { L"meiryo.ttc", 2 }, { L"msgothic.ttc", 1 } });
+	static const WindowsFace semibold = FindWindowsFace({ { L"YuGothB.ttc", 2 }, { L"meiryob.ttc", 2 } });
+	static const WindowsFace bold = FindWindowsFace({ { L"YuGothB.ttc", 1 }, { L"meiryob.ttc", 2 } });
+	const WindowsFace &face = weight == ui::Weight::Bold ? bold : weight == ui::Weight::SemiBold ? semibold : regular;
+	return face.data ? face : regular;
 }
 
 // An embedded resource's bytes, valid for the life of the process.
@@ -334,7 +405,7 @@ static std::pair<void *, int> EmbeddedBytes(const char *name)
 // draws. ImGui 1.92 bakes glyphs on first use and at any size, so one font
 // serves every size and the merge costs nothing until a Japanese glyph is
 // drawn. size only sets the font's default (LegacySize).
-static ImFont *AddInterFont(ImGuiIO &io, const char *resource, float size, bool bold)
+static ImFont *AddInterFont(ImGuiIO &io, const char *resource, float size, ui::Weight weight)
 {
 	const auto [data, bytes] = EmbeddedBytes(resource);
 	ImFont *font = nullptr;
@@ -346,15 +417,19 @@ static ImFont *AddInterFont(ImGuiIO &io, const char *resource, float size, bool 
 	}
 	if (!font)
 		return io.Fonts->AddFontDefault();
-	const std::vector<char> &japanese = JapaneseFontData(bold);
-	const bool merged = !japanese.empty();
+	const WindowsFace &japanese = JapaneseFace(weight);
+	const bool merged = japanese.data != nullptr;
 	if (merged)
 	{
 		ImFontConfig config;
 		config.MergeMode = true;
 		config.FontDataOwnedByAtlas = false;   // shared by every weight
-		io.Fonts->AddFontFromMemoryTTF(const_cast<char *>(japanese.data()),
-			static_cast<int>(japanese.size()), size, &config);
+		config.FontNo = static_cast<ImU32>(japanese.index);
+		// ImGui sizes each face by its ascent-to-descent span, and Yu Gothic's
+		// is taller than Inter's: this sets both to the same em instead.
+		config.ExtraSizeScale = japanese.span / ui::GlyphSize(1.0f);
+		io.Fonts->AddFontFromMemoryTTF(const_cast<char *>(japanese.data->data()),
+			static_cast<int>(japanese.data->size()), size, &config);
 	}
 	questcal::i18n::SetFontAvailable(questcal::i18n::Language::Japanese, merged);
 	return font;
@@ -444,14 +519,14 @@ public:
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
 		io.IniFilename = nullptr;
-		ui::SetFont(ui::Weight::Regular, AddInterFont(io, "FONT_INTER_REGULAR", 17.0f, false));
-		ui::SetFont(ui::Weight::Medium, AddInterFont(io, "FONT_INTER_MEDIUM", 17.0f, false));
-		ui::SetFont(ui::Weight::SemiBold, AddInterFont(io, "FONT_INTER_SEMIBOLD", 17.0f, true));
-		ui::SetFont(ui::Weight::Bold, AddInterFont(io, "FONT_INTER_BOLD", 17.0f, true));
+		ui::SetFont(ui::Weight::Regular, AddInterFont(io, "FONT_INTER_REGULAR", 17.0f, ui::Weight::Regular));
+		ui::SetFont(ui::Weight::Medium, AddInterFont(io, "FONT_INTER_MEDIUM", 17.0f, ui::Weight::Medium));
+		ui::SetFont(ui::Weight::SemiBold, AddInterFont(io, "FONT_INTER_SEMIBOLD", 17.0f, ui::Weight::SemiBold));
+		ui::SetFont(ui::Weight::Bold, AddInterFont(io, "FONT_INTER_BOLD", 17.0f, ui::Weight::Bold));
 		// The fixed sizes the screens not yet on the design kit still draw at.
-		g_fontBody = AddInterFont(io, "FONT_INTER_REGULAR", 21.0f, false);
-		g_fontSmall = AddInterFont(io, "FONT_INTER_REGULAR", 14.0f, false);
-		g_fontTitle = AddInterFont(io, "FONT_INTER_SEMIBOLD", 27.0f, true);
+		g_fontBody = AddInterFont(io, "FONT_INTER_REGULAR", 21.0f, ui::Weight::Regular);
+		g_fontSmall = AddInterFont(io, "FONT_INTER_REGULAR", 14.0f, ui::Weight::Regular);
+		g_fontTitle = AddInterFont(io, "FONT_INTER_SEMIBOLD", 27.0f, ui::Weight::SemiBold);
 		io.FontDefault = g_fontBody;
 
 		ImGui_ImplGlfw_InitForOpenGL(window, true);
@@ -825,6 +900,11 @@ bool RunLoop(const LaunchOptions &options, const OverlayFramebuffer &framebuffer
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		io.SetAppAcceptingEvents(true);
+		// A counted run (-frames, -shot) draws the screen untouched: the desktop
+		// pointer over the hidden window would otherwise hover controls and
+		// raise tooltips in some captures and not others.
+		if (options.frameLimit > 0)
+			io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
 		io.DisplaySize = ImVec2((float) fboTextureWidth, (float) fboTextureHeight);
 		io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
 		questcal::i18n::BeginFrame();
@@ -1210,6 +1290,23 @@ static LaunchOptions ParseCommandLine(LPWSTR lpCmdLine)
 		options.preview = true;
 		options.previewMany = true;
 		options.previewScenario = PreviewScenario::Settings;
+	}
+	else if (cmd == L"-uipreview-move" || cmd == L"-uipreview-pair" || cmd == L"-uipreview-chaperone" ||
+		cmd == L"-uipreview-anchors" || cmd == L"-uipreview-activity" || cmd == L"-uipreview-clear" ||
+		cmd == L"-uipreview-chapwarn" || cmd == L"-uipreview-notices")
+	{
+		// The calibration sheet's measuring stage, and the sheets, dialogs
+		// and home notices of the redesign.
+		options.preview = true;
+		options.previewMany = true;
+		options.previewScenario = cmd == L"-uipreview-move" ? PreviewScenario::Move
+			: cmd == L"-uipreview-pair" ? PreviewScenario::Pair
+			: cmd == L"-uipreview-chaperone" ? PreviewScenario::Chaperone
+			: cmd == L"-uipreview-anchors" ? PreviewScenario::Anchors
+			: cmd == L"-uipreview-activity" ? PreviewScenario::Activity
+			: cmd == L"-uipreview-clear" ? PreviewScenario::ClearCalibration
+			: cmd == L"-uipreview-chapwarn" ? PreviewScenario::ChaperoneWarning
+			: PreviewScenario::Notices;
 	}
 	else if (cmd == L"-openvrpath")
 		options.command = Command::OpenVrPath;

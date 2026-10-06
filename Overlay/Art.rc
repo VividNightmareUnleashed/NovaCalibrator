@@ -1,0 +1,4 @@
+// Pictures the interface draws, built in as PNGs: the app's mark at the
+// welcome screen's size and the sidebar's.
+ART_ICON RCDATA "assets\\nova-icon-256.png"
+ART_ICON_SMALL RCDATA "assets\\nova-icon-small-128.png"

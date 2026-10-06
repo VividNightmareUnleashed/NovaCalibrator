@@ -37,6 +37,9 @@ public:
 	// A new child appended to parent. The layout owns every node it hands out.
 	YGNodeRef Add(YGNodeRef parent);
 	YGNodeRef Row(YGNodeRef parent);
+	YGNodeRef Column(YGNodeRef parent);
+	// A leaf of a fixed size that does not shrink: an icon, a control.
+	YGNodeRef Box(YGNodeRef parent, float width, float height);
 	// A leaf the size of one line of text in font; the caller draws the text.
 	YGNodeRef Text(YGNodeRef parent, ImFont *font, const char *text);
 	// A leaf whose size comes from measure(maxWidth), as wrapping text does:

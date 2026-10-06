@@ -180,7 +180,12 @@ void BuildLighthouseScreen(const VRState &state)
 				(i + 1 == devices.size() ? ImDrawFlags_RoundCornersBottom : 0));
 
 		const ImVec4 ink = dev.connected ? Pal::Text : Pal::Dim;
-		RowDeviceIcon(dl, dev, ImVec2(p.x + 30.0f, p.y + rowH * 0.5f), Pal::U32(Pal::Dim));
+		{
+			FlexRect art;
+			art.min = ImVec2(p.x + 10.0f, p.y + rowH * 0.5f - 17.0f);
+			art.max = ImVec2(art.min.x + 40.0f, art.min.y + 34.0f);
+			DrawDeviceArt(dl, dev, art, Pal::U32(Pal::Dim));
+		}
 		const std::string name = DeviceDisplayName(dev);
 		dl->AddText(g_fontBody, g_fontBody->LegacySize, ImVec2(p.x + 62.0f, p.y + 7.0f),
 			Pal::U32(ink), name.c_str());

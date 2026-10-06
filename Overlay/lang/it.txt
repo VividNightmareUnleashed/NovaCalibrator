@@ -38,7 +38,7 @@ it: Calibrazione
 en: Lighthouse
 it: Lighthouse
 en: Smoothing
-it: Smussamento
+it: Fluidità
 en: Lighthouse module is currently not installed. Select it during installation.
 it: Il modulo Lighthouse non è installato. Selezionalo durante l'installazione.
 en: Work in progress
@@ -49,6 +49,12 @@ en: Close the SteamVR dashboard to use the mouse
 it: Chiudi la dashboard di SteamVR per usare il mouse
 en: Dismiss
 it: Chiudi
+en: Settings
+it: Impostazioni
+en: Soon
+it: In arrivo
+en: Version %s
+it: Versione {0}
 
 # ---- Continuous calibration state ----
 en: Off
@@ -81,8 +87,8 @@ en: Continuous calibration is waiting. The headset tracker isn't being seen.
 it: La calibrazione continua è in attesa. Il tracker del visore non viene rilevato.
 en: Continuous calibration is waiting. The headset isn't tracking.
 it: La calibrazione continua è in attesa. Il visore non è tracciato.
-en: Continuous calibration is waiting. The headset tracker is off; turn it back on.
-it: La calibrazione continua è in attesa. Il tracker del visore è spento; riaccendilo.
+en: Continuous calibration is waiting because the headset tracker is off. Turn it back on to resume.
+it: La calibrazione continua è in attesa perché il tracker del visore è spento. Riaccendilo per riprendere.
 en: Continuous calibration is paused. Readings drifted too far to correct.
 it: La calibrazione continua è in pausa. Lo scostamento è troppo grande da correggere.
 en: Continuous calibration is waiting. It resumes when tracking settles.
@@ -91,8 +97,8 @@ en: Continuous calibration is warming up.
 it: La calibrazione continua si sta avviando.
 
 # ---- Status band ----
-en: Alignment:
-it: Allineamento:
+en: Alignment
+it: Allineamento
 en: Good
 it: Buono
 en: Usable
@@ -103,8 +109,10 @@ en: Bad
 it: Scarso
 en: Not measured
 it: Non misurato
-en: Your trackers won't line up like this. Recalibrate.
-it: Così i tracker non saranno allineati. Ricalibra.
+en: Not calibrated
+it: Non calibrato
+en: Your trackers are noticeably off. Recalibrate to fix them.
+it: I tracker sono visibilmente disallineati. Ricalibra per sistemarli.
 en: Recalibrate to tighten the alignment.
 it: Ricalibra per migliorare l'allineamento.
 en: time is in the future
@@ -117,26 +125,22 @@ en: %.1f h ago
 it: {0} h fa
 en: %.0f days ago
 it: {0} giorni fa
-en: adjusted %s
-it: regolata {0}
-en: calibrated %s
-it: calibrata {0}
-en: last adjusted %s
-it: ultima regolazione {0}
-en: maintained continuously
-it: mantenuta di continuo
-en: calibration time unknown
-it: ora di calibrazione sconosciuta
+en: Adjusted %s.
+it: Regolata {0}.
+en: Calibrated %s.
+it: Calibrata {0}.
+en: Last adjusted %s.
+it: Ultima regolazione: {0}.
 en: Continuous calibration paused
 it: Calibrazione continua in pausa
-en: Tracking no longer matches the saved alignment. Recalibrate with the headset tracker.
-it: Il tracciamento non corrisponde più all'allineamento salvato. Ricalibra con il tracker del visore.
+en: Tracking has drifted away from your calibration. Recalibrate to bring your trackers back in line.
+it: Il tracciamento si è allontanato dalla calibrazione. Ricalibra per riallineare i tracker.
 en: Recalibrate
 it: Ricalibra
 en: Turn off continuous calibration
 it: Disattiva la calibrazione continua
-en: Not calibrated yet. Pick a device on each side and press Start calibration.
-it: Non ancora calibrato. Scegli un dispositivo per lato e premi Avvia calibrazione.
+en: Your trackers won't line up with your headset until you calibrate. It takes %.0f seconds.
+it: I tracker non saranno allineati al visore finché non calibri. Ci vogliono {0} secondi.
 
 # Advanced-mode numbers under the verdict.
 en: Difference: %.1f deg yaw, %.1f deg tilt, %.1f cm position
@@ -205,12 +209,18 @@ en: Calibration can't move some target devices, because their tracking doesn't p
 it: La calibrazione non può spostare alcuni dispositivi di destinazione, perché il loro tracciamento non passa dal driver SteamVR di QuestCalibrator.
 en: (OpenVR devices %s)
 it: (dispositivi OpenVR {0})
-en: QuestCalibrator %s is ready. Open Settings to install it.
-it: QuestCalibrator {0} è pronto. Apri le Impostazioni per installarlo.
+en: Nova Calibrator %s is ready
+it: Nova Calibrator {0} è pronto
+en: Downloaded and verified. Close Steam before you install it.
+it: Scaricato e verificato. Chiudi Steam prima di installarlo.
+en: Install
+it: Installa
 
 # ---- Main screen buttons ----
-en: Start calibration
-it: Avvia calibrazione
+en: Calibrate
+it: Calibra
+en: Choose the pair to calibrate
+it: Scegli la coppia da calibrare
 en: Finish the current calibration and pick two different available devices before starting.
 it: Termina la calibrazione in corso e scegli due dispositivi diversi disponibili prima di iniziare.
 en: %d s
@@ -225,30 +235,44 @@ en: Your trackers won't line up until you calibrate again. This also removes the
 it: I tracker non saranno allineati finché non calibri di nuovo. Vengono rimosse anche le ancore di campo e la configurazione del tracker del visore.
 en: Keep calibration
 it: Mantieni calibrazione
-en: Identify selected devices
-it: Identifica i dispositivi
 en: Vibrates or blinks the two selected devices so you can tell which is which.
 it: Fa vibrare o lampeggiare i due dispositivi selezionati, così capisci quale è quale.
-en: Update protected chaperone
-it: Aggiorna il chaperone protetto
 en: Protect chaperone
 it: Proteggi il chaperone
-en: Saves your current chaperone (SteamVR's walls) and puts it\nback automatically if SteamVR or the headset ever loses it.\nRedrew your chaperone? Press again to protect the new one.\nPrefer the Quest boundary imported fresh each session? Don't use this.
-it: Salva il chaperone attuale (le pareti di SteamVR) e lo ripristina\nautomaticamente se SteamVR o il visore lo perdono.\nHai ridisegnato il chaperone? Premi di nuovo per proteggere quello nuovo.\nPreferisci importare il confine del Quest a ogni sessione? Non usarlo.
 en: Add field anchor
 it: Aggiungi ancora di campo
-en: Aligned in one spot but slightly off in another?\nStand at the bad spot, press this, and do a quick calibration there.\nThat spot gets its own correction, blended in as you walk around.
-it: Allineato in un punto ma leggermente sfasato in un altro?\nMettiti nel punto sbagliato, premi qui e fai una breve calibrazione.\nQuel punto avrà la sua correzione, raccordata mentre ti muovi.
 en: Recent activity
 it: Attività recente
+en: Show all
+it: Mostra tutto
+en: Nothing yet. Calibrations and corrections will appear here.
+it: Ancora niente. Qui compariranno calibrazioni e correzioni.
+en: Activity
+it: Attività
+en: Today
+it: Oggi
+en: Yesterday
+it: Ieri
+en: Tools
+it: Strumenti
+en: Identify the pair
+it: Identifica la coppia
+en: Makes both vibrate or blink
+it: Li fa vibrare o lampeggiare
+en: Chaperone
+it: Chaperone
+en: Protected %s
+it: Protetto {0}
+en: Protected
+it: Protetto
+en: Not protected yet
+it: Non ancora protetto
+en: Calibrate first
+it: Calibra prima
+en: No anchors yet
+it: Nessuna ancora salvata
 
 # ---- Device panes ----
-en: REFERENCE SYSTEM
-it: SISTEMA DI RIFERIMENTO
-en: TARGET SYSTEM
-it: SISTEMA DI DESTINAZIONE
-en: Low battery
-it: Batteria scarica
 en: Rename this device
 it: Rinomina questo dispositivo
 en: Vibrate or blink this device
@@ -261,8 +285,14 @@ en: No tracked devices found
 it: Nessun dispositivo tracciato
 en: No trackers found. Turn on a tracker and make sure SteamVR sees it.
 it: Nessun tracker trovato. Accendi un tracker e verifica che SteamVR lo veda.
-en: Calibration takes %.0f seconds. The next screen shows how to move.
-it: La calibrazione dura {0} secondi. La schermata successiva mostra come muoverti.
+en: Choose the pair
+it: Scegli la coppia
+en: Pick a Quest device and a SteamVR device to hold together while you calibrate.
+it: Scegli un dispositivo Quest e un dispositivo SteamVR da tenere uniti durante la calibrazione.
+en: Headset
+it: Visore
+en: Identify
+it: Identifica
 
 # ---- Settings ----
 en: Language
@@ -397,6 +427,8 @@ en: Motion demo credits
 it: Crediti delle animazioni
 en: Edit calibration (advanced)
 it: Modifica calibrazione (avanzato)
+en: Edit calibration
+it: Modifica calibrazione
 
 # Calibration editor.
 en: ROTATION (DEGREES)
@@ -419,24 +451,20 @@ en: Close
 it: Chiudi
 
 # ---- Guided calibration ----
-en: Step 1 of 3
-it: Passo 1 di 3
-en: Step 2 of 3
-it: Passo 2 di 3
-en: Stand where the trackers look misaligned.
-it: Mettiti dove i tracker sembrano disallineati.
-en: Hold the controller against the visor.
-it: Tieni il controller appoggiato alla visiera.
-en: Keep the tracker fixed to your headset.
-it: Tieni il tracker fissato al visore.
-en: Hold the controller against the wrist tracker.
-it: Tieni il controller appoggiato al tracker del polso.
+en: Stand where the trackers look misaligned
+it: Mettiti dove i tracker sembrano disallineati
+en: Hold the controller against the visor
+it: Tieni il controller appoggiato alla visiera
+en: Keep the tracker fixed to your headset
+it: Tieni il tracker fissato al visore
+en: Hold the controller against the wrist tracker
+it: Tieni il controller appoggiato al tracker del polso
 en: Hold the controller upright, with the trigger side against the front of your headset. Keep it in place as you turn and tilt your head for %.0f seconds.
 it: Tieni il controller dritto, con il lato del grilletto contro la parte anteriore del visore. Tienilo fermo mentre giri e inclini la testa per {0} secondi.
 en: Move your head gently for %.0f seconds, keeping your body relaxed. Keep the tracker sensors uncovered.
 it: Muovi la testa con delicatezza per {0} secondi, con il corpo rilassato. Non coprire i sensori del tracker.
-en: Hold the controller against the wrist tracker with your other hand. Move both in a figure eight, gently turning and tilting, for %.0f seconds.
-it: Con l'altra mano tieni il controller contro il tracker del polso. Muovili insieme disegnando un otto, girandoli e inclinandoli con delicatezza, per {0} secondi.
+en: When you start, move both in slow figure eights for %.0f seconds, turning and tilting your hands as you go.
+it: Quando inizi, muovili insieme disegnando lentamente degli otto per {0} secondi, girando e inclinando le mani.
 en: Look left and right
 it: Guarda a destra e a sinistra
 en: Look up and down
@@ -457,14 +485,16 @@ en: Target device
 it: Dispositivo di destinazione
 en: %s is tracking
 it: {0}: tracciato
-en: %s isn't tracking. Wake it or bring it into view.
-it: {0} non è tracciato. Riattivalo o portalo in vista.
-en: Replay
-it: Rivedi
-en: Pause demo
-it: Pausa demo
-en: Play demo
-it: Riproduci demo
+en: %s is settling
+it: {0}: in stabilizzazione
+en: %s isn't tracking
+it: {0}: non tracciato
+en: Replay the demo
+it: Rivedi la demo
+en: Pause the demo
+it: Metti in pausa la demo
+en: Play the demo
+it: Riproduci la demo
 en: Start
 it: Avvia
 en: Start anyway
@@ -479,16 +509,16 @@ en: Look left and right, then up and down. Gently tilt your head to each side. K
 it: Guarda a destra e a sinistra, poi in alto e in basso. Inclina delicatamente la testa da entrambi i lati. Tieni il tracker in vista delle stazioni base.
 en: Keep both devices firmly together.
 it: Tieni i due dispositivi ben uniti.
-en: Move both devices in a figure eight, gently turning and tilting as you go. Keep them firmly together and in view of their tracking cameras or base stations.
-it: Muovi i due dispositivi disegnando un otto, girandoli e inclinandoli con delicatezza. Tienili ben uniti e in vista delle telecamere di tracciamento o delle stazioni base.
-en: Motion variety
-it: Varietà del movimento
+en: Draw slow figure eights in the air, turning and tilting your hands as you go.
+it: Disegna lentamente degli otto nell'aria, girando e inclinando le mani.
+en: Range of motion
+it: Ampiezza del movimento
 en: Movement speed
 it: Velocità del movimento
 en: Tracker stability
 it: Stabilità del tracker
-en: Device stability
-it: Stabilità dei dispositivi
+en: Grip
+it: Presa
 en: Measuring...
 it: Misurazione...
 en: Enough variety
@@ -505,8 +535,14 @@ en: Tracker is shifting on the headset
 it: Il tracker si sposta sul visore
 en: Hold them tighter together
 it: Tienili più uniti
-en: %.0f s left
-it: {0} s rimanenti
+en: seconds left
+it: secondi rimasti
+en: Settling...
+it: Stabilizzazione...
+en: Waiting for tracking
+it: In attesa del tracciamento
+en: Keep holding until the timer ends.
+it: Continua a tenerli fino alla fine del timer.
 en: Calibrating...
 it: Calibrazione in corso...
 en: Hide details
@@ -529,8 +565,8 @@ en: Calibration cancelled
 it: Calibrazione annullata
 en: Done, but the headset tracker wasn't set up
 it: Fatto, ma il tracker del visore non è stato configurato
-en: Check that the tracker positions line up in VR.
-it: Controlla in VR che le posizioni dei tracker siano allineate.
+en: Check in VR that your trackers line up with your body.
+it: Controlla in VR che i tracker siano allineati al tuo corpo.
 en: The alignment is rough.
 it: L'allineamento è impreciso.
 en: The alignment may need another pass.
@@ -559,10 +595,10 @@ en: Recalibrate with the headset tracker and look around more slowly.
 it: Ricalibra con il tracker del visore e guardati intorno più lentamente.
 
 # Why a solve was refused.
-en: The devices didn't rotate far enough.
-it: I dispositivi non hanno ruotato abbastanza.
-en: Use wider turns while keeping both devices fixed together.
-it: Fai rotazioni più ampie tenendo i dispositivi uniti.
+en: The devices didn't turn far enough.
+it: I dispositivi non hanno girato abbastanza.
+en: Make bigger turns, and keep them pressed together.
+it: Fai rotazioni più ampie e tienili premuti l'uno contro l'altro.
 en: The devices only rotated in one direction.
 it: I dispositivi hanno ruotato in una sola direzione.
 en: The devices didn't rotate in enough directions.
@@ -603,10 +639,10 @@ en: Try again; close capture or recording software if it repeats.
 it: Riprova; se si ripete, chiudi i programmi di acquisizione o registrazione.
 en: %s's tracking reset during the measurement.
 it: Il tracciamento di {0} si è reimpostato durante la misura.
-en: %s's tracking is settling.
-it: Il tracciamento di {0} si sta stabilizzando.
-en: %s isn't tracking yet.
-it: {0} non è ancora tracciato.
+en: Waiting for %s to settle.
+it: In attesa che {0} si stabilizzi.
+en: Waiting for %s to start tracking.
+it: In attesa che {0} venga tracciato.
 en: The calibration starts on its own in a few seconds. Keep it in view of its base stations.
 it: La calibrazione parte da sola tra qualche secondo. Tienilo in vista delle sue stazioni base.
 en: The calibration starts on its own once it tracks. Wake it and keep it in view.
@@ -691,6 +727,20 @@ en: Restart QuestCalibrator and try again.
 it: Riavvia QuestCalibrator e riprova.
 en: This spot now has its own correction, blended in as you walk around.
 it: Questo punto ora ha la sua correzione, raccordata mentre ti muovi.
+en: If your trackers are a little off in one part of the room, stand there and add an anchor. Nova Calibrator fixes that spot and blends the correction in as you walk toward it.
+it: Se in una parte della stanza i tracker sono un po' sfasati, mettiti lì e aggiungi un'ancora. Nova Calibrator corregge quel punto e applica la correzione gradualmente mentre ti avvicini.
+en: Anchor %zu
+it: Ancora {0}
+en: %.1f m from the center · corrects %.1f cm and %.2f°
+it: A {0} m dal centro · corregge {1} cm e {2}°
+en: No anchors yet.
+it: Nessuna ancora salvata.
+en: Use field anchors
+it: Usa le ancore di campo
+en: Turn off to use the main calibration everywhere.
+it: Disattivalo per usare la calibrazione principale ovunque.
+en: You can save up to 8. A new anchor within 1 m of another one replaces it.
+it: Puoi salvarne fino a 8. Una nuova ancora entro 1 m da un'altra la sostituisce.
 
 # ---- Runtime monitors (activity feed and VR notifications) ----
 en: Your calibration looks off. Recalibrate.
@@ -707,12 +757,12 @@ en: Continuous calibration paused: readings moved too far from the calibration. 
 it: Calibrazione continua in pausa: le misure si sono allontanate troppo dalla calibrazione. Si riallinea da sola se restano stabili.
 en: QuestCalibrator: continuous calibration paused; readings moved too far from the calibration. It re-aligns on its own if they hold steady, or recalibrate with the headset tracker.
 it: QuestCalibrator: calibrazione continua in pausa; le misure si sono allontanate troppo dalla calibrazione. Si riallinea da sola se restano stabili, oppure ricalibra con il tracker del visore.
-en: Continuous calibration paused: readings drifted too far from the calibration to correct safely.
-it: Calibrazione continua in pausa: le misure si sono allontanate troppo dalla calibrazione per correggerle in sicurezza.
+en: Continuous calibration paused: tracking drifted too far to correct safely.
+it: Calibrazione continua in pausa: il tracciamento si è spostato troppo per correggerlo in sicurezza.
 en: QuestCalibrator: continuous calibration paused; readings drifted too far to correct safely. Recalibrate with the headset tracker to resume.
 it: QuestCalibrator: calibrazione continua in pausa; lo scostamento è troppo grande per correggerlo in sicurezza. Ricalibra con il tracker del visore per riprendere.
-en: Continuous calibration re-aligned your trackers after the tracking spaces moved apart.
-it: La calibrazione continua ha riallineato i tracker dopo che gli spazi di tracciamento si sono separati.
+en: Re-aligned your trackers after your headset's tracking shifted.
+it: Tracker riallineati dopo uno spostamento del tracciamento del visore.
 en: Continuous calibration went back to the alignment it had before it last re-aligned your trackers.
 it: La calibrazione continua è tornata all'allineamento che aveva prima dell'ultimo riallineamento dei tracker.
 en: Continuous calibration paused: the headset tracker's base station tracking restarted and doesn't match the headset yet. It resumes on its own once that settles.
@@ -755,14 +805,30 @@ it: QuestCalibrator: il tracker del visore è spento. Riaccendilo per riprendere
 # ---- Chaperone ----
 en: Check your room boundaries
 it: Controlla i confini della stanza
-en: QuestCalibrator saves and restores your SteamVR chaperone. Tracking drift can still move the chaperone walls away from your real walls.
-it: QuestCalibrator salva e ripristina il chaperone di SteamVR. La deriva del tracciamento può comunque allontanare le sue pareti da quelle reali.
+en: Nova Calibrator saves and restores your SteamVR chaperone. Tracking drift can still shift it away from your real walls.
+it: Nova Calibrator salva e ripristina il chaperone di SteamVR. La deriva del tracciamento può comunque spostarlo rispetto alle pareti reali.
 en: Keep the Quest boundary turned on too. A protected chaperone doesn't guarantee that your play area is clear or correctly aligned.
 it: Tieni attivo anche il confine del Quest. Un chaperone protetto non garantisce che l'area di gioco sia libera o allineata correttamente.
-en: Before playing, check that the chaperone walls match your room and leave enough space to move safely, especially when dancing.
-it: Prima di giocare, controlla che le pareti del chaperone corrispondano alla stanza e lascino spazio per muoverti in sicurezza, soprattutto se balli.
+en: Before you play, check that the walls match your room and leave enough space to move safely, especially when dancing.
+it: Prima di giocare, controlla che le pareti corrispondano alla stanza e lascino spazio per muoverti in sicurezza, soprattutto se balli.
 en: Protect chaperone (%d s)
 it: Proteggi il chaperone ({0} s)
+en: Nova Calibrator saves your SteamVR walls and puts them back if SteamVR or the headset ever loses them. If you redraw your walls, protect them again.
+it: Nova Calibrator salva le pareti di SteamVR e le ripristina se SteamVR o il visore le perdono. Se ridisegni le pareti, proteggile di nuovo.
+en: Protect your current walls to keep them.
+it: Proteggi le pareti attuali per conservarle.
+en: %zu wall%s · %.1f × %.1f m
+it: Pareti: {0} · {2} × {3} m
+en: Restore automatically
+it: Ripristina automaticamente
+en: Turn off to use your Quest's boundary each session instead.
+it: Disattivalo per usare invece il confine del Quest a ogni sessione.
+en: Keep the Quest boundary turned on too. A protected chaperone doesn't guarantee that your play area is clear.
+it: Tieni attivo anche il confine del Quest. Un chaperone protetto non garantisce che l'area di gioco sia libera.
+en: Restore now
+it: Ripristina ora
+en: Protect current walls
+it: Proteggi le pareti attuali
 en: Chaperone saved without walls, so auto-restore stays off until Room Setup adds some.
 it: Chaperone salvato senza pareti: il ripristino automatico resta spento finché Configurazione stanza non ne aggiunge.
 en: Chaperone saved: %u wall%s, %.1f x %.1f m.
@@ -771,16 +837,16 @@ en: Chaperone restored.
 it: Chaperone ripristinato.
 en: Couldn't check the protected chaperone: SteamVR's chaperone setup isn't available right now.
 it: Impossibile controllare il chaperone protetto: la configurazione del chaperone di SteamVR non è disponibile al momento.
-en: Couldn't read the current chaperone, so the protected one wasn't changed.
-it: Impossibile leggere il chaperone attuale, quindi quello protetto non è stato modificato.
-en: The protected chaperone was saved for a different headset, so it was switched off. Press Protect chaperone again on the main screen.
-it: Il chaperone protetto era stato salvato per un altro visore, quindi è stato disattivato. Premi di nuovo Proteggi il chaperone nella schermata principale.
-en: The headset re-centered, so the protected chaperone no longer lines up and was turned off. Protect it again from the main screen.
-it: Il visore si è ricentrato e il chaperone protetto non è più allineato, quindi è stato disattivato. Proteggilo di nuovo dalla schermata principale.
-en: The headset re-centered while QuestCalibrator couldn't follow it, so the protected chaperone was switched off. Press Protect chaperone again on the main screen.
-it: Il visore si è ricentrato mentre QuestCalibrator non poteva seguirlo, quindi il chaperone protetto è stato disattivato. Premi di nuovo Proteggi il chaperone nella schermata principale.
-en: The protected chaperone belonged to the previous calibration and was turned off. Protect it again from the main screen.
-it: Il chaperone protetto apparteneva alla calibrazione precedente ed è stato disattivato. Proteggilo di nuovo dalla schermata principale.
+en: Couldn't read your chaperone from SteamVR, so your protected walls weren't changed.
+it: Impossibile leggere il chaperone da SteamVR, quindi le pareti protette non sono state modificate.
+en: The protected chaperone was saved for a different headset, so it was switched off. Protect it again from the Chaperone tool.
+it: Il chaperone protetto era stato salvato per un altro visore, quindi è stato disattivato. Proteggilo di nuovo dallo strumento Chaperone.
+en: The headset re-centered, so the protected chaperone no longer lines up and was turned off. Protect it again from the Chaperone tool.
+it: Il visore si è ricentrato e il chaperone protetto non è più allineato, quindi è stato disattivato. Proteggilo di nuovo dallo strumento Chaperone.
+en: The headset re-centered while QuestCalibrator couldn't follow it, so the protected chaperone was switched off. Protect it again from the Chaperone tool.
+it: Il visore si è ricentrato mentre QuestCalibrator non poteva seguirlo, quindi il chaperone protetto è stato disattivato. Proteggilo di nuovo dallo strumento Chaperone.
+en: The protected chaperone belonged to the previous calibration and was turned off. Protect it again from the Chaperone tool.
+it: Il chaperone protetto apparteneva alla calibrazione precedente ed è stato disattivato. Proteggilo di nuovo dallo strumento Chaperone.
 en: A headset re-center was too large to compensate safely. Recalibrate before continuing.
 it: Un ricentramento del visore era troppo grande per compensarlo in sicurezza. Ricalibra prima di continuare.
 en: The headset re-centered while QuestCalibrator couldn't follow it. The calibration and the protected chaperone are off until you recalibrate.

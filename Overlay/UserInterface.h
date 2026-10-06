@@ -10,9 +10,15 @@ extern bool g_uiPreviewMode;
 extern bool g_uiPreviewMany;
 
 // Preview scenarios cover frozen alignment, a headset tracker SteamVR switched
-// off, a failed solve, an empty profile, guide setup, a completed result, and
-// the Lighthouse tab. Each implies -uipreview-many.
-enum class PreviewScenario { Healthy, Frozen, TrackerOff, Failed, Empty, Guide, GuideWait, Result, Lighthouse, Settings };
+// off, a failed solve, an empty profile, the calibration sheet's stages, the
+// pair, chaperone, anchors and activity sheets, the confirmation dialogs, the
+// home screen's notices, the Lighthouse page and Settings. Each implies
+// -uipreview-many.
+enum class PreviewScenario
+{
+	Healthy, Frozen, TrackerOff, Failed, Empty, Guide, GuideWait, Move, Result, Lighthouse, Settings,
+	Pair, Chaperone, Anchors, Activity, ClearCalibration, ChaperoneWarning, Notices
+};
 extern PreviewScenario g_uiPreviewScenario;
 
 // Fonts loaded by QuestCalibrator.cpp at window creation.

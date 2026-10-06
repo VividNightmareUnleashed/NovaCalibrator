@@ -1,6 +1,7 @@
 // -uipreview: fake devices and fake calibration state, no SteamVR.
 #include "stdafx.h"
 #include "UiInternal.h"
+#include "QualityBands.h"
 
 // ---------------------------------------------------------------------------
 // VR state
@@ -105,6 +106,38 @@ VRState PreviewVRState()
 	}
 
 	return state;
+}
+
+// What the updater reports, with a downloaded release faked for the home
+// screen's notices preview (the updater never runs in preview).
+questcal::update::Snapshot CurrentUpdate()
+{
+	if (g_uiPreviewMode && g_uiPreviewScenario == PreviewScenario::Notices)
+	{
+		questcal::update::Snapshot ready;
+		ready.state = questcal::update::State::Ready;
+		ready.version = "1.2.1";
+		return ready;
+	}
+	return questcal::update::AppUpdater.GetSnapshot();
+}
+
+// An activity entry from secondsAgo, as the monitors would have written it.
+static void PreviewActivity(const char *text, CalibrationContext::Tone tone, double secondsAgo)
+{
+	CalCtx.PushActivity(text, tone);
+	CalCtx.activity.back().unixTime = static_cast<double>(std::time(nullptr)) - secondsAgo;
+}
+
+// The guide opened on the fake pair: Touch Pro Right against the first
+// VIVE tracker.
+static void PreviewGuide()
+{
+	CalCtx.referenceID = 3 + kPreviewManyTrackerCount;
+	CalCtx.targetID = 3;
+	CalCtx.pendingReferenceTrackingSystem = "oculus";
+	CalCtx.pendingTargetTrackingSystem = "lighthouse";
+	OpenGuide(false, false);
 }
 
 // UI preview (-uipreview): plausible fake state so every part of the interface
@@ -226,33 +259,86 @@ void SetupPreviewState()
 		CalCtx.lighthouseLogPath = lighthouselog::DefaultLogPath();
 	}
 
+	// A recent history for the home screen and the activity sheet, oldest
+	// first, as the monitors and runs write it.
+	PreviewActivity("Calibration complete: Check in VR that your trackers line up with your body.",
+		CalibrationContext::Tone::Good, 26.0 * 3600.0);
+	PreviewActivity("Chaperone restored.", CalibrationContext::Tone::Neutral, 52.0 * 60.0);
+	PreviewActivity("Anchor added: This spot now has its own correction, blended in as you walk around.",
+		CalibrationContext::Tone::Good, 21.0 * 60.0);
+	PreviewActivity("Re-aligned your trackers after your headset's tracking shifted.",
+		CalibrationContext::Tone::Good, 42.0);
+
 	switch (g_uiPreviewScenario)
 	{
 	case PreviewScenario::Guide:
 	case PreviewScenario::GuideWait:
+	case PreviewScenario::Move:
 	case PreviewScenario::Result:
-		CalCtx.referenceID = 3 + kPreviewManyTrackerCount;
-		CalCtx.targetID = 3;
-		CalCtx.pendingReferenceTrackingSystem = "oculus";
-		CalCtx.pendingTargetTrackingSystem = "lighthouse";
-		OpenGuide(false, false);
+	case PreviewScenario::Failed:
+		PreviewGuide();
 		if (g_uiPreviewScenario == PreviewScenario::GuideWait)
 		{
 			// Started the moment the tracker woke: the run waits for its new
 			// solution to settle before it measures.
 			CalCtx.state = CalibrationState::Begin;
-			CalCtx.run.waitInstruction = "VIVE Tracker 3.0's tracking is settling.";
+			CalCtx.run.waitInstruction = "Waiting for VIVE Tracker 3.0 to settle.";
 			CalCtx.run.waitNote =
 				"The calibration starts on its own in a few seconds. Keep it in view of its base stations.";
 			s_guide.stage = GuideStage::Running;
 		}
+		if (g_uiPreviewScenario == PreviewScenario::Move)
+		{
+			// Three seconds into a ten-second run.
+			BeginGuidedRun();
+			s_guide.stage = GuideStage::Running;
+			s_guide.countdownStart = -(kCountdownSeconds + 3.0);
+		}
 		if (g_uiPreviewScenario == PreviewScenario::Result)
 		{
 			CalCtx.lastRunPassed = true;
-			CalCtx.Outcome("Calibration complete", "Check that the tracker positions line up in VR.",
+			CalCtx.Outcome("Calibration complete", "Check in VR that your trackers line up with your body.",
 				"", "Rotation RMS 2.53 degrees; position RMS 1.0 cm", CalibrationContext::Tone::Good);
 			s_guide.stage = GuideStage::Done;
 		}
+		if (g_uiPreviewScenario == PreviewScenario::Failed)
+		{
+			// The refused solve a preview run under this flag ends in too.
+			CalCtx.lastRunPassed = false;
+			CalCtx.Outcome("Calibration failed", "The devices didn't turn far enough.",
+				"Make bigger turns, and keep them pressed together.",
+				"Rotation coverage 0.21 of 1.00 (need 0.60)", CalibrationContext::Tone::Warn);
+			s_guide.stage = GuideStage::Done;
+			s_modalDetails = true;
+		}
+		break;
+	case PreviewScenario::Pair:
+		OpenSheet(Sheet::Pair);
+		break;
+	case PreviewScenario::Chaperone:
+		OpenSheet(Sheet::Chaperone);
+		break;
+	case PreviewScenario::Anchors:
+		OpenSheet(Sheet::Anchors);
+		break;
+	case PreviewScenario::Activity:
+		OpenSheet(Sheet::Activity);
+		break;
+	case PreviewScenario::ClearCalibration:
+		OpenDialog(Dialog::ClearCalibration);
+		break;
+	case PreviewScenario::ChaperoneWarning:
+		CalCtx.chaperoneWarningAck = false;
+		OpenSheet(Sheet::Chaperone);
+		OpenDialog(Dialog::ChaperoneWarning);
+		break;
+	case PreviewScenario::Notices:
+		// Calibration switched off for a missing headset, a downloaded update
+		// waiting (CurrentUpdate), and an error in the banner.
+		CalCtx.enabled = false;
+		CalCtx.disableReason = CalibrationContext::DisableReason::HmdMismatch;
+		CalCtx.ReportError("Couldn't read your chaperone from SteamVR, so your protected walls weren't changed.\n",
+			CalibrationContext::ErrorSource::ChaperoneMonitor);
 		break;
 	case PreviewScenario::Frozen:
 		// The loop measured a deviation too large to correct and stopped:
@@ -262,7 +348,7 @@ void SetupPreviewState()
 		CalCtx.continuousDeviation.yawDeg = 2.6;
 		CalCtx.continuousDeviation.tiltDeg = 0.9;
 		CalCtx.continuousDeviation.posM = 0.11;
-		CalCtx.Tell("Continuous calibration paused: readings drifted too far from the calibration to correct safely.",
+		CalCtx.Tell("Continuous calibration paused: tracking drifted too far to correct safely.",
 			CalibrationContext::Tone::Warn);
 		break;
 	case PreviewScenario::TrackerOff:
@@ -272,6 +358,8 @@ void SetupPreviewState()
 		CalCtx.continuousTrackerConnected = false;
 		CalCtx.continuousState = questcal::ContinuousAlignment::State::Inactive;
 		CalCtx.continuousDeviation.valid = false;
+		// Unmaintained for long enough that the drift evidence calls it bad.
+		CalCtx.driftScore = questcal::DriftVeryPoorScore;
 		CalCtx.Tell("SteamVR switched the headset tracker off after it sat still for 5 minutes. Turn it back on to resume continuous calibration.",
 			CalibrationContext::Tone::Warn);
 		CalCtx.Tell("To keep SteamVR from doing this, set \"Turn off controllers after\" to Never in SteamVR's Startup / Shutdown settings.");
@@ -290,15 +378,15 @@ void SetupPreviewState()
 		CalCtx.continuousState = questcal::ContinuousAlignment::State::Inactive;
 		CalCtx.continuousDeviation.valid = false;
 		CalCtx.autoCorrectionsApplied = 0;
+		CalCtx.activity.clear();
 		break;
 	case PreviewScenario::Lighthouse:
 		CalCtx.modules.lighthouse = questcal::ModuleStatus::Installed;
-		s_mainTab = MainTab::Lighthouse;
+		g_page = Page::Lighthouse;
 		break;
 	case PreviewScenario::Settings:
-		s_showSettings = true;
+		g_page = Page::Settings;
 		break;
-	case PreviewScenario::Failed:
 	case PreviewScenario::Healthy:
 		break;
 	}

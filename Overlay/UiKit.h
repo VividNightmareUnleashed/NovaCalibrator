@@ -130,8 +130,13 @@ namespace ui
 	// One line, no wrapping: its advance width and line height.
 	ImVec2 MeasureLine(const TextStyle &style, const char *text, const char *end = nullptr);
 
+	// The longest start of text that fits width on one line, with an ellipsis
+	// when it had to be cut.
+	std::string Ellipsize(const TextStyle &style, const std::string &text, float width);
+
 	// Text broken into lines that fit maxWidth (no limit when maxWidth <= 0),
-	// at word boundaries, or anywhere in text without spaces (Japanese).
+	// at word boundaries, or between characters in Japanese, following its
+	// line-breaking rules.
 	struct TextLines
 	{
 		std::vector<std::pair<const char *, const char *>> lines;
@@ -187,7 +192,7 @@ namespace ui
 		Reticle, Identify, Chaperone, Anchor, Lighthouse, Smoothing, Gear,
 		Chevron, ChevronLeft, ChevronUpDown, Close, Check, Plus, Minus,
 		Trash, Download, Doc, Pencil, Info, Warn, Refresh, Power, Pause, Play,
-		Book, Globe, Bell, Clock, ShieldCheck, Headset, Tracker, Controller,
+		Book, Globe, Bell, Clock, ShieldCheck, Headset, Tracker, Controller, More,
 		Count
 	};
 	// size is the drawn width of the 24-unit grid; stroke is in grid units.
@@ -248,7 +253,7 @@ namespace ui
 	void Meter(ImDrawList *dl, const FlexRect &r, const char *name, const char *state, ImU32 colour, float fraction);
 
 	// The big round state mark: rings and a coloured core.
-	enum class Mark { Good, None, Paused, Bad, Off };
+	enum class Mark { Good, Caution, None, Paused, Bad, Off };
 	void StateMark(ImDrawList *dl, ImVec2 centre, Mark mark, float scale = 1.0f);
 
 	// The round tinted icon at the top of a dialog.

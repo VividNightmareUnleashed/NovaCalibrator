@@ -33,6 +33,22 @@ YGNodeRef FlexLayout::Row(YGNodeRef parent)
 	return node;
 }
 
+YGNodeRef FlexLayout::Column(YGNodeRef parent)
+{
+	YGNodeRef node = Add(parent);
+	YGNodeStyleSetFlexDirection(node, YGFlexDirectionColumn);
+	return node;
+}
+
+YGNodeRef FlexLayout::Box(YGNodeRef parent, float width, float height)
+{
+	YGNodeRef node = Add(parent);
+	YGNodeStyleSetWidth(node, width);
+	YGNodeStyleSetHeight(node, height);
+	YGNodeStyleSetFlexShrink(node, 0.0f);
+	return node;
+}
+
 YGNodeRef FlexLayout::Text(YGNodeRef parent, ImFont *font, const char *text)
 {
 	YGNodeRef node = Add(parent);

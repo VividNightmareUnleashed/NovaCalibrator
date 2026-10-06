@@ -65,6 +65,106 @@ namespace ui
 		return ImVec2(size.x, style.lineHeight);
 	}
 
+	std::string Ellipsize(const TextStyle &style, const std::string &text, float width)
+	{
+		if (MeasureLine(style, text.c_str()).x <= width)
+			return text;
+		const char *ellipsis = "\xE2\x80\xA6";
+		std::string out = text;
+		while (!out.empty())
+		{
+			// Back off one UTF-8 character (its continuation bytes, then its
+			// lead byte), and any space it leaves.
+			while (!out.empty() && (static_cast<unsigned char>(out.back()) & 0xC0) == 0x80)
+				out.pop_back();
+			if (!out.empty())
+				out.pop_back();
+			while (!out.empty() && out.back() == ' ')
+				out.pop_back();
+			if (!out.empty() && MeasureLine(style, (out + ellipsis).c_str()).x <= width)
+				return out + ellipsis;
+		}
+		return ellipsis;
+	}
+
+	// Japanese is set without spaces and may wrap between any two characters,
+	// except that a line may not start with closing punctuation, a small kana
+	// or the long-vowel mark, nor end with an opening bracket. A space beside a
+	// Japanese character is spacing rather than a place to break, so a number
+	// and its counter, or a product name and its particle, stay together.
+	namespace
+	{
+		bool IsCjk(unsigned int c)
+		{
+			return (c >= 0x3000 && c <= 0x30FF) || (c >= 0x3400 && c <= 0x4DBF) || (c >= 0x4E00 && c <= 0x9FFF) ||
+				(c >= 0xF900 && c <= 0xFAFF) || (c >= 0xFF00 && c <= 0xFFEF);
+		}
+
+		bool NoLineStart(unsigned int c)
+		{
+			static const unsigned int closing[] = {
+				0x3001, 0x3002, 0xFF0C, 0xFF0E, 0x30FB, 0xFF1A, 0xFF1B, 0xFF1F, 0xFF01, 0x30FC,   // 、。，．・：；？！ー
+				0x300D, 0x300F, 0xFF09, 0xFF3D, 0xFF5D, 0x3009, 0x300B, 0x3011, 0x3015,           // closing brackets
+				0x2026, 0x2025, 0x3005, 0x303B, 0x309D, 0x309E, 0x30FD, 0x30FE,                   // … ‥ and repeat marks
+				0x3041, 0x3043, 0x3045, 0x3047, 0x3049, 0x3063, 0x3083, 0x3085, 0x3087, 0x308E,   // small hiragana
+				0x3095, 0x3096,
+				0x30A1, 0x30A3, 0x30A5, 0x30A7, 0x30A9, 0x30C3, 0x30E3, 0x30E5, 0x30E7, 0x30EE,   // small katakana
+				0x30F5, 0x30F6,
+				')', ']', '}', '.', ',', ':', ';', '!', '?', '%',
+			};
+			return std::find(std::begin(closing), std::end(closing), c) != std::end(closing);
+		}
+
+		bool NoLineEnd(unsigned int c)
+		{
+			static const unsigned int opening[] = { 0x300C, 0x300E, 0xFF08, 0xFF3B, 0xFF5B, 0x3008, 0x300A, 0x3010, 0x3014,
+				'(', '[', '{' };
+			return std::find(std::begin(opening), std::end(opening), c) != std::end(opening);
+		}
+
+		bool HasCjk(const char *s, const char *end)
+		{
+			while (s < end)
+			{
+				unsigned int c = 0;
+				const int n = ImTextCharFromUtf8(&c, s, end);
+				if (IsCjk(c))
+					return true;
+				s += std::max(n, 1);
+			}
+			return false;
+		}
+
+		// Where the line starting at s ends, for text with Japanese in it.
+		const char *CjkWrapPosition(ImFont *font, float size, const char *s, const char *end, float maxWidth)
+		{
+			ImFontBaked *baked = font->GetFontBaked(size);
+			const char *lastBreak = nullptr;
+			unsigned int beforePrev = 0, prev = 0;
+			float width = 0.0f;
+			for (const char *p = s; p < end;)
+			{
+				unsigned int c = 0;
+				const int n = std::max(ImTextCharFromUtf8(&c, p, end), 1);
+				if (p > s && c != ' ')
+				{
+					const bool allowed = prev == ' '
+						? beforePrev != 0 && !IsCjk(beforePrev) && !IsCjk(c)
+						: (IsCjk(prev) || IsCjk(c)) && !NoLineStart(c) && !NoLineEnd(prev);
+					if (allowed)
+						lastBreak = p;
+				}
+				width += baked->GetCharAdvance(static_cast<ImWchar>(c));
+				if (width > maxWidth && p > s)
+					return lastBreak ? lastBreak : p;
+				beforePrev = prev;
+				prev = c;
+				p += n;
+			}
+			return end;
+		}
+	}
+
 	TextLines WrapText(const TextStyle &style, const char *text, float maxWidth)
 	{
 		TextLines out;
@@ -81,12 +181,14 @@ namespace ui
 			const char *paragraphEnd = newline ? newline : end;
 			if (s == paragraphEnd)
 				out.lines.emplace_back(s, s);
+			const bool cjk = maxWidth > 0.0f && HasCjk(s, paragraphEnd);
 			while (s < paragraphEnd)
 			{
 				const char *lineEnd = paragraphEnd;
 				if (maxWidth > 0.0f)
 				{
-					lineEnd = font->CalcWordWrapPosition(glyph, s, paragraphEnd, maxWidth);
+					lineEnd = cjk ? CjkWrapPosition(font, glyph, s, paragraphEnd, maxWidth)
+						: font->CalcWordWrapPosition(glyph, s, paragraphEnd, maxWidth);
 					if (lineEnd <= s)
 					{
 						unsigned int c = 0;
@@ -310,6 +412,7 @@ namespace ui
 			case Icon::Headset: return { P("M4.5 8h15a2 2 0 0 1 2 2v4.5a3 3 0 0 1-3 3h-3l-1.7-2.3a1.4 1.4 0 0 0-2.3 0l-1.7 2.3h-3a3 3 0 0 1-3-3V10a2 2 0 0 1 2-2z") };
 			case Icon::Tracker: return { P("M12 4.5l6.5 3.75v7.5L12 19.5l-6.5-3.75v-7.5z"), D(12, 12, 1.8f) };
 			case Icon::Controller: return { O(9.5f, 8.5f, 5.5f), P("M12.6 13l4 7") };
+			case Icon::More: return { D(6, 12, 1.7f), D(12, 12, 1.7f), D(18, 12, 1.7f) };
 			default: return {};
 			}
 		}

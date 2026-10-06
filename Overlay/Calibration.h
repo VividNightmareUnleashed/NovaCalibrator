@@ -506,7 +506,8 @@ struct CalibrationContext : CalibrationProfileState
 		Tone tone = Tone::Neutral;
 		std::string text;
 	};
-	static constexpr size_t ActivityMax = 6;
+	// The home screen shows the newest three; the activity sheet all of these.
+	static constexpr size_t ActivityMax = 40;
 	std::deque<ActivityEntry> activity;
 
 	// Whether the last run's result stands, which the modal answers with its

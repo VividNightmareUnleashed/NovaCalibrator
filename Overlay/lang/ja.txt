@@ -45,6 +45,12 @@ en: Close the SteamVR dashboard to use the mouse
 ja: マウスを使うには SteamVR ダッシュボードを閉じてください
 en: Dismiss
 ja: 閉じる
+en: Settings
+ja: 設定
+en: Soon
+ja: 近日公開
+en: Version %s
+ja: バージョン {0}
 
 # ---- Continuous calibration state ----
 en: Off
@@ -77,8 +83,8 @@ en: Continuous calibration is waiting. The headset tracker isn't being seen.
 ja: 連続キャリブレーションは待機中です。ヘッドセットトラッカーが検出されていません。
 en: Continuous calibration is waiting. The headset isn't tracking.
 ja: 連続キャリブレーションは待機中です。ヘッドセットがトラッキングされていません。
-en: Continuous calibration is waiting. The headset tracker is off; turn it back on.
-ja: 連続キャリブレーションは待機中です。ヘッドセットトラッカーの電源が切れています。電源を入れ直してください。
+en: Continuous calibration is waiting because the headset tracker is off. Turn it back on to resume.
+ja: ヘッドセットトラッカーの電源が切れているため、連続キャリブレーションは待機中です。電源を入れ直すと再開します。
 en: Continuous calibration is paused. Readings drifted too far to correct.
 ja: 連続キャリブレーションは一時停止中です。ずれが大きすぎて補正できません。
 en: Continuous calibration is waiting. It resumes when tracking settles.
@@ -87,8 +93,8 @@ en: Continuous calibration is warming up.
 ja: 連続キャリブレーションは準備中です。
 
 # ---- Status band ----
-en: Alignment:
-ja: 位置合わせ：
+en: Alignment
+ja: 位置合わせ
 en: Good
 ja: 良好
 en: Usable
@@ -99,8 +105,10 @@ en: Bad
 ja: 不良
 en: Not measured
 ja: 未測定
-en: Your trackers won't line up like this. Recalibrate.
-ja: このままではトラッカーの位置が合いません。再キャリブレーションしてください。
+en: Not calibrated
+ja: 未キャリブレーション
+en: Your trackers are noticeably off. Recalibrate to fix them.
+ja: トラッカーの位置が目に見えてずれています。再キャリブレーションして直してください。
 en: Recalibrate to tighten the alignment.
 ja: 位置合わせの精度を上げるには再キャリブレーションしてください。
 en: time is in the future
@@ -113,26 +121,22 @@ en: %.1f h ago
 ja: {0} 時間前
 en: %.0f days ago
 ja: {0} 日前
-en: adjusted %s
+en: Adjusted %s.
 ja: 調整：{0}
-en: calibrated %s
+en: Calibrated %s.
 ja: キャリブレーション：{0}
-en: last adjusted %s
+en: Last adjusted %s.
 ja: 最終調整：{0}
-en: maintained continuously
-ja: 連続して維持中
-en: calibration time unknown
-ja: キャリブレーション時刻不明
 en: Continuous calibration paused
 ja: 連続キャリブレーションを一時停止しました
-en: Tracking no longer matches the saved alignment. Recalibrate with the headset tracker.
-ja: トラッキングが保存された位置合わせと一致しなくなりました。ヘッドセットトラッカーで再キャリブレーションしてください。
+en: Tracking has drifted away from your calibration. Recalibrate to bring your trackers back in line.
+ja: トラッキングがキャリブレーションからずれています。再キャリブレーションして、トラッカーの位置を合わせ直してください。
 en: Recalibrate
 ja: 再キャリブレーション
 en: Turn off continuous calibration
 ja: 連続キャリブレーションをオフ
-en: Not calibrated yet. Pick a device on each side and press Start calibration.
-ja: まだキャリブレーションされていません。左右それぞれでデバイスを選び、「キャリブレーション開始」を押してください。
+en: Your trackers won't line up with your headset until you calibrate. It takes %.0f seconds.
+ja: キャリブレーションするまで、トラッカーの位置はヘッドセットと合いません。所要時間は {0} 秒です。
 
 # Advanced-mode numbers under the verdict.
 en: Difference: %.1f deg yaw, %.1f deg tilt, %.1f cm position
@@ -201,12 +205,18 @@ en: Calibration can't move some target devices, because their tracking doesn't p
 ja: 一部の対象デバイスのトラッキングが QuestCalibrator の SteamVR ドライバーを通らないため、キャリブレーションでそれらを動かせません。
 en: (OpenVR devices %s)
 ja: （OpenVR デバイス {0}）
-en: QuestCalibrator %s is ready. Open Settings to install it.
-ja: QuestCalibrator {0} の準備ができました。設定からインストールしてください。
+en: Nova Calibrator %s is ready
+ja: Nova Calibrator {0} の準備ができました
+en: Downloaded and verified. Close Steam before you install it.
+ja: ダウンロードと検証が完了しました。インストール前に Steam を終了してください。
+en: Install
+ja: インストール
 
 # ---- Main screen buttons ----
-en: Start calibration
-ja: キャリブレーション開始
+en: Calibrate
+ja: キャリブレーション
+en: Choose the pair to calibrate
+ja: キャリブレーションするペアを選ぶ
 en: Finish the current calibration and pick two different available devices before starting.
 ja: 現在のキャリブレーションを終えてから、使用できる別々のデバイスを 2 つ選んで開始してください。
 en: %d s
@@ -221,30 +231,44 @@ en: Your trackers won't line up until you calibrate again. This also removes the
 ja: もう一度キャリブレーションするまでトラッカーの位置は合いません。フィールドアンカーとヘッドセットトラッカーのセットアップも削除されます。
 en: Keep calibration
 ja: キャリブレーションを残す
-en: Identify selected devices
-ja: 選択中のデバイスを確認
 en: Vibrates or blinks the two selected devices so you can tell which is which.
 ja: 選択中の 2 台のデバイスを振動・点滅させ、どれがどれか分かるようにします。
-en: Update protected chaperone
-ja: 保護したシャペロンを更新
 en: Protect chaperone
 ja: シャペロンを保護
-en: Saves your current chaperone (SteamVR's walls) and puts it\nback automatically if SteamVR or the headset ever loses it.\nRedrew your chaperone? Press again to protect the new one.\nPrefer the Quest boundary imported fresh each session? Don't use this.
-ja: 現在のシャペロン（SteamVR の壁）を保存し、\nSteamVR やヘッドセットが失ったときに自動で戻します。\nシャペロンを描き直したら、もう一度押して新しいものを保護してください。\nQuest の境界線を毎回取り込みたい場合は使わないでください。
 en: Add field anchor
 ja: フィールドアンカーを追加
-en: Aligned in one spot but slightly off in another?\nStand at the bad spot, press this, and do a quick calibration there.\nThat spot gets its own correction, blended in as you walk around.
-ja: ある場所では合っているのに、別の場所では少しずれていますか？\nずれている場所に立ってこれを押し、その場で短いキャリブレーションを行ってください。\nその場所専用の補正が作られ、歩き回ると滑らかに切り替わります。
 en: Recent activity
 ja: 最近のアクティビティ
+en: Show all
+ja: すべて表示
+en: Nothing yet. Calibrations and corrections will appear here.
+ja: まだ何もありません。キャリブレーションや補正がここに表示されます。
+en: Activity
+ja: アクティビティ
+en: Today
+ja: 今日
+en: Yesterday
+ja: 昨日
+en: Tools
+ja: ツール
+en: Identify the pair
+ja: ペアを確認
+en: Makes both vibrate or blink
+ja: 2 台を振動・点滅させます
+en: Chaperone
+ja: シャペロン
+en: Protected %s
+ja: 保護：{0}
+en: Protected
+ja: 保護済み
+en: Not protected yet
+ja: まだ保護されていません
+en: Calibrate first
+ja: 要キャリブレーション
+en: No anchors yet
+ja: アンカーはまだありません
 
 # ---- Device panes ----
-en: REFERENCE SYSTEM
-ja: 基準システム
-en: TARGET SYSTEM
-ja: 対象システム
-en: Low battery
-ja: バッテリー残量低下
 en: Rename this device
 ja: このデバイスの名前を変更
 en: Vibrate or blink this device
@@ -257,8 +281,14 @@ en: No tracked devices found
 ja: トラッキング中のデバイスが見つかりません
 en: No trackers found. Turn on a tracker and make sure SteamVR sees it.
 ja: トラッカーが見つかりません。トラッカーの電源を入れ、SteamVR に認識されているか確認してください。
-en: Calibration takes %.0f seconds. The next screen shows how to move.
-ja: キャリブレーションは {0} 秒かかります。動かし方は次の画面で説明します。
+en: Choose the pair
+ja: ペアを選ぶ
+en: Pick a Quest device and a SteamVR device to hold together while you calibrate.
+ja: キャリブレーション中に一緒に持つ、Quest のデバイスと SteamVR のデバイスを 1 つずつ選んでください。
+en: Headset
+ja: ヘッドセット
+en: Identify
+ja: 確認
 
 # ---- Settings ----
 en: Language
@@ -389,6 +419,8 @@ en: Motion demo credits
 ja: モーションデモのクレジット
 en: Edit calibration (advanced)
 ja: キャリブレーションを編集（上級者向け）
+en: Edit calibration
+ja: キャリブレーションを編集
 
 # Calibration editor.
 en: ROTATION (DEGREES)
@@ -411,24 +443,20 @@ en: Close
 ja: 閉じる
 
 # ---- Guided calibration ----
-en: Step 1 of 3
-ja: ステップ 1/3
-en: Step 2 of 3
-ja: ステップ 2/3
-en: Stand where the trackers look misaligned.
-ja: トラッカーがずれて見える場所に立ってください。
-en: Hold the controller against the visor.
-ja: コントローラーをバイザーに当ててください。
-en: Keep the tracker fixed to your headset.
-ja: トラッカーをヘッドセットに固定したままにしてください。
-en: Hold the controller against the wrist tracker.
-ja: コントローラーを手首のトラッカーに当ててください。
+en: Stand where the trackers look misaligned
+ja: トラッカーがずれて見える場所に立ってください
+en: Hold the controller against the visor
+ja: コントローラーをバイザーに当ててください
+en: Keep the tracker fixed to your headset
+ja: トラッカーをヘッドセットに固定したままにしてください
+en: Hold the controller against the wrist tracker
+ja: コントローラーを手首のトラッカーに当ててください
 en: Hold the controller upright, with the trigger side against the front of your headset. Keep it in place as you turn and tilt your head for %.0f seconds.
 ja: コントローラーを立てて、トリガー側をヘッドセットの前面に当ててください。そのまま {0} 秒間、頭をひねったり傾けたりしてください。
 en: Move your head gently for %.0f seconds, keeping your body relaxed. Keep the tracker sensors uncovered.
 ja: 体の力を抜いて、{0} 秒間ゆっくり頭を動かしてください。トラッカーのセンサーを覆わないでください。
-en: Hold the controller against the wrist tracker with your other hand. Move both in a figure eight, gently turning and tilting, for %.0f seconds.
-ja: もう一方の手でコントローラーを手首のトラッカーに当ててください。{0} 秒間、両方を 8の字に動かしながら、ゆっくりひねったり傾けたりしてください。
+en: When you start, move both in slow figure eights for %.0f seconds, turning and tilting your hands as you go.
+ja: 開始したら、手をひねったり傾けたりしながら、{0} 秒間、両方をゆっくり 8の字に動かしてください。
 en: Look left and right
 ja: 左右を見る
 en: Look up and down
@@ -449,13 +477,15 @@ en: Target device
 ja: 対象デバイス
 en: %s is tracking
 ja: {0}：トラッキング中
-en: %s isn't tracking. Wake it or bring it into view.
-ja: {0} がトラッキングされていません。スリープを解除するか、見える位置に移動してください。
-en: Replay
-ja: もう一度再生
-en: Pause demo
+en: %s is settling
+ja: {0}：安定待ち
+en: %s isn't tracking
+ja: {0}：トラッキングなし
+en: Replay the demo
+ja: デモをもう一度再生
+en: Pause the demo
 ja: デモを一時停止
-en: Play demo
+en: Play the demo
 ja: デモを再生
 en: Start
 ja: 開始
@@ -471,16 +501,16 @@ en: Look left and right, then up and down. Gently tilt your head to each side. K
 ja: 左右、次に上下を見てください。頭を左右にゆっくり傾けてください。トラッカーがベースステーションから見える状態を保ってください。
 en: Keep both devices firmly together.
 ja: 2 つのデバイスをしっかり合わせたままにしてください。
-en: Move both devices in a figure eight, gently turning and tilting as you go. Keep them firmly together and in view of their tracking cameras or base stations.
-ja: 2 つのデバイスを 8の字に動かしながら、ゆっくりひねったり傾けたりしてください。しっかり合わせたまま、トラッキングカメラやベースステーションから見える位置に保ってください。
-en: Motion variety
-ja: 動きの多様さ
+en: Draw slow figure eights in the air, turning and tilting your hands as you go.
+ja: 手をひねったり傾けたりしながら、空中にゆっくり 8の字を描いてください。
+en: Range of motion
+ja: 動きの範囲
 en: Movement speed
 ja: 動く速さ
 en: Tracker stability
 ja: トラッカーの安定性
-en: Device stability
-ja: デバイスの安定性
+en: Grip
+ja: 固定
 en: Measuring...
 ja: 測定中…
 en: Enough variety
@@ -497,8 +527,14 @@ en: Tracker is shifting on the headset
 ja: トラッカーがヘッドセット上でずれています
 en: Hold them tighter together
 ja: もっとしっかり合わせてください
-en: %.0f s left
-ja: 残り {0} 秒
+en: seconds left
+ja: 秒後に終了
+en: Settling...
+ja: 安定待ち…
+en: Waiting for tracking
+ja: トラッキング待ち
+en: Keep holding until the timer ends.
+ja: タイマーが終わるまで持ち続けてください。
 en: Calibrating...
 ja: キャリブレーション中…
 en: Hide details
@@ -521,8 +557,8 @@ en: Calibration cancelled
 ja: キャリブレーションをキャンセルしました
 en: Done, but the headset tracker wasn't set up
 ja: 完了しましたが、ヘッドセットトラッカーはセットアップされませんでした
-en: Check that the tracker positions line up in VR.
-ja: VR 内でトラッカーの位置が合っているか確認してください。
+en: Check in VR that your trackers line up with your body.
+ja: VR 内で、トラッカーが体の位置と合っているか確認してください。
 en: The alignment is rough.
 ja: 位置合わせの精度が低めです。
 en: The alignment may need another pass.
@@ -551,10 +587,10 @@ en: Recalibrate with the headset tracker and look around more slowly.
 ja: ヘッドセットトラッカーで再キャリブレーションし、もっとゆっくり見回してください。
 
 # Why a solve was refused.
-en: The devices didn't rotate far enough.
+en: The devices didn't turn far enough.
 ja: デバイスの回転が足りませんでした。
-en: Use wider turns while keeping both devices fixed together.
-ja: 2 つのデバイスを固定したまま、もっと大きく回してください。
+en: Make bigger turns, and keep them pressed together.
+ja: もっと大きく回し、2 つをしっかり押し当てたままにしてください。
 en: The devices only rotated in one direction.
 ja: デバイスが 1 方向にしか回転しませんでした。
 en: The devices didn't rotate in enough directions.
@@ -595,10 +631,10 @@ en: Try again; close capture or recording software if it repeats.
 ja: もう一度お試しください。繰り返す場合は、キャプチャーや録画のソフトを閉じてください。
 en: %s's tracking reset during the measurement.
 ja: 計測中に {0} のトラッキングがリセットされました。
-en: %s's tracking is settling.
-ja: {0} のトラッキングが安定するのを待っています。
-en: %s isn't tracking yet.
-ja: {0} はまだトラッキングされていません。
+en: Waiting for %s to settle.
+ja: {0} が安定するのを待っています。
+en: Waiting for %s to start tracking.
+ja: {0} のトラッキングが始まるのを待っています。
 en: The calibration starts on its own in a few seconds. Keep it in view of its base stations.
 ja: 数秒後にキャリブレーションが自動で始まります。ベースステーションから見える位置に保ってください。
 en: The calibration starts on its own once it tracks. Wake it and keep it in view.
@@ -683,6 +719,20 @@ en: Restart QuestCalibrator and try again.
 ja: QuestCalibrator を再起動して、もう一度お試しください。
 en: This spot now has its own correction, blended in as you walk around.
 ja: この場所専用の補正ができました。歩き回ると滑らかに切り替わります。
+en: If your trackers are a little off in one part of the room, stand there and add an anchor. Nova Calibrator fixes that spot and blends the correction in as you walk toward it.
+ja: 部屋の一部でトラッカーが少しずれる場合は、その場所に立ってアンカーを追加してください。Nova Calibrator がその場所を補正し、近づくにつれて滑らかに補正を適用します。
+en: Anchor %zu
+ja: アンカー {0}
+en: %.1f m from the center · corrects %.1f cm and %.2f°
+ja: 中心から {0} m・{1} cm / {2}° を補正
+en: No anchors yet.
+ja: アンカーはまだありません。
+en: Use field anchors
+ja: フィールドアンカーを使う
+en: Turn off to use the main calibration everywhere.
+ja: オフにすると、どこでもメインのキャリブレーションを使います。
+en: You can save up to 8. A new anchor within 1 m of another one replaces it.
+ja: 最大 8 件まで保存できます。既存のアンカーから 1 m 以内に追加すると、そのアンカーと置き換わります。
 
 # ---- Runtime monitors (activity feed and VR notifications) ----
 en: Your calibration looks off. Recalibrate.
@@ -699,12 +749,12 @@ en: Continuous calibration paused: readings moved too far from the calibration. 
 ja: 連続キャリブレーションを一時停止しました：測定値がキャリブレーションから大きくずれました。ずれが安定すれば自動的に合わせ直します。
 en: QuestCalibrator: continuous calibration paused; readings moved too far from the calibration. It re-aligns on its own if they hold steady, or recalibrate with the headset tracker.
 ja: QuestCalibrator：連続キャリブレーションを一時停止しました。測定値がキャリブレーションから大きくずれました。ずれが安定すれば自動的に合わせ直します。または、ヘッドセットトラッカーで再キャリブレーションしてください。
-en: Continuous calibration paused: readings drifted too far from the calibration to correct safely.
-ja: 連続キャリブレーションを一時停止しました：測定値がキャリブレーションから大きくずれ、安全に補正できません。
+en: Continuous calibration paused: tracking drifted too far to correct safely.
+ja: 連続キャリブレーションを一時停止しました：トラッキングのずれが大きすぎて、安全に補正できません。
 en: QuestCalibrator: continuous calibration paused; readings drifted too far to correct safely. Recalibrate with the headset tracker to resume.
 ja: QuestCalibrator：連続キャリブレーションを一時停止しました。ずれが大きすぎて安全に補正できません。再開するにはヘッドセットトラッカーで再キャリブレーションしてください。
-en: Continuous calibration re-aligned your trackers after the tracking spaces moved apart.
-ja: トラッキング空間どうしがずれたため、連続キャリブレーションがトラッカーを合わせ直しました。
+en: Re-aligned your trackers after your headset's tracking shifted.
+ja: ヘッドセットのトラッキングがずれたため、トラッカーを合わせ直しました。
 en: Continuous calibration went back to the alignment it had before it last re-aligned your trackers.
 ja: 連続キャリブレーションが、直前にトラッカーを合わせ直す前の位置合わせに戻しました。
 en: Continuous calibration paused: the headset tracker's base station tracking restarted and doesn't match the headset yet. It resumes on its own once that settles.
@@ -747,14 +797,30 @@ ja: QuestCalibrator：ヘッドセットトラッカーの電源が切れてい�
 # ---- Chaperone ----
 en: Check your room boundaries
 ja: 部屋の境界を確認してください
-en: QuestCalibrator saves and restores your SteamVR chaperone. Tracking drift can still move the chaperone walls away from your real walls.
-ja: QuestCalibrator は SteamVR のシャペロンを保存・復元します。それでもトラッキングのドリフトで、シャペロンの壁が実際の壁からずれることがあります。
+en: Nova Calibrator saves and restores your SteamVR chaperone. Tracking drift can still shift it away from your real walls.
+ja: Nova Calibrator は SteamVR のシャペロンを保存・復元します。それでもトラッキングのドリフトで、実際の壁からずれることがあります。
 en: Keep the Quest boundary turned on too. A protected chaperone doesn't guarantee that your play area is clear or correctly aligned.
 ja: Quest の境界線もオンのままにしてください。シャペロンを保護しても、プレイエリアに障害物がないことや位置が正しいことは保証されません。
-en: Before playing, check that the chaperone walls match your room and leave enough space to move safely, especially when dancing.
-ja: プレイ前に、シャペロンの壁が部屋と合っていて、安全に動ける十分なスペースがあるか確認してください。ダンスをするときは特に注意してください。
+en: Before you play, check that the walls match your room and leave enough space to move safely, especially when dancing.
+ja: プレイ前に、壁が部屋と合っていて、安全に動ける十分なスペースがあるか確認してください。ダンスをするときは特に注意してください。
 en: Protect chaperone (%d s)
 ja: シャペロンを保護（{0} 秒）
+en: Nova Calibrator saves your SteamVR walls and puts them back if SteamVR or the headset ever loses them. If you redraw your walls, protect them again.
+ja: Nova Calibrator は SteamVR の壁を保存し、SteamVR やヘッドセットが失ったときに元に戻します。壁を描き直したら、もう一度保護してください。
+en: Protect your current walls to keep them.
+ja: 今の壁を残すには、保護してください。
+en: %zu wall%s · %.1f × %.1f m
+ja: 壁 {0} 面・{2} × {3} m
+en: Restore automatically
+ja: 自動で復元
+en: Turn off to use your Quest's boundary each session instead.
+ja: オフにすると、毎回 Quest の境界線を使います。
+en: Keep the Quest boundary turned on too. A protected chaperone doesn't guarantee that your play area is clear.
+ja: Quest の境界線もオンのままにしてください。シャペロンを保護しても、プレイエリアに障害物がないことは保証されません。
+en: Restore now
+ja: 今すぐ復元
+en: Protect current walls
+ja: 今の壁を保護
 en: Chaperone saved without walls, so auto-restore stays off until Room Setup adds some.
 ja: 壁なしでシャペロンを保存したため、ルームセットアップで壁を追加するまで自動復元はオフのままです。
 en: Chaperone saved: %u wall%s, %.1f x %.1f m.
@@ -763,16 +829,16 @@ en: Chaperone restored.
 ja: シャペロンを復元しました。
 en: Couldn't check the protected chaperone: SteamVR's chaperone setup isn't available right now.
 ja: 保護したシャペロンを確認できませんでした：現在 SteamVR のシャペロン設定を使用できません。
-en: Couldn't read the current chaperone, so the protected one wasn't changed.
-ja: 現在のシャペロンを読み取れなかったため、保護したシャペロンは変更していません。
-en: The protected chaperone was saved for a different headset, so it was switched off. Press Protect chaperone again on the main screen.
-ja: 保護したシャペロンは別のヘッドセット用に保存されていたため、オフにしました。メイン画面で「シャペロンを保護」をもう一度押してください。
-en: The headset re-centered, so the protected chaperone no longer lines up and was turned off. Protect it again from the main screen.
-ja: ヘッドセットが再センタリングされ、保護したシャペロンの位置が合わなくなったため、オフにしました。メイン画面からもう一度保護してください。
-en: The headset re-centered while QuestCalibrator couldn't follow it, so the protected chaperone was switched off. Press Protect chaperone again on the main screen.
-ja: QuestCalibrator が追跡できない間にヘッドセットが再センタリングされたため、保護したシャペロンをオフにしました。メイン画面で「シャペロンを保護」をもう一度押してください。
-en: The protected chaperone belonged to the previous calibration and was turned off. Protect it again from the main screen.
-ja: 保護したシャペロンは以前のキャリブレーションのものだったため、オフにしました。メイン画面からもう一度保護してください。
+en: Couldn't read your chaperone from SteamVR, so your protected walls weren't changed.
+ja: SteamVR からシャペロンを読み取れなかったため、保護した壁は変更していません。
+en: The protected chaperone was saved for a different headset, so it was switched off. Protect it again from the Chaperone tool.
+ja: 保護したシャペロンは別のヘッドセット用に保存されていたため、オフにしました。シャペロンツールからもう一度保護してください。
+en: The headset re-centered, so the protected chaperone no longer lines up and was turned off. Protect it again from the Chaperone tool.
+ja: ヘッドセットが再センタリングされ、保護したシャペロンの位置が合わなくなったため、オフにしました。シャペロンツールからもう一度保護してください。
+en: The headset re-centered while QuestCalibrator couldn't follow it, so the protected chaperone was switched off. Protect it again from the Chaperone tool.
+ja: QuestCalibrator が追跡できない間にヘッドセットが再センタリングされたため、保護したシャペロンをオフにしました。シャペロンツールからもう一度保護してください。
+en: The protected chaperone belonged to the previous calibration and was turned off. Protect it again from the Chaperone tool.
+ja: 保護したシャペロンは以前のキャリブレーションのものだったため、オフにしました。シャペロンツールからもう一度保護してください。
 en: A headset re-center was too large to compensate safely. Recalibrate before continuing.
 ja: ヘッドセットの再センタリングが大きすぎて、安全に補正できません。続ける前に再キャリブレーションしてください。
 en: The headset re-centered while QuestCalibrator couldn't follow it. The calibration and the protected chaperone are off until you recalibrate.
