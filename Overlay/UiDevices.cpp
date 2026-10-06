@@ -361,7 +361,10 @@ void BuildPairSheet(const VRState &state)
 			y += 24.0f;
 		}
 		else
-			y += (tileH + gap) * static_cast<float>((index + columns - 1) / columns) - gap;
+		{
+			const int rows = (index + columns - 1) / columns;
+			y += (tileH + gap) * static_cast<float>(rows) - gap;
+		}
 	}
 	if (systems.size() == 1)
 	{

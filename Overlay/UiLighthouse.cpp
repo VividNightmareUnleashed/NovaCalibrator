@@ -147,6 +147,7 @@ float BuildLighthousePage(const VRState &state, ImVec2 origin, float width)
 	YGNodeStyleSetMargin(table, YGEdgeTop, 10.0f);
 	YGNodeRef header = fl.Box(table, contentW, 34.0f);
 	std::vector<YGNodeRef> deviceRows;
+	deviceRows.reserve(devices.size());
 	for (size_t i = 0; i < devices.size(); ++i)
 		deviceRows.push_back(fl.Box(table, contentW, 56.0f));
 	// What the log did for the drift monitor, and where it was read.
