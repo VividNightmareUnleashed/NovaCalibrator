@@ -24,12 +24,12 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "CompanyName", "VividNightmare"
-            VALUE "FileDescription", "QuestCalibrator SteamVR driver"
+            VALUE "FileDescription", "Nova Calibrator SteamVR driver"
             VALUE "FileVersion", QUESTCAL_VERSION_STRING
-            VALUE "InternalName", "driver_01questcalibrator"
+            VALUE "InternalName", "driver_01novacalibrator"
             VALUE "LegalCopyright", "Copyright (c) 2026 VividNightmare"
-            VALUE "OriginalFilename", "driver_01questcalibrator.dll"
-            VALUE "ProductName", "QuestCalibrator"
+            VALUE "OriginalFilename", "driver_01novacalibrator.dll"
+            VALUE "ProductName", "Nova Calibrator"
             VALUE "ProductVersion", QUESTCAL_VERSION_STRING
         END
     END

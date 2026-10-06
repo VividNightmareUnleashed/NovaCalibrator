@@ -2,7 +2,7 @@
 
 Which base station sees a tracker, and when it stops seeing it, is not in the
 OpenVR API. SteamVR's lighthouse driver does write it to its own log, one line
-per change, per device, as it happens. QuestCalibrator follows that log and
+per change, per device, as it happens. Nova Calibrator follows that log and
 uses it in three places: a figure on every lighthouse device row, a
 per-station drop count, and a rule that keeps a tracker's own tracking trouble
 out of the drift evidence.

@@ -134,7 +134,7 @@ static void StoreFieldAnchor(CalibrationContext &ctx, const questcal::EngineResu
 		true))
 	{
 		ctx.Outcome("Anchor not added", "It couldn't be saved.",
-			"Restart QuestCalibrator and try again.",
+			"Restart Nova Calibrator and try again.",
 			"Field anchor was not applied because the updated profile could not be saved",
 			CalibrationContext::Tone::Warn);
 		return;

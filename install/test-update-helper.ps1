@@ -26,7 +26,7 @@ function Make-Zip([string]$Path,[string[]]$Names,[switch]$Link) {
     }} finally { $archive.Dispose() }
 }
 try {
-    $valid = Join-Path $root 'valid.zip'; Make-Zip $valid @('app/QuestCalibrator.exe','Install.ps1')
+    $valid = Join-Path $root 'valid.zip'; Make-Zip $valid @('app/NovaCalibrator.exe','Install.ps1')
     $hash = (Get-FileHash -LiteralPath $valid -Algorithm SHA256).Hash
     $destination = Join-Path $root 'valid';Expand-VerifiedUpdate $valid $hash $destination
     Require ((Get-Content -Raw -LiteralPath (Join-Path $destination 'Install.ps1')) -eq 'verified content') 'Verified bytes were not extracted'

@@ -131,7 +131,7 @@ void DrawGuideAnimation(ImDrawList *dl, const FlexRect &box, double t, GuideDemo
 	if (!s_guideTexture)
 	{
 		ui::DrawText(dl, ui::type::Body, ImVec2(box.min.x + 24.0f, box.min.y + 24.0f), box.W() - 48.0f, ui::col::Caution,
-			Tr("Motion demos couldn't load. Reinstall QuestCalibrator to restore them."));
+			Tr("Motion demos couldn't load. Reinstall Nova Calibrator to restore them."));
 		return;
 	}
 	const bool wrist = demo == GuideDemo::Wrist;

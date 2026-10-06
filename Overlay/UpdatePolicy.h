@@ -19,7 +19,7 @@ namespace update
 {
 
 // An empty prerelease label means a final release. The label and ordinal are
-// the shape QuestCalibrator actually publishes ("alpha", 3), not the whole of
+// the shape Nova Calibrator actually publishes ("alpha", 3), not the whole of
 // SemVer's dot-separated identifier list.
 struct Version
 {
@@ -115,7 +115,7 @@ inline bool ParseVersionComponent(const std::string &text, size_t &cursor,
 // suffixes are rejected, so every version this yields is a final release.
 inline bool ParseReleaseTag(const std::string &tag, Version &version)
 {
-	static const std::string prefix = "questcalibrator-v";
+	static const std::string prefix = "novacalibrator-v";
 	if (tag.compare(0, prefix.size(), prefix) != 0)
 		return false;
 
@@ -133,7 +133,7 @@ inline bool ParseReleaseTag(const std::string &tag, Version &version)
 // guarantees is a final release, so this never has to name a prerelease asset.
 inline std::string CanonicalPackageName(const Version &version)
 {
-	return "QuestCalibrator-" + VersionString(version) + ".zip";
+	return "NovaCalibrator-" + VersionString(version) + ".zip";
 }
 
 inline int HexNibble(char c)
@@ -264,10 +264,10 @@ inline bool SelectReleaseCandidate(const std::string &json,
 		return false;
 	}
 	const std::string expectedReleaseUrl =
-		"https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/tag/" + bestTag;
+		"https://github.com/VividNightmareUnleashed/NovaCalibrator/releases/tag/" + bestTag;
 	if (parsed.releaseUrl != expectedReleaseUrl)
 	{
-		error = "The newest release points outside the QuestCalibrator repository.";
+		error = "The newest release points outside the Nova Calibrator repository.";
 		return false;
 	}
 
@@ -337,11 +337,11 @@ inline bool SelectReleaseCandidate(const std::string &json,
 		return false;
 	}
 	const std::string expectedDownloadUrl =
-		"https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/download/" +
+		"https://github.com/VividNightmareUnleashed/NovaCalibrator/releases/download/" +
 		bestTag + "/" + parsed.packageName;
 	if (parsed.downloadUrl != expectedDownloadUrl)
 	{
-		error = "The newest release package points outside the QuestCalibrator repository.";
+		error = "The newest release package points outside the Nova Calibrator repository.";
 		return false;
 	}
 	double signatureSize = 0.0;
@@ -355,7 +355,7 @@ inline bool SelectReleaseCandidate(const std::string &json,
 	}
 	if (parsed.signatureUrl != expectedDownloadUrl + ".minisig")
 	{
-		error = "The newest release signature points outside the QuestCalibrator repository.";
+		error = "The newest release signature points outside the Nova Calibrator repository.";
 		return false;
 	}
 	parsed.size = static_cast<uint64_t>(size);

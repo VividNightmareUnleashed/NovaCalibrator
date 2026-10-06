@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'FilesystemPolicy.ps1')
 $root = Join-Path ([IO.Path]::GetTempPath()) ('questcal-policy-' + [Guid]::NewGuid().ToString('N'))
-$owned = Join-Path $root 'QuestCalibrator'
+$owned = Join-Path $root 'NovaCalibrator'
 $foreign = Join-Path $root 'OtherDriver'
 $checks = 0
 function Require([bool]$value, [string]$why) { $script:checks++; if (-not $value) { throw $why } }
@@ -12,21 +12,21 @@ function Refuses([scriptblock]$action, [string]$why) {
 try {
     New-Item -ItemType Directory -Path $owned,$foreign | Out-Null
     Set-Content -LiteralPath (Join-Path $foreign 'keep.txt') -Value 'unrelated'
-    Assert-QuestcalTree $owned 'QuestCalibrator'
-    Refuses { Assert-QuestcalTree $foreign 'QuestCalibrator' } 'Foreign namespace accepted'
+    Assert-QuestcalTree $owned 'NovaCalibrator'
+    Refuses { Assert-QuestcalTree $foreign 'NovaCalibrator' } 'Foreign namespace accepted'
     Refuses { Assert-QuestcalTree ([IO.Path]::GetPathRoot($root)) } 'Filesystem root accepted'
-    Refuses { Assert-QuestcalTree 'relative/QuestCalibrator' } 'Relative path accepted'
+    Refuses { Assert-QuestcalTree 'relative/NovaCalibrator' } 'Relative path accepted'
     $link = Join-Path $owned 'outside'
     New-Item -ItemType SymbolicLink -Path $link -Target $foreign | Out-Null
-    Refuses { Remove-QuestcalTree $owned 'QuestCalibrator' } 'Linked tree accepted for recursive removal'
+    Refuses { Remove-QuestcalTree $owned 'NovaCalibrator' } 'Linked tree accepted for recursive removal'
     Require (Test-Path -LiteralPath (Join-Path $foreign 'keep.txt')) 'Foreign tree changed'
     # Windows PowerShell's Remove-Item throws on a directory link; this removes
     # the link alone, never what it points to.
     [IO.Directory]::Delete($link)
     function Remove-Item { param($LiteralPath,[switch]$Recurse,[switch]$Force,$ErrorAction) }
-    Refuses { Remove-QuestcalTree $owned 'QuestCalibrator' } 'No-op removal reported success'
+    Refuses { Remove-QuestcalTree $owned 'NovaCalibrator' } 'No-op removal reported success'
     Microsoft.PowerShell.Management\Remove-Item Function:Remove-Item -Force -ErrorAction SilentlyContinue
-    Remove-QuestcalTree $owned 'QuestCalibrator'
+    Remove-QuestcalTree $owned 'NovaCalibrator'
     Require (-not (Test-Path -LiteralPath $owned)) 'Owned tree was not removed'
     Require (Test-Path -LiteralPath $foreign) 'Unrelated tree was removed'
     foreach ($name in @('Install.ps1','Uninstall.ps1','FilesystemPolicy.ps1','build-package.ps1')) {

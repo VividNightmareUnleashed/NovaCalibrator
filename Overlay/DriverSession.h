@@ -376,13 +376,13 @@ private:
 			}
 			if (result.response.type == protocol::ResponseInvalid)
 				refusal = result.response.rejectReason;
-			ReportThrottled(std::string("QuestCalibrator driver rejected ") + operation + " (" +
+			ReportThrottled(std::string("Nova Calibrator driver rejected ") + operation + " (" +
 				protocol::RejectReasonText(result.response.rejectReason) +
 				"); the requested live state was not applied\n");
 			return false;
 		}
 		versionMismatch = versionMismatch || result.versionMismatch;
-		ReportThrottled(std::string("QuestCalibrator driver communication failed while ") +
+		ReportThrottled(std::string("Nova Calibrator driver communication failed while ") +
 			operation + ": " + result.error + "\n");
 		return false;
 	}

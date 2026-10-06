@@ -3,13 +3,13 @@
 	"applications": [{
 		"app_key": "burrow.QuestCalibrator",
 		"launch_type": "binary",
-		"binary_path_windows": "QuestCalibrator.exe",
+		"binary_path_windows": "NovaCalibrator.exe",
 		"is_dashboard_overlay": true,
 
 		"strings": {
 			"en_us": {
-				"name": "Quest Calibrator",
-				"description": "QuestCalibrator playspace alignment overlay"
+				"name": "Nova Calibrator",
+				"description": "Nova Calibrator playspace alignment overlay"
 			}
 		}
 	}]

@@ -157,6 +157,8 @@ void SetupPreviewState()
 	CalCtx.enabled = true;
 	// Past the first-launch setup, unless a scenario shows it.
 	CalCtx.onboarded = true;
+	// The Lighthouse module installed, as the design shows the sidebar.
+	CalCtx.modules.lighthouse = questcal::ModuleStatus::Installed;
 	CalCtx.referenceTrackingSystem = "oculus";
 	CalCtx.targetTrackingSystem = "lighthouse";
 
@@ -423,7 +425,6 @@ void SetupPreviewState()
 		CalCtx.activity.clear();
 		break;
 	case PreviewScenario::Lighthouse:
-		CalCtx.modules.lighthouse = questcal::ModuleStatus::Installed;
 		g_page = Page::Lighthouse;
 		break;
 	case PreviewScenario::Settings:

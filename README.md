@@ -1,21 +1,21 @@
-# <img src="Overlay/icon.png" alt="" width="40" align="top"> QuestCalibrator
+# <img src="Overlay/icon.png" alt="" width="40" align="top"> Nova Calibrator
 
-[![Latest release](https://img.shields.io/github/v/release/VividNightmareUnleashed/QuestCalibrator?label=stable&sort=semver&display_name=release)](https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/latest)
-[![Latest prerelease](https://img.shields.io/github/v/release/VividNightmareUnleashed/QuestCalibrator?include_prereleases&label=prerelease&sort=semver&display_name=release&color=orange)](https://github.com/VividNightmareUnleashed/QuestCalibrator/releases)
+[![Latest release](https://img.shields.io/github/v/release/VividNightmareUnleashed/NovaCalibrator?label=stable&sort=semver&display_name=release)](https://github.com/VividNightmareUnleashed/NovaCalibrator/releases/latest)
+[![Latest prerelease](https://img.shields.io/github/v/release/VividNightmareUnleashed/NovaCalibrator?include_prereleases&label=prerelease&sort=semver&display_name=release&color=orange)](https://github.com/VividNightmareUnleashed/NovaCalibrator/releases)
 [![VirusTotal Scan](https://img.shields.io/badge/VirusTotal-1.2.0--rc.7%20scan-394EFF?logo=virustotal&logoColor=white)](https://www.virustotal.com/gui/file/c3ee8bf8d9b519084e14ff9932e712e1f6900382c5221aeb630e33558feebbc3)
 [![SteamVR](https://img.shields.io/badge/SteamVR-Windows%20x64-1b2838?logo=steam&logoColor=white)](https://store.steampowered.com/app/250820/SteamVR/)
 [![OpenVR](https://img.shields.io/badge/OpenVR-C%2B%2B17-00599C?logo=cplusplus&logoColor=white)](https://github.com/ValveSoftware/openvr)
 
 Play in SteamVR with a Meta Quest headset and lighthouse trackers or controllers at
-the same time. QuestCalibrator lines the two tracking systems up into one playspace,
-so your full-body trackers sit where your body is, and it can keep them lined up
-while you play.
+the same time. Nova Calibrator lines the two tracking systems up into one
+playspace, so your full-body trackers sit where your body is, and it can keep them
+lined up while you play.
 
-It started as a fork of
+Nova Calibrator was called QuestCalibrator until 1.2.0. It started as a fork of
 [OpenVR-SpaceCalibrator](https://github.com/pushrax/OpenVR-SpaceCalibrator) and has
 since been largely rewritten, so calibrating is more accurate and harder to get wrong.
 
-![The calibration screen in the SteamVR dashboard](docs/images/calibration.png)
+![The calibration page in the SteamVR dashboard](docs/images/calibration.png)
 
 > **Before you install:** uninstall or disable OpenVR-SpaceCalibrator, and any fork
 > of it. Both install a SteamVR driver that moves your devices, and two running at
@@ -23,54 +23,67 @@ since been largely rewritten, so calibrating is more accurate and harder to get 
 
 ## Install
 
-1. Download `QuestCalibrator-<version>.zip` from the
-   [latest release](https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/latest).
+1. Download `NovaCalibrator-<version>.zip` from the
+   [latest release](https://github.com/VividNightmareUnleashed/NovaCalibrator/releases/latest).
    Ignore GitHub's **Source code** archives; they don't contain the program.
 2. Close Steam completely, including from the system tray, not just SteamVR.
 3. Extract the zip, right-click `Install.ps1` and choose **Run with PowerShell**.
    `README-INSTALL.txt` in the zip covers unblocking the files and a manual
    install.
 
-QuestCalibrator then opens in the SteamVR dashboard every time SteamVR starts.
-The installer asks whether you want the optional **Lighthouse** module, a tab that
-shows your base stations and which of them each device can see. Run the installer
-again to add or remove it.
+Nova Calibrator then opens in the SteamVR dashboard every time SteamVR starts. If
+QuestCalibrator is installed, the installer replaces it and keeps your calibration
+and settings. It also asks whether you want the optional **Lighthouse** module, a
+page that shows your base stations and which of them each device can see. Run the
+installer again to add or remove it.
+
+The first time it opens, Nova Calibrator walks you through your language, your
+headset, the kinds of tracker you use, automatic updates and a first calibration.
+
+![The first-launch setup](docs/images/setup.png)
 
 Every release lists the SHA-256 of its zip and a VirusTotal report for each file in
-it. Only download QuestCalibrator from this repository's releases.
+it. Only download Nova Calibrator from this repository's releases.
 
 ## Calibrate
 
-Pick a Quest device on the left and a lighthouse device on the right, then press
-**Start calibration**. You'll hold the two together and move them for 10 seconds
-(20 or 35 if you choose); the next screen shows you how.
+The **Calibration** page shows how well your trackers line up right now: **Good**,
+**Usable** or **Bad**. Press **Calibrate**, or **Recalibrate**, and pick how long to
+move: 10 seconds, or 20 or 35 if a short one doesn't come out well. A sheet shows how
+to hold the two devices together and move them, counts down while you do, and tells
+you the result.
 
-![The movement guide shown before calibrating](docs/images/guide.png)
+![Getting set to calibrate](docs/images/guide.png)
 
-When it finishes, check in VR that your trackers line up. The line at the bottom of
-the screen tells you how well the alignment is holding up, and QuestCalibrator can
-send a SteamVR notification when it starts to look off.
+To change which devices you calibrate with, open **…** next to the length and choose
+**Choose the pair**: one Quest device and one SteamVR device. **Identify** makes the
+two you picked vibrate or blink.
 
-If the alignment is right in one part of your room but off in another, stand in the
-bad spot and press **Add field anchor**. That spot gets its own correction, blended in
-as you walk around.
+![Choosing the pair](docs/images/pair.png)
+
+When it finishes, check in VR that your trackers line up. Nova Calibrator can send a
+SteamVR notification when the alignment starts to look off, and **Recent activity**
+on the same page says what it corrected and when.
+
+If the alignment is right in one part of your room but off in another, open
+**Field anchors**, stand in the bad spot and press **Add field anchor**. That spot
+gets its own correction, blended in as you walk around.
 
 ## Keep it aligned while you play
 
 Quest tracking shifts during a session: the headset re-centres, loses and finds its
-map, or corrects its own drift. QuestCalibrator watches for these jumps and follows
+map, or corrects its own drift. Nova Calibrator watches for these jumps and follows
 them.
 
 If you have a spare lighthouse tracker, you can also try **Continuous calibration**:
-strap the tracker firmly to your headset, turn the option on in Settings and pick
-that tracker. QuestCalibrator then uses it to keep the two systems lined up while
-you play. You
-can hide that tracker from games so full-body setups don't mistake it for a body
-tracker.
+strap the tracker firmly to your headset, turn the option on in Settings and pick it
+as the **Headset tracker**. Nova Calibrator then uses it to keep the two systems lined
+up while you play. **Hide the headset tracker from games** keeps full-body setups
+from mistaking it for a body tracker.
 
 > **Continuous calibration is experimental.** I can't test it myself and rely on
 > feedback from people who use it. If you do, the best way to help is to
-> [open an issue](https://github.com/VividNightmareUnleashed/QuestCalibrator/issues)
+> [open an issue](https://github.com/VividNightmareUnleashed/NovaCalibrator/issues)
 > saying how it went, with the log files described below.
 
 ![Settings, with continuous calibration turned on](docs/images/settings.png)
@@ -86,40 +99,41 @@ Continuous calibration has two methods:
 SteamVR switches a tracker off once it has sat still for a while (5 minutes unless
 you changed it), and a tracker on your headset sits still whenever the headset is
 off. If you take the headset off for longer than that, turn the tracker back on when
-you put it back on; QuestCalibrator tells you when this happens. To stop it, set
+you put it back on; Nova Calibrator tells you when this happens. To stop it, set
 **Turn off controllers after** to **Never** in SteamVR's **Startup / Shutdown**
 settings.
 
-Without a headset tracker, QuestCalibrator still corrects the jumps it can detect and
+Without a headset tracker, Nova Calibrator still corrects the jumps it can detect and
 warns you when the alignment drifts.
 
 ## Base stations
 
-With the Lighthouse module installed, the **Lighthouse** tab lists your base stations,
-which ones each device can see, and which drops out most often. It's the quickest way
-to find a badly placed station.
+With the Lighthouse module installed, the **Lighthouse** page lists your base
+stations, which ones each device can see, and which drops out most often. It's the
+quickest way to find a badly placed station.
 
-![The Lighthouse tab](docs/images/lighthouse.png)
+![The Lighthouse page](docs/images/lighthouse.png)
 
 ## Other things it does
 
 - **Protected chaperone:** saves your SteamVR walls and puts them back if SteamVR or
   the headset loses them.
-- **Languages:** English, Italian and Japanese, picked in Settings. The default is
-  Windows' display language. The translations may not be perfect, so corrections are
-  welcome as issues.
-- **Updates:** off by default. Turn them on in Settings and QuestCalibrator checks
-  this repository for a newer stable release. It only offers a download that matches
-  the SHA-256 GitHub publishes for it, and installs only when you say so.
+- **Languages:** English, Italian and Japanese, picked on the first page or in
+  Settings. The default is Windows' display language. The translations may not be
+  perfect, so corrections are welcome as issues.
+- **Updates:** off unless you turn them on, during the setup or in Settings. Nova
+  Calibrator then checks this repository for a newer stable release, downloads only
+  a package signed with the release key and matching the SHA-256 GitHub publishes
+  for it, and installs only when you say so.
 - **Advanced mode:** shows calibration measurements, drift readings and extra
   settings.
 
 ## Something wrong?
 
-[Open an issue](https://github.com/VividNightmareUnleashed/QuestCalibrator/issues) and
-attach both log files from `%LOCALAPPDATA%\QuestCalibrator\`: `QuestCalibrator.log`
-and `QuestCalibrator.prev.log`. They record every calibration and correction, with the
-numbers behind it.
+[Open an issue](https://github.com/VividNightmareUnleashed/NovaCalibrator/issues)
+and attach both log files from `%LOCALAPPDATA%\NovaCalibrator\`: `NovaCalibrator.log`
+and `NovaCalibrator.prev.log`. They record every calibration and correction, with the
+numbers behind it. (QuestCalibrator's logs stay in `%LOCALAPPDATA%\QuestCalibrator\`.)
 
 If the alignment goes wrong during play, turn on **Detailed calibration logging** in
 Settings. Then press **Save diagnostics file** once while things look right, and again
@@ -147,9 +161,10 @@ This builds the solution into `x64\Release\` and runs the test harness
 `VirtualQuest` submodule is private and not needed: without it the build leaves out
 the simulated-headset tests and nothing else.
 
-To run your build, copy `Driver\01questcalibrator` into SteamVR's `drivers` folder,
-put `driver_01questcalibrator.dll` in its `bin\win64`, and start `QuestCalibrator.exe`
-with `openvr_api.dll`, `manifest.vrmanifest` and `icon.png` beside it.
+To run your build, copy `Driver\01novacalibrator` into SteamVR's `drivers` folder,
+put `driver_01novacalibrator.dll` in its `bin\win64`, and start `NovaCalibrator.exe`
+with `openvr_api.dll`, `manifest.vrmanifest` and `icon.png` beside it. Preview flags
+such as `-uipreview` show any page without SteamVR.
 
 More about the source:
 
@@ -167,7 +182,7 @@ More about the source:
 
 ## License
 
-QuestCalibrator is source-available: you can build and change it for your own use,
+Nova Calibrator is source-available: you can build and change it for your own use,
 but redistributing it needs permission first and selling it isn't allowed. See
 [LICENSE](LICENSE) for the exact terms.
 
@@ -179,4 +194,4 @@ sampling raw driver poses) were inspired by the
 [hyblocker fork](https://github.com/hyblocker/OpenVR-SpaceCalibrator) and written from
 scratch; none of its code is included.
 
-QuestCalibrator is not affiliated with Meta, Valve, HTC or VRChat.
+Nova Calibrator is not affiliated with Meta, Valve, HTC or VRChat.

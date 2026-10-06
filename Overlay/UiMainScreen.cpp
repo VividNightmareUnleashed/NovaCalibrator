@@ -166,9 +166,9 @@ CalRating ComputeCalibrationRating(ContinuousStatus continuous)
 	return (CalRating)r;
 }
 
-// The ladder answers "should I do anything?", so the two bad rungs read as a
-// verdict a player can act on rather than a grade.
-static const char *RatingLabels[] = { "Good", "Usable", "Rough", "Bad" };
+// The ladder answers "should I do anything?", so the two bad rungs read as
+// one verdict a player can act on rather than a grade.
+static const char *RatingLabels[] = { "Good", "Usable", "Bad", "Bad" };
 
 const char *RatingLabel(CalRating r)
 {
@@ -253,7 +253,7 @@ namespace
 		case Reason::DriverUnreachable:
 			return "SteamVR isn't accepting the calibration. Restart SteamVR.";
 		case Reason::DriverVersionMismatch:
-			return "The app and its SteamVR driver are from different releases. Reinstall QuestCalibrator, then restart SteamVR.";
+			return "The app and its SteamVR driver are from different releases. Reinstall Nova Calibrator, then restart SteamVR.";
 		case Reason::DriverRefusedValues:
 			return "The SteamVR driver refused the calibration's values. Recalibrate.";
 		case Reason::InvalidIdentity:
@@ -261,9 +261,9 @@ namespace
 		case Reason::InvalidTransform:
 			return "The saved calibration is damaged. Recalibrate.";
 		case Reason::UniverseUnsafe:
-			return "The headset re-centered while QuestCalibrator wasn't watching, so the saved alignment is off. Recalibrate.";
+			return "The headset re-centered while Nova Calibrator wasn't watching, so the saved alignment is off. Recalibrate.";
 		case Reason::FrameMovesLost:
-			return "SteamVR moved the base stations more often than QuestCalibrator could follow, so the saved alignment may be off. Recalibrate.";
+			return "SteamVR moved the base stations more often than Nova Calibrator could follow, so the saved alignment may be off. Recalibrate.";
 		case Reason::None:
 		default:
 			// Never borrow another cause's sentence: a universe change that
@@ -437,7 +437,7 @@ float BuildHomePage(const VRState &state, ImVec2 origin, float width)
 			Tr("Downloaded and verified. Close Steam before you install it."), "Install", ui::Icon::Download, NoticeUpdate });
 	if (PoseChannelDown())
 	{
-		std::string why = Tr("QuestCalibrator isn't getting tracking data from SteamVR, so it can't watch for drift. Restart SteamVR.");
+		std::string why = Tr("Nova Calibrator isn't getting tracking data from SteamVR, so it can't watch for drift. Restart SteamVR.");
 		if (CalCtx.uiAdvanced)
 			why += FormatString(" (host hooks: 005 %s, 006 %s)",
 				CalCtx.driverPoseHookMask & protocol::PoseHook005 ? "active" : "missing",
@@ -446,7 +446,7 @@ float BuildHomePage(const VRState &state, ImVec2 origin, float width)
 	}
 	if (CalCtx.enabled && CalCtx.hookBypassingDevices != 0)
 	{
-		std::string why = Tr("Calibration can't move some target devices, because their tracking doesn't pass through QuestCalibrator's SteamVR driver.");
+		std::string why = Tr("Calibration can't move some target devices, because their tracking doesn't pass through Nova Calibrator's SteamVR driver.");
 		if (CalCtx.uiAdvanced)
 		{
 			std::string ids;

@@ -1,4 +1,4 @@
-# QuestCalibrator install packages
+# Nova Calibrator install packages
 
 `build-package.ps1` builds the **zip package**: `Install.ps1` and
 `Uninstall.ps1` plus the build outputs. It is the only distribution; the earlier
@@ -7,7 +7,7 @@ heuristic.
 
 There is also a **test channel**: `build-test-package.ps1` stages the same
 package into `test-out\` (never `out\`), named
-`QuestCalibrator-TEST-<version>-<commit>-src<source hash>-<timestamp>.zip`, so
+`NovaCalibrator-TEST-<version>-<commit>-src<source hash>-<timestamp>.zip`, so
 several test builds of unpushed or uncommitted trees can coexist, none of them
 can clobber (or be mistaken for) a GitHub Release artifact, and the zip's name
 records exactly which tracked, non-ignored source state it was built from. Every
@@ -18,9 +18,9 @@ packaging differs.
 
 `Install.ps1` still removes installations made by the old NSIS installer before
 upgrading, including a registered custom location whose final directory is
-QuestCalibrator.
+Nova Calibrator.
 
-`build-package.ps1` reads the version from the built `QuestCalibrator.exe`'s
+`build-package.ps1` reads the version from the built `NovaCalibrator.exe`'s
 version resource, which comes from `common/Version.h`, the single source of
 truth.
 
@@ -39,7 +39,7 @@ release; the release workflow runs the install test again on each draft.
 
 ## Calling the app from a script
 
-`QuestCalibrator.exe` is a **GUI-subsystem binary**. Two consequences:
+`NovaCalibrator.exe` is a **GUI-subsystem binary**. Two consequences:
 
 - PowerShell's `&` does not wait for it and `$LASTEXITCODE` is meaningless.
   Use `Start-Process -Wait -PassThru` and read `.ExitCode`.

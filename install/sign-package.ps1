@@ -46,9 +46,9 @@ if (-not $SecretKeyFile -and $env:MINISIGN_SECRET_KEY) {
 }
 if (-not $SecretKeyFile) { throw 'A stable release must be signed: set MINISIGN_SECRET_KEY or pass -SecretKeyFile.' }
 try {
-    $version = [IO.Path]::GetFileNameWithoutExtension($name) -replace '^QuestCalibrator-', ''
+    $version = [IO.Path]::GetFileNameWithoutExtension($name) -replace '^NovaCalibrator-', ''
     $arguments = @('-S', '-s', $SecretKeyFile, '-m', $Package, '-x', $signature, '-t', $name,
-        '-c', "QuestCalibrator $version, signed with the release key")
+        '-c', "Nova Calibrator $version, signed with the release key")
     # minisign reads the password from standard input when that is not a
     # terminal, and asks for it when it is.
     if ($env:MINISIGN_PASSWORD) { $env:MINISIGN_PASSWORD | & $Minisign @arguments | Out-Host }

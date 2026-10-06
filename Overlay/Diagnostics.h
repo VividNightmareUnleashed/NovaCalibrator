@@ -38,7 +38,7 @@ DiagnosticCapture CaptureCalibrationDiagnostics();
 std::string DescribeFrameFailureCapture(const CalibrationContext &ctx, vr::IVRSystem *system,
 	const DiagnosticCapture &capture, double qpcToSeconds);
 
-// Writes the file under %LOCALAPPDATA%\QuestCalibrator\diagnostics. On
+// Writes the file under %LOCALAPPDATA%\NovaCalibrator\diagnostics. On
 // success pathOut is the file's UTF-8 path; on failure error says why.
 bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, std::string &error,
 	vr::IVRSystem *system, const DiagnosticCapture &capture);

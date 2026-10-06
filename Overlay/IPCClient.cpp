@@ -111,8 +111,8 @@ protocol::VersionProbeResponse IPCClient::ProbeConnected()
 		if (error == ERROR_BROKEN_PIPE || error == ERROR_PIPE_NOT_CONNECTED ||
 			error == ERROR_NO_DATA)
 		{
-			throw DriverVersionMismatch("QuestCalibrator's SteamVR driver is older than this app: "
-				"it closed the connection at the version probe. Reinstall QuestCalibrator, then "
+			throw DriverVersionMismatch("Nova Calibrator's SteamVR driver is older than this app: "
+				"it closed the connection at the version probe. Reinstall Nova Calibrator, then "
 				"restart SteamVR.");
 		}
 		if (error != ERROR_MORE_DATA)
@@ -123,8 +123,8 @@ protocol::VersionProbeResponse IPCClient::ProbeConnected()
 	if (!questcal::ipc::VersionProbeAnswerComplete(bytesRead) ||
 		answer.magic != protocol::VersionProbeMagic)
 	{
-		throw DriverVersionMismatch("The program serving QuestCalibrator's driver pipe answered "
-			"the version probe in an unknown format. Reinstall QuestCalibrator, then restart "
+		throw DriverVersionMismatch("The program serving Nova Calibrator's driver pipe answered "
+			"the version probe in an unknown format. Reinstall Nova Calibrator, then restart "
 			"SteamVR.");
 	}
 	answer.release[sizeof answer.release - 1] = '\0';
@@ -140,7 +140,7 @@ void IPCClient::Connect()
 
 	if (pipe == INVALID_HANDLE_VALUE)
 	{
-		throw std::runtime_error("QuestCalibrator driver unavailable. Make sure SteamVR is running, and the QuestCalibrator addon is enabled in SteamVR settings.");
+		throw std::runtime_error("Nova Calibrator driver unavailable. Make sure SteamVR is running, and the Nova Calibrator addon is enabled in SteamVR settings.");
 	}
 
 	// Manual reset: GetOverlappedResult is what consumes completion here, and
@@ -170,13 +170,13 @@ void IPCClient::Connect()
 			probe.requestSize != sizeof(protocol::Request) ||
 			probe.responseSize != sizeof(protocol::Response))
 		{
-			throw DriverVersionMismatch("QuestCalibrator's SteamVR driver is from release " +
+			throw DriverVersionMismatch("Nova Calibrator's SteamVR driver is from release " +
 				std::string(probe.release) + " (protocol " + std::to_string(probe.protocolVersion) +
 				", frames of " + std::to_string(probe.requestSize) + "/" +
 				std::to_string(probe.responseSize) + " bytes), this app from release "
 				QUESTCAL_VERSION_STRING " (protocol " + std::to_string(protocol::Version) +
 				", frames of " + std::to_string(sizeof(protocol::Request)) + "/" +
-				std::to_string(sizeof(protocol::Response)) + " bytes). Reinstall QuestCalibrator, "
+				std::to_string(sizeof(protocol::Response)) + " bytes). Reinstall Nova Calibrator, "
 				"then restart SteamVR.");
 		}
 		response = SendBlockingConnected(protocol::Request(protocol::RequestHandshake));
@@ -190,7 +190,7 @@ void IPCClient::Connect()
 	{
 		Close();
 		throw DriverVersionMismatch(
-			"Incorrect driver version installed, try reinstalling QuestCalibrator. (Client: " +
+			"Incorrect driver version installed, try reinstalling Nova Calibrator. (Client: " +
 			std::to_string(protocol::Version) +
 			", Driver: " +
 			std::to_string(response.protocol.version) +

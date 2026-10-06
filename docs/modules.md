@@ -1,6 +1,6 @@
 # Modules
 
-Most people install QuestCalibrator for the classic space calibrator, with
+Most people install Nova Calibrator for the classic space calibrator, with
 its improvements. Features the original calibrator never had, and that a
 player may not want, ship as optional modules: the installer asks about each
 one, and a plain install leaves them out.
@@ -47,12 +47,12 @@ Module features build on the core data; core never depends on a module.
    `-Lighthouse` installs the module without asking; an `-Unattended`
    install gets only the modules named on its command line.
 2. It records each choice as a DWORD, 1 or 0, under
-   `HKLM\Software\QuestCalibrator\Modules` (value `Lighthouse`). Running the
+   `HKLM\Software\NovaCalibrator\Modules` (value `Lighthouse`). Running the
    installer again is how a player adds or removes a module.
 3. At startup the overlay reads that key once (`ReadInstalledModules`,
    `Overlay/Modules.cpp`) into `CalCtx.modules`. A missing key or value
    means not installed. Everything a module gates asks `CalCtx.modules`.
-4. `Uninstall.ps1` removes `HKLM\Software\QuestCalibrator` and the choices
+4. `Uninstall.ps1` removes `HKLM\Software\NovaCalibrator` and the choices
    with it.
 
 A manual install has no installer to ask; the install readme gives the

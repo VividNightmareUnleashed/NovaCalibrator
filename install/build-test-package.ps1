@@ -32,7 +32,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-$appExe = Join-Path $repoRoot "$Platform\$Configuration\QuestCalibrator.exe"
+$appExe = Join-Path $repoRoot "$Platform\$Configuration\NovaCalibrator.exe"
 if (-not (Test-Path $appExe)) {
     Write-Error "Missing $appExe after rebuild."
     exit 1
@@ -79,25 +79,25 @@ if ($LASTEXITCODE -ne 0 -or -not $head) { $head = 'nogit' }
 $headShort = if ($head -eq 'nogit') { $head } else { $head.Substring(0, 8) }
 
 $stamp = Get-Date -Format 'yyyyMMdd-HHmm'
-$name  = "QuestCalibrator-TEST-$version-$headShort-src$($sourceHash.Substring(0, 12))-$stamp"
+$name  = "NovaCalibrator-TEST-$version-$headShort-src$($sourceHash.Substring(0, 12))-$stamp"
 
 $buildDir = Join-Path $repoRoot "$Platform\$Configuration"
-$driverDll = Join-Path $buildDir 'driver_01questcalibrator.dll'
+$driverDll = Join-Path $buildDir 'driver_01novacalibrator.dll'
 $openvrDll = Join-Path $repoRoot 'lib\openvr\lib\win64\openvr_api.dll'
 $outDir = Join-Path $PSScriptRoot 'test-out'
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 $buildInfoPath = Join-Path $outDir '.BUILD-INFO.tmp'
 $builtAt = (Get-Date).ToUniversalTime().ToString('o')
 $info = @(
-    "QuestCalibrator TEST package - never attach to a GitHub Release"
+    "Nova Calibrator TEST package - never attach to a GitHub Release"
     "version=$version"
     "git_head=$head"
     "source_state_sha256=$sourceHash"
     "built_utc=$builtAt"
     "configuration=$Configuration"
     "platform=$Platform"
-    "QuestCalibrator.exe_sha256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $appExe).Hash.ToLowerInvariant())"
-    "driver_01questcalibrator.dll_sha256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $driverDll).Hash.ToLowerInvariant())"
+    "NovaCalibrator.exe_sha256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $appExe).Hash.ToLowerInvariant())"
+    "driver_01novacalibrator.dll_sha256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $driverDll).Hash.ToLowerInvariant())"
     "openvr_api.dll_sha256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $openvrDll).Hash.ToLowerInvariant())"
 )
 Set-Content -LiteralPath $buildInfoPath -Value $info -Encoding UTF8

@@ -1,4 +1,4 @@
-# QuestCalibrator installer (script-based, replaces the NSIS installer).
+# Nova Calibrator installer (script-based, replaces the NSIS installer).
 # Run elevated. Installs the overlay app + OpenVR driver and registers the
 # app manifest with SteamVR.
 [CmdletBinding()]
@@ -44,7 +44,7 @@ function Fail([string]$msg) {
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     if ($Unattended) { Fail "An unattended install must be run from an elevated shell." }
-    Write-Host "QuestCalibrator needs administrator rights to install (it writes into the SteamVR folder)." -ForegroundColor Yellow
+    Write-Host "Nova Calibrator needs administrator rights to install (it writes into the SteamVR folder)." -ForegroundColor Yellow
     Write-Host "Re-launching elevated..."
     # Use -NoExit so the elevated window stays open to show output/errors
     $relaunchArgs = @(
@@ -68,10 +68,13 @@ if ($steamProcesses) {
 # --- Optional modules ---------------------------------------------------------
 # Asked before anything changes, and read before the upgrade path's uninstall
 # clears the registry, so an upgrade can offer the previous choice.
-$modulesKey = 'HKLM:\Software\QuestCalibrator\Modules'
+$modulesKey = 'HKLM:\Software\NovaCalibrator\Modules'
 $installLighthouse = [bool]$Lighthouse
 if (-not $Unattended -and -not $Lighthouse) {
-    $hadLighthouse = (Get-ItemProperty $modulesKey -ErrorAction SilentlyContinue).Lighthouse -eq 1
+    # A first install over QuestCalibrator offers what that install had.
+    $previousModules = Get-ItemProperty $modulesKey -ErrorAction SilentlyContinue
+    if (-not $previousModules) { $previousModules = Get-ItemProperty 'HKLM:\Software\QuestCalibrator\Modules' -ErrorAction SilentlyContinue }
+    $hadLighthouse = $previousModules.Lighthouse -eq 1
     Write-Host ""
     Write-Host "Optional module: Lighthouse" -ForegroundColor Cyan
     Write-Host "  Base station tools, starting with a Lighthouse tab that shows each"
@@ -86,7 +89,7 @@ if (-not $Unattended -and -not $Lighthouse) {
 
 $packageDir = $PSScriptRoot
 $appSrc     = Join-Path $packageDir 'app'
-$driverSrc  = Join-Path $packageDir 'driver\01questcalibrator'
+$driverSrc  = Join-Path $packageDir 'driver\01novacalibrator'
 
 foreach ($p in @($appSrc, $driverSrc)) {
     if (-not (Test-Path $p)) { Fail "Package is incomplete: '$p' is missing. Re-extract the zip and try again." }
@@ -180,7 +183,7 @@ Write-Host "VR runtime path: $vrRuntimePath"
 $spaceCalUninstall = Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenVRSpaceCalibrator' -ErrorAction SilentlyContinue
 if ($spaceCalUninstall) {
     Write-Host ""
-    Write-Host "OpenVR-SpaceCalibrator is installed and conflicts with QuestCalibrator." -ForegroundColor Yellow
+    Write-Host "OpenVR-SpaceCalibrator is installed and conflicts with Nova Calibrator." -ForegroundColor Yellow
     $answer = if ($Unattended) { 'N' } else { Read-Host "Uninstall it and continue? [Y/N]" }
     if ($answer -notmatch '^[Yy]') { Fail "Aborted. Uninstall OpenVR-SpaceCalibrator first, then re-run." }
 
@@ -204,9 +207,35 @@ if ($spaceCalUninstall) {
     }
 }
 
+# --- The same app under its old name: QuestCalibrator -------------------------
+# Nova Calibrator was called QuestCalibrator. Its own uninstaller removes the
+# old app, driver, SteamVR registration and shortcut, and leaves the player's
+# calibration and settings, which Nova Calibrator brings over when it first
+# starts. Its driver folder is swept with the conflicts below: both drivers
+# loaded at once would apply the calibration twice.
+$oldInstallDir = (Get-ItemProperty 'HKLM:\Software\QuestCalibrator\Main' -ErrorAction SilentlyContinue).'(default)'
+if (-not $oldInstallDir) { $oldInstallDir = Join-Path ${env:ProgramFiles} 'QuestCalibrator' }
+Assert-QuestcalTree $oldInstallDir 'QuestCalibrator'
+if (Test-Path (Join-Path $oldInstallDir 'Uninstall.ps1')) {
+    Write-Host "QuestCalibrator found - replacing it with Nova Calibrator (your calibration is kept)..."
+    $oldRemoval = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + (Join-Path $oldInstallDir 'Uninstall.ps1') + '"'), '-Silent', '-UserLocalAppData', ('"' + $UserLocalAppData + '"')) -Wait -PassThru
+    if ($oldRemoval.ExitCode -ne 0) { Fail "Removing QuestCalibrator failed (exit code $($oldRemoval.ExitCode)). Nova Calibrator has not been installed." }
+} elseif (Test-Path (Join-Path $oldInstallDir 'Uninstall.exe')) {
+    Write-Host "QuestCalibrator (NSIS) found - removing it first..."
+    $oldRemoval = Start-Process -FilePath (Join-Path $oldInstallDir 'Uninstall.exe') -ArgumentList '/S', "_?=$oldInstallDir" -Wait -PassThru
+    if ($oldRemoval.ExitCode -ne 0) { Fail "Removing QuestCalibrator failed (exit code $($oldRemoval.ExitCode)). Nova Calibrator has not been installed." }
+    Remove-Item (Join-Path $oldInstallDir 'Uninstall.exe') -Force -ErrorAction SilentlyContinue
+}
+# Traces an uninstaller left, or a hand install never had one to remove.
+foreach ($path in @('HKLM:\Software\QuestCalibrator',
+    'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\QuestCalibrator',
+    (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\QuestCalibrator.lnk'))) {
+    Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # The driver folder is the actual conflict; sweep it even when the
 # uninstaller ran (or was never registered), covering forks and manual installs.
-foreach ($conflict in @('01spacecalibrator', '000spacecalibrator')) {
+foreach ($conflict in @('01spacecalibrator', '000spacecalibrator', '01questcalibrator')) {
     $driversRoot = [IO.Path]::GetFullPath((Join-Path $vrRuntimePath 'drivers'))
     $p = [IO.Path]::GetFullPath((Join-Path $driversRoot $conflict))
     if (-not $p.StartsWith($driversRoot.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
@@ -224,22 +253,22 @@ foreach ($conflict in @('01spacecalibrator', '000spacecalibrator')) {
                     Write-Host "  Locked (attempt $i/3), waiting..."
                     Start-Sleep -Seconds 2
                 } else {
-                    Fail "Could not remove conflicting driver $p. Restart Windows, remove that driver, then re-run this installer. QuestCalibrator has not been installed or upgraded."
+                    Fail "Could not remove conflicting driver $p. Restart Windows, remove that driver, then re-run this installer. Nova Calibrator has not been installed or upgraded."
                 }
             }
         }
         if (Test-Path -LiteralPath $p) {
-            Fail "Conflicting driver still exists: $p. Remove it before installing QuestCalibrator."
+            Fail "Conflicting driver still exists: $p. Remove it before installing Nova Calibrator."
         }
     }
 }
 
 # --- Install location ---------------------------------------------------------
-$installDir = (Get-ItemProperty 'HKLM:\Software\QuestCalibrator\Main' -ErrorAction SilentlyContinue).'(default)'
-if (-not $installDir) { $installDir = Join-Path ${env:ProgramFiles} 'QuestCalibrator' }
+$installDir = (Get-ItemProperty 'HKLM:\Software\NovaCalibrator\Main' -ErrorAction SilentlyContinue).'(default)'
+if (-not $installDir) { $installDir = Join-Path ${env:ProgramFiles} 'NovaCalibrator' }
 Assert-QuestcalTree $appSrc
 Assert-QuestcalTree $driverSrc
-Assert-QuestcalTree $installDir 'QuestCalibrator'
+Assert-QuestcalTree $installDir 'NovaCalibrator'
 
 # Upgrade path: clear out whichever installer put files here last. Early builds
 # shipped an NSIS installer, so Uninstall.exe has to be handled too - otherwise
@@ -264,22 +293,22 @@ Copy-Item (Join-Path $packageDir 'LICENSE')            -Destination $installDir 
 Copy-Item (Join-Path $packageDir 'THIRD-PARTY-NOTICES.txt') -Destination $installDir -Force -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $packageDir 'THIRD-PARTY-NOTICES')     -Destination $installDir -Recurse -Force -ErrorAction SilentlyContinue
 
-$appExe = Join-Path $installDir 'QuestCalibrator.exe'
+$appExe = Join-Path $installDir 'NovaCalibrator.exe'
 if (-not (Test-Path $appExe)) { Fail "Copying the application to $installDir failed." }
 
 $version = (Get-Item $appExe).VersionInfo.ProductVersion
 if (-not $version) { $version = 'unknown' }
 
 # --- Driver files -------------------------------------------------------------
-$driverDest = Join-Path $vrRuntimePath 'drivers\01questcalibrator'
-Assert-QuestcalTree $driverDest '01questcalibrator'
+$driverDest = Join-Path $vrRuntimePath 'drivers\01novacalibrator'
+Assert-QuestcalTree $driverDest '01novacalibrator'
 if (Test-Path $driverDest) {
     # The driver DLL may be locked by a recently-closed SteamVR or AV scan.
     # Retry a few times with a delay before giving up.
     $removed = $false
     for ($i = 1; $i -le 3; $i++) {
         try {
-            Remove-QuestcalTree $driverDest '01questcalibrator'
+            Remove-QuestcalTree $driverDest '01novacalibrator'
             $removed = $true
             break
         } catch {
@@ -303,13 +332,13 @@ if (Test-Path $driverDest) {
     }
 }
 Copy-Item $driverSrc -Destination $driverDest -Recurse -Force
-if (-not (Test-Path (Join-Path $driverDest 'bin\win64\driver_01questcalibrator.dll'))) {
+if (-not (Test-Path (Join-Path $driverDest 'bin\win64\driver_01novacalibrator.dll'))) {
     Fail "Copying the driver to $driverDest failed."
 }
 Write-Host "Installed driver to $driverDest"
 
 # --- Register with SteamVR ----------------------------------------------------
-# QuestCalibrator.exe is a GUI binary: PowerShell's call operator does not wait
+# NovaCalibrator.exe is a GUI binary: PowerShell's call operator does not wait
 # for one and $LASTEXITCODE would be meaningless, so use Start-Process -Wait.
 # -WorkingDirectory matters because the app resolves manifest.vrmanifest next to
 # itself; -noui suppresses the result dialog so a scripted install never blocks.
@@ -321,7 +350,7 @@ function Invoke-App([string]$appArgument) {
 
 $code = Invoke-App '-installmanifest'
 if ($code -ne 0) {
-    Fail "Failed to register the application manifest with SteamVR (exit code $code). QuestCalibrator will not appear in the dashboard or start automatically."
+    Fail "Failed to register the application manifest with SteamVR (exit code $code). Nova Calibrator will not appear in the dashboard or start automatically."
 }
 Write-Host "Registered with SteamVR"
 
@@ -330,16 +359,16 @@ Write-Host "Registered with SteamVR"
 $code = Invoke-App '-activatemultipledrivers'
 if ($code -ne 0) {
     Write-Host "Note: could not pre-enable SteamVR's multiple-driver setting (exit code $code)." -ForegroundColor Yellow
-    Write-Host "      QuestCalibrator will enable it itself the first time it runs." -ForegroundColor Yellow
+    Write-Host "      Nova Calibrator will enable it itself the first time it runs." -ForegroundColor Yellow
 }
 
 # --- Registry + shortcut ------------------------------------------------------
-New-Item -Path 'HKLM:\Software\QuestCalibrator' -Force | Out-Null
-Set-ItemProperty -Path 'HKLM:\Software\QuestCalibrator' -Name '(default)' -Value '' -ErrorAction SilentlyContinue
-New-Item -Path 'HKLM:\Software\QuestCalibrator\Main' -Force | Out-Null
-Set-ItemProperty -Path 'HKLM:\Software\QuestCalibrator\Main' -Name '(default)' -Value $installDir
-New-Item -Path 'HKLM:\Software\QuestCalibrator\Driver' -Force | Out-Null
-Set-ItemProperty -Path 'HKLM:\Software\QuestCalibrator\Driver' -Name '(default)' -Value $vrRuntimePath
+New-Item -Path 'HKLM:\Software\NovaCalibrator' -Force | Out-Null
+Set-ItemProperty -Path 'HKLM:\Software\NovaCalibrator' -Name '(default)' -Value '' -ErrorAction SilentlyContinue
+New-Item -Path 'HKLM:\Software\NovaCalibrator\Main' -Force | Out-Null
+Set-ItemProperty -Path 'HKLM:\Software\NovaCalibrator\Main' -Name '(default)' -Value $installDir
+New-Item -Path 'HKLM:\Software\NovaCalibrator\Driver' -Force | Out-Null
+Set-ItemProperty -Path 'HKLM:\Software\NovaCalibrator\Driver' -Name '(default)' -Value $vrRuntimePath
 # The overlay reads this at startup (UserInterface.cpp) to enable each module.
 New-Item -Path $modulesKey -Force | Out-Null
 Set-ItemProperty -Path $modulesKey -Name 'Lighthouse' -Value ([int]$installLighthouse) -Type DWord
@@ -347,9 +376,9 @@ Set-ItemProperty -Path $modulesKey -Name 'Lighthouse' -Value ([int]$installLight
 $installedKb  = [int](((Get-ChildItem $installDir -Recurse -File | Measure-Object -Property Length -Sum).Sum) / 1KB)
 $uninstallCmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$installDir\Uninstall.ps1`""
 
-$uninstallReg = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\QuestCalibrator'
+$uninstallReg = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCalibrator'
 New-Item -Path $uninstallReg -Force | Out-Null
-Set-ItemProperty -Path $uninstallReg -Name 'DisplayName'          -Value 'QuestCalibrator'
+Set-ItemProperty -Path $uninstallReg -Name 'DisplayName'          -Value 'Nova Calibrator'
 Set-ItemProperty -Path $uninstallReg -Name 'DisplayVersion'       -Value $version
 Set-ItemProperty -Path $uninstallReg -Name 'Publisher'            -Value 'VividNightmare'
 Set-ItemProperty -Path $uninstallReg -Name 'DisplayIcon'          -Value $appExe
@@ -360,7 +389,7 @@ Set-ItemProperty -Path $uninstallReg -Name 'EstimatedSize'        -Value $instal
 Set-ItemProperty -Path $uninstallReg -Name 'NoModify'             -Value 1 -Type DWord
 Set-ItemProperty -Path $uninstallReg -Name 'NoRepair'             -Value 1 -Type DWord
 
-$shortcutPath = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\QuestCalibrator.lnk'
+$shortcutPath = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Nova Calibrator.lnk'
 $wsh = New-Object -ComObject WScript.Shell
 $shortcut = $wsh.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = $appExe
@@ -369,7 +398,7 @@ $shortcut.IconLocation = "$appExe,0"
 $shortcut.Save()
 
 Write-Host ""
-Write-Host "QuestCalibrator $version installed successfully." -ForegroundColor Green
+Write-Host "Nova Calibrator $version installed successfully." -ForegroundColor Green
 Write-Host ("Lighthouse module: " + $(if ($installLighthouse) { 'installed' } else { 'not installed (run this installer again to add it)' }))
 Write-Host "Start SteamVR to use it. A Start Menu shortcut was created."
 Write-Host ""

@@ -53,10 +53,10 @@ bool DiagnosticsExportScenario()
 		capture.frameGroup[id] = 9;
 	}
 	// Eleven older reports: writing the twelfth keeps the newest ten.
-	const auto reports = root / L"QuestCalibrator" / L"diagnostics";
+	const auto reports = root / L"NovaCalibrator" / L"diagnostics";
 	std::filesystem::create_directories(reports);
 	for (int i = 0; i < 11; ++i)
-		std::ofstream(reports / (L"QuestCalibrator-diagnostics-20000101-0000" +
+		std::ofstream(reports / (L"NovaCalibrator-diagnostics-20000101-0000" +
 			std::wstring(i < 10 ? L"0" : L"") + std::to_wstring(i) + L".txt")) << "old";
 	std::string path, error;
 	const bool saved = WriteDiagnosticsFile(ctx, path, error, nullptr, capture);
@@ -66,12 +66,12 @@ bool DiagnosticsExportScenario()
 	{
 		++kept;
 		oldestKept = oldestKept ||
-			entry.path().filename() == L"QuestCalibrator-diagnostics-20000101-000000.txt" ||
-			entry.path().filename() == L"QuestCalibrator-diagnostics-20000101-000001.txt";
+			entry.path().filename() == L"NovaCalibrator-diagnostics-20000101-000000.txt" ||
+			entry.path().filename() == L"NovaCalibrator-diagnostics-20000101-000001.txt";
 	}
 	const bool pruned = kept == 10 && !oldestKept;
 	// What the log and the screen get instead of the full path.
-	const bool shortened = PathForLog(path).rfind("%LOCALAPPDATA%\\QuestCalibrator\\diagnostics\\", 0) == 0 &&
+	const bool shortened = PathForLog(path).rfind("%LOCALAPPDATA%\\NovaCalibrator\\diagnostics\\", 0) == 0 &&
 		ShortenUserPath("C:\\Users\\Jo\\AppData\\Local\\x", "C:\\Users\\jo\\AppData\\Local", "C:\\Users\\jo") ==
 			"%LOCALAPPDATA%\\x" &&
 		ShortenUserPath("C:\\Users\\jo\\Desktop\\x", "C:\\Users\\jo\\AppData\\Local", "C:\\Users\\jo") ==
@@ -88,11 +88,11 @@ bool DiagnosticsExportScenario()
 		std::filesystem::remove(std::filesystem::u8path(path));
 	}
 	for (int i = 0; i < 11; ++i)
-		std::filesystem::remove(reports / (L"QuestCalibrator-diagnostics-20000101-0000" +
+		std::filesystem::remove(reports / (L"NovaCalibrator-diagnostics-20000101-0000" +
 			std::wstring(i < 10 ? L"0" : L"") + std::to_wstring(i) + L".txt"));
 	// Only remove the exact directories created by this fixture, never recursively.
-	std::filesystem::remove(root / L"QuestCalibrator" / L"diagnostics");
-	std::filesystem::remove(root / L"QuestCalibrator");
+	std::filesystem::remove(root / L"NovaCalibrator" / L"diagnostics");
+	std::filesystem::remove(root / L"NovaCalibrator");
 	std::filesystem::remove(root);
 	return saved && error.empty() && shortened && pruned &&
 		report.find("\nformat: questcal-diagnostics/2\n") != std::string::npos &&

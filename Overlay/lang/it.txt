@@ -1,4 +1,4 @@
-# Italian translations for QuestCalibrator.
+# Italian translations for Nova Calibrator.
 #
 # Format: an "en:" line holds a key, the English exactly as the overlay builds
 # it, and the line after it holds the translation, starting with the language
@@ -25,8 +25,8 @@ name: Italiano
 
 en: Continuous calibration paused after the headset tracker restarted. It resumes if tracking recovers; another tracker restart may be needed.
 it: Calibrazione continua in pausa dopo il riavvio del tracker del visore. Riprende se il tracciamento si ripristina; potrebbe servire un altro riavvio del tracker.
-en: QuestCalibrator: tracking has not recovered after the headset tracker restarted. Wait, or turn that tracker off and on in view of its base stations.
-it: QuestCalibrator: il tracciamento non si è ripristinato dopo il riavvio del tracker del visore. Attendi, oppure spegni e riaccendi il tracker in vista delle stazioni base.
+en: Nova Calibrator: tracking has not recovered after the headset tracker restarted. Wait, or turn that tracker off and on in view of its base stations.
+it: Nova Calibrator: il tracciamento non si è ripristinato dopo il riavvio del tracker del visore. Attendi, oppure spegni e riaccendi il tracker in vista delle stazioni base.
 en: Restart the headset tracker in view of its base stations. If stable tracking stays misaligned, recalibrate.
 it: Spegni e riaccendi il tracker del visore in vista delle sue stazioni base. Se il tracciamento è stabile ma resta disallineato, ricalibra.
 en: Continuous calibration is paused after a tracker restart. Recovery may need another tracker restart.
@@ -109,8 +109,6 @@ en: Good
 it: Buono
 en: Usable
 it: Accettabile
-en: Rough
-it: Impreciso
 en: Bad
 it: Scarso
 en: Not measured
@@ -189,30 +187,30 @@ en: Your %s headset isn't connected, so calibration is off until it's back.
 it: Il tuo visore {0} non è collegato, quindi la calibrazione resta disattivata finché non torna.
 en: SteamVR isn't accepting the calibration. Restart SteamVR.
 it: SteamVR non accetta la calibrazione. Riavvia SteamVR.
-en: The app and its SteamVR driver are from different releases. Reinstall QuestCalibrator, then restart SteamVR.
-it: L'app e il suo driver SteamVR sono di versioni diverse. Reinstalla QuestCalibrator, poi riavvia SteamVR.
+en: The app and its SteamVR driver are from different releases. Reinstall Nova Calibrator, then restart SteamVR.
+it: L'app e il suo driver SteamVR sono di versioni diverse. Reinstalla Nova Calibrator, poi riavvia SteamVR.
 en: The SteamVR driver refused the calibration's values. Recalibrate.
 it: Il driver SteamVR ha rifiutato i valori della calibrazione. Ricalibra.
 en: The saved calibration doesn't match the connected hardware. Recalibrate.
 it: La calibrazione salvata non corrisponde all'hardware collegato. Ricalibra.
 en: The saved calibration is damaged. Recalibrate.
 it: La calibrazione salvata è danneggiata. Ricalibra.
-en: The headset re-centered while QuestCalibrator wasn't watching, so the saved alignment is off. Recalibrate.
-it: Il visore si è ricentrato mentre QuestCalibrator non lo seguiva, quindi l'allineamento salvato è errato. Ricalibra.
-en: SteamVR moved the base stations more often than QuestCalibrator could follow, so the saved alignment may be off. Recalibrate.
-it: SteamVR ha spostato le stazioni base più spesso di quanto QuestCalibrator potesse seguire, quindi l'allineamento salvato potrebbe essere errato. Ricalibra.
+en: The headset re-centered while Nova Calibrator wasn't watching, so the saved alignment is off. Recalibrate.
+it: Il visore si è ricentrato mentre Nova Calibrator non lo seguiva, quindi l'allineamento salvato è errato. Ricalibra.
+en: SteamVR moved the base stations more often than Nova Calibrator could follow, so the saved alignment may be off. Recalibrate.
+it: SteamVR ha spostato le stazioni base più spesso di quanto Nova Calibrator potesse seguire, quindi l'allineamento salvato potrebbe essere errato. Ricalibra.
 en: Calibration disabled. Restart SteamVR or recalibrate.
 it: Calibrazione disattivata. Riavvia SteamVR o ricalibra.
-en: QuestCalibrator isn't getting tracking data from SteamVR, so it can't watch for drift. Restart SteamVR.
-it: QuestCalibrator non riceve dati di tracciamento da SteamVR, quindi non può controllare la deriva. Riavvia SteamVR.
+en: Nova Calibrator isn't getting tracking data from SteamVR, so it can't watch for drift. Restart SteamVR.
+it: Nova Calibrator non riceve dati di tracciamento da SteamVR, quindi non può controllare la deriva. Riavvia SteamVR.
 en: (host hooks: 005 %s, 006 %s)
 it: (hook dell'host: 005 {0}, 006 {1})
 en: active
 it: attivo
 en: missing
 it: assente
-en: Calibration can't move some target devices, because their tracking doesn't pass through QuestCalibrator's SteamVR driver.
-it: La calibrazione non può spostare alcuni dispositivi di destinazione, perché il loro tracciamento non passa dal driver SteamVR di QuestCalibrator.
+en: Calibration can't move some target devices, because their tracking doesn't pass through Nova Calibrator's SteamVR driver.
+it: La calibrazione non può spostare alcuni dispositivi di destinazione, perché il loro tracciamento non passa dal driver SteamVR di Nova Calibrator.
 en: (OpenVR devices %s)
 it: (dispositivi OpenVR {0})
 en: Nova Calibrator %s is ready
@@ -473,8 +471,8 @@ en: Turn and tilt as you move in a figure eight
 it: Gira e inclina mentre disegni un otto
 en: Rest the controller against the visor
 it: Appoggia il controller alla visiera
-en: Motion demos couldn't load. Reinstall QuestCalibrator to restore them.
-it: Impossibile caricare le animazioni. Reinstalla QuestCalibrator per ripristinarle.
+en: Motion demos couldn't load. Reinstall Nova Calibrator to restore them.
+it: Impossibile caricare le animazioni. Reinstalla Nova Calibrator per ripristinarle.
 en: Reference device
 it: Dispositivo di riferimento
 en: Target device
@@ -653,8 +651,8 @@ en: The reference device
 it: Il dispositivo di riferimento
 en: The target device
 it: Il dispositivo di destinazione
-en: QuestCalibrator can't talk to SteamVR.
-it: QuestCalibrator non riesce a comunicare con SteamVR.
+en: Nova Calibrator can't talk to SteamVR.
+it: Nova Calibrator non riesce a comunicare con SteamVR.
 en: Restart SteamVR. If it repeats, re-run the installer.
 it: Riavvia SteamVR. Se si ripete, esegui di nuovo il programma di installazione.
 en: No reference device is selected.
@@ -721,8 +719,8 @@ en: Add this one within 1 m of an existing anchor to replace it, or clear the an
 it: Aggiungila entro 1 m da un'ancora esistente per sostituirla, oppure cancella le ancore nelle Impostazioni.
 en: It couldn't be saved.
 it: Non è stato possibile salvarla.
-en: Restart QuestCalibrator and try again.
-it: Riavvia QuestCalibrator e riprova.
+en: Restart Nova Calibrator and try again.
+it: Riavvia Nova Calibrator e riprova.
 en: This spot now has its own correction, blended in as you walk around.
 it: Questo punto ora ha la sua correzione, raccordata mentre ti muovi.
 en: Anchor added. This spot now has its own correction.
@@ -745,8 +743,8 @@ it: Puoi salvarne fino a 8. Una nuova ancora entro 1 m da un'altra la sostituisc
 # ---- Runtime monitors (activity feed and VR notifications) ----
 en: Your calibration looks off. Recalibrate.
 it: La calibrazione sembra errata. Ricalibra.
-en: QuestCalibrator: your calibration looks off. Recalibrate.
-it: QuestCalibrator: la calibrazione sembra errata. Ricalibra.
+en: Nova Calibrator: your calibration looks off. Recalibrate.
+it: Nova Calibrator: la calibrazione sembra errata. Ricalibra.
 en: A correction was too large to be safe and was skipped. If this keeps happening, recalibrate.
 it: Una correzione era troppo grande per essere sicura ed è stata saltata. Se continua a succedere, ricalibra.
 en: Correction ready. Pull a trigger to apply it.
@@ -755,20 +753,20 @@ en: Trigger pulled; applying the correction.
 it: Grilletto premuto; applico la correzione.
 en: Continuous calibration paused: readings moved too far from the calibration. It re-aligns on its own if they hold steady.
 it: Calibrazione continua in pausa: le misure si sono allontanate troppo dalla calibrazione. Si riallinea da sola se restano stabili.
-en: QuestCalibrator: continuous calibration paused; readings moved too far from the calibration. It re-aligns on its own if they hold steady, or recalibrate with the headset tracker.
-it: QuestCalibrator: calibrazione continua in pausa; le misure si sono allontanate troppo dalla calibrazione. Si riallinea da sola se restano stabili, oppure ricalibra con il tracker del visore.
+en: Nova Calibrator: continuous calibration paused; readings moved too far from the calibration. It re-aligns on its own if they hold steady, or recalibrate with the headset tracker.
+it: Nova Calibrator: calibrazione continua in pausa; le misure si sono allontanate troppo dalla calibrazione. Si riallinea da sola se restano stabili, oppure ricalibra con il tracker del visore.
 en: Continuous calibration paused: tracking drifted too far to correct safely.
 it: Calibrazione continua in pausa: il tracciamento si è spostato troppo per correggerlo in sicurezza.
-en: QuestCalibrator: continuous calibration paused; readings drifted too far to correct safely. Recalibrate with the headset tracker to resume.
-it: QuestCalibrator: calibrazione continua in pausa; lo scostamento è troppo grande per correggerlo in sicurezza. Ricalibra con il tracker del visore per riprendere.
+en: Nova Calibrator: continuous calibration paused; readings drifted too far to correct safely. Recalibrate with the headset tracker to resume.
+it: Nova Calibrator: calibrazione continua in pausa; lo scostamento è troppo grande per correggerlo in sicurezza. Ricalibra con il tracker del visore per riprendere.
 en: Re-aligned your trackers after your headset's tracking shifted.
 it: Tracker riallineati dopo uno spostamento del tracciamento del visore.
 en: Continuous calibration went back to the alignment it had before it last re-aligned your trackers.
 it: La calibrazione continua è tornata all'allineamento che aveva prima dell'ultimo riallineamento dei tracker.
 en: Tracking is noisy here; continuous calibration is waiting and resumes on its own.
 it: Qui il tracciamento è instabile; la calibrazione continua è in attesa e riprenderà da sola.
-en: QuestCalibrator: tracking is noisy here. Continuous calibration is waiting and resumes on its own.
-it: QuestCalibrator: qui il tracciamento è instabile. La calibrazione continua è in attesa e riprenderà da sola.
+en: Nova Calibrator: tracking is noisy here. Continuous calibration is waiting and resumes on its own.
+it: Nova Calibrator: qui il tracciamento è instabile. La calibrazione continua è in attesa e riprenderà da sola.
 en: Continuous calibration resumed.
 it: Calibrazione continua ripresa.
 en: Headset tracker not tracking; continuous calibration waiting.
@@ -795,8 +793,8 @@ en: The headset tracker switched off or lost its connection.
 it: Il tracker del visore si è spento o ha perso la connessione.
 en: To keep this from happening, set “Turn off controllers after” to Never in SteamVR's Startup / Shutdown settings.
 it: Per evitare che succeda, imposta “Spegni i controller dopo” su Mai nelle impostazioni Avvio / Arresto di SteamVR.
-en: QuestCalibrator: the headset tracker is off. Turn it back on to resume continuous calibration.
-it: QuestCalibrator: il tracker del visore è spento. Riaccendilo per riprendere la calibrazione continua.
+en: Nova Calibrator: the headset tracker is off. Turn it back on to resume continuous calibration.
+it: Nova Calibrator: il tracker del visore è spento. Riaccendilo per riprendere la calibrazione continua.
 
 # ---- Chaperone ----
 en: Check your room boundaries
@@ -839,18 +837,18 @@ en: The protected chaperone was saved for a different headset, so it was switche
 it: Il chaperone protetto era stato salvato per un altro visore, quindi è stato disattivato. Proteggilo di nuovo dallo strumento Chaperone.
 en: The headset re-centered, so the protected chaperone no longer lines up and was turned off. Protect it again from the Chaperone tool.
 it: Il visore si è ricentrato e il chaperone protetto non è più allineato, quindi è stato disattivato. Proteggilo di nuovo dallo strumento Chaperone.
-en: The headset re-centered while QuestCalibrator couldn't follow it, so the protected chaperone was switched off. Protect it again from the Chaperone tool.
-it: Il visore si è ricentrato mentre QuestCalibrator non poteva seguirlo, quindi il chaperone protetto è stato disattivato. Proteggilo di nuovo dallo strumento Chaperone.
+en: The headset re-centered while Nova Calibrator couldn't follow it, so the protected chaperone was switched off. Protect it again from the Chaperone tool.
+it: Il visore si è ricentrato mentre Nova Calibrator non poteva seguirlo, quindi il chaperone protetto è stato disattivato. Proteggilo di nuovo dallo strumento Chaperone.
 en: The protected chaperone belonged to the previous calibration and was turned off. Protect it again from the Chaperone tool.
 it: Il chaperone protetto apparteneva alla calibrazione precedente ed è stato disattivato. Proteggilo di nuovo dallo strumento Chaperone.
 en: A headset re-center was too large to compensate safely. Recalibrate before continuing.
 it: Un ricentramento del visore era troppo grande per compensarlo in sicurezza. Ricalibra prima di continuare.
-en: The headset re-centered while QuestCalibrator couldn't follow it. The calibration and the protected chaperone are off until you recalibrate.
-it: Il visore si è ricentrato mentre QuestCalibrator non poteva seguirlo. Calibrazione e chaperone protetto restano disattivati finché non ricalibri.
-en: The headset re-centered while QuestCalibrator couldn't follow it. The calibration is off until you recalibrate.
-it: Il visore si è ricentrato mentre QuestCalibrator non poteva seguirlo. La calibrazione resta disattivata finché non ricalibri.
-en: SteamVR moved the base stations more often than QuestCalibrator could follow. The calibration is off until you recalibrate.
-it: SteamVR ha spostato le stazioni base più spesso di quanto QuestCalibrator potesse seguire. La calibrazione resta disattivata finché non ricalibri.
+en: The headset re-centered while Nova Calibrator couldn't follow it. The calibration and the protected chaperone are off until you recalibrate.
+it: Il visore si è ricentrato mentre Nova Calibrator non poteva seguirlo. Calibrazione e chaperone protetto restano disattivati finché non ricalibri.
+en: The headset re-centered while Nova Calibrator couldn't follow it. The calibration is off until you recalibrate.
+it: Il visore si è ricentrato mentre Nova Calibrator non poteva seguirlo. La calibrazione resta disattivata finché non ricalibri.
+en: SteamVR moved the base stations more often than Nova Calibrator could follow. The calibration is off until you recalibrate.
+it: SteamVR ha spostato le stazioni base più spesso di quanto Nova Calibrator potesse seguire. La calibrazione resta disattivata finché non ricalibri.
 en: Couldn't protect the chaperone. The headset re-centered since the last calibration. Recalibrate first.
 it: Impossibile proteggere il chaperone. Il visore si è ricentrato dopo l'ultima calibrazione. Ricalibra prima.
 en: Couldn't protect the chaperone because SteamVR's chaperone isn't available. Restart SteamVR and try again.
@@ -891,29 +889,29 @@ en: The protected chaperone belongs to a different reference tracking system. It
 it: Il chaperone protetto appartiene a un altro sistema di tracciamento di riferimento. È stato disattivato; proteggilo di nuovo per questo profilo.
 
 # ---- Saving and loading ----
-en: Couldn't clear the calibration, so it's still saved. Restart QuestCalibrator and try again.
-it: Impossibile cancellare la calibrazione, che resta salvata. Riavvia QuestCalibrator e riprova.
-en: Couldn't read the saved calibration, so it was left as it is. Restart QuestCalibrator. If this repeats, save a diagnostics file in Settings and report it.
-it: Impossibile leggere la calibrazione salvata, che è stata lasciata com'era. Riavvia QuestCalibrator. Se si ripete, salva un file di diagnostica nelle Impostazioni e segnalalo.
-en: Couldn't read QuestCalibrator's settings, so they were left as they are. Restart QuestCalibrator. If this repeats, save a diagnostics file in Settings and report it.
-it: Impossibile leggere le impostazioni di QuestCalibrator, che sono state lasciate com'erano. Riavvia QuestCalibrator. Se si ripete, salva un file di diagnostica nelle Impostazioni e segnalalo.
+en: Couldn't clear the calibration, so it's still saved. Restart Nova Calibrator and try again.
+it: Impossibile cancellare la calibrazione, che resta salvata. Riavvia Nova Calibrator e riprova.
+en: Couldn't read the saved calibration, so it was left as it is. Restart Nova Calibrator. If this repeats, save a diagnostics file in Settings and report it.
+it: Impossibile leggere la calibrazione salvata, che è stata lasciata com'era. Riavvia Nova Calibrator. Se si ripete, salva un file di diagnostica nelle Impostazioni e segnalalo.
+en: Couldn't read Nova Calibrator's settings, so they were left as they are. Restart Nova Calibrator. If this repeats, save a diagnostics file in Settings and report it.
+it: Impossibile leggere le impostazioni di Nova Calibrator, che sono state lasciate com'erano. Riavvia Nova Calibrator. Se si ripete, salva un file di diagnostica nelle Impostazioni e segnalalo.
 en: Couldn't save the calibration because the saved one couldn't be read. It was left untouched so it can be recovered.
 it: Impossibile salvare la calibrazione perché quella salvata non è leggibile. È stata lasciata intatta per poterla recuperare.
-en: Couldn't save the calibration because QuestCalibrator's settings couldn't be read. They were left untouched so they can be recovered.
-it: Impossibile salvare la calibrazione perché le impostazioni di QuestCalibrator non sono leggibili. Sono state lasciate intatte per poterle recuperare.
-en: Couldn't save the calibration because settings from an older version haven't been moved over safely yet. Restart QuestCalibrator and try again.
-it: Impossibile salvare la calibrazione perché le impostazioni di una versione precedente non sono ancora state trasferite in sicurezza. Riavvia QuestCalibrator e riprova.
+en: Couldn't save the calibration because Nova Calibrator's settings couldn't be read. They were left untouched so they can be recovered.
+it: Impossibile salvare la calibrazione perché le impostazioni di Nova Calibrator non sono leggibili. Sono state lasciate intatte per poterle recuperare.
+en: Couldn't save the calibration because settings from an older version haven't been moved over safely yet. Restart Nova Calibrator and try again.
+it: Impossibile salvare la calibrazione perché le impostazioni di una versione precedente non sono ancora state trasferite in sicurezza. Riavvia Nova Calibrator e riprova.
 en: Couldn't save the calibration because it failed a safety check. Recalibrate.
 it: Impossibile salvare la calibrazione perché non ha superato un controllo di sicurezza. Ricalibra.
-en: Couldn't save the calibration. It will be lost when QuestCalibrator closes.
-it: Impossibile salvare la calibrazione. Andrà persa alla chiusura di QuestCalibrator.
-en: Couldn't save QuestCalibrator's settings because the saved calibration couldn't be read. Nothing was changed, so both can still be recovered.
+en: Couldn't save the calibration. It will be lost when Nova Calibrator closes.
+it: Impossibile salvare la calibrazione. Andrà persa alla chiusura di Nova Calibrator.
+en: Couldn't save Nova Calibrator's settings because the saved calibration couldn't be read. Nothing was changed, so both can still be recovered.
 it: Impossibile salvare le impostazioni perché la calibrazione salvata non è leggibile. Non è cambiato nulla, quindi entrambe sono recuperabili.
-en: Couldn't save QuestCalibrator's settings because the saved ones couldn't be read. They were left untouched so they can be recovered.
+en: Couldn't save Nova Calibrator's settings because the saved ones couldn't be read. They were left untouched so they can be recovered.
 it: Impossibile salvare le impostazioni perché quelle salvate non sono leggibili. Sono state lasciate intatte per poterle recuperare.
-en: Couldn't save QuestCalibrator's settings because the protected chaperone failed a safety check. Protect it again.
+en: Couldn't save Nova Calibrator's settings because the protected chaperone failed a safety check. Protect it again.
 it: Impossibile salvare le impostazioni perché il chaperone protetto non ha superato un controllo di sicurezza. Proteggilo di nuovo.
-en: Couldn't save QuestCalibrator's settings. Changes will be lost when it closes.
+en: Couldn't save Nova Calibrator's settings. Changes will be lost when it closes.
 it: Impossibile salvare le impostazioni. Le modifiche andranno perse alla chiusura.
 en: Error loading calibration profile: %s
 it: Errore nel caricamento del profilo di calibrazione: {0}
@@ -939,16 +937,16 @@ en: Couldn't finish writing the diagnostics file.
 it: Impossibile completare la scrittura del file di diagnostica.
 
 # ---- Updates ----
-en: QuestCalibrator %s is a prerelease. Automatic updates follow stable releases only, so this build will not update itself. Install a stable release by hand to rejoin them.
-it: QuestCalibrator {0} è una versione preliminare. Gli aggiornamenti automatici seguono solo le versioni stabili, quindi questa build non si aggiornerà da sola. Installa a mano una versione stabile per riceverli di nuovo.
+en: Nova Calibrator %s is a prerelease. Automatic updates follow stable releases only, so this build will not update itself. Install a stable release by hand to rejoin them.
+it: Nova Calibrator {0} è una versione preliminare. Gli aggiornamenti automatici seguono solo le versioni stabili, quindi questa build non si aggiornerà da sola. Installa a mano una versione stabile per riceverli di nuovo.
 en: Checking GitHub for updates
 it: Ricerca aggiornamenti su GitHub
-en: QuestCalibrator is up to date
-it: QuestCalibrator è aggiornato
-en: Downloading QuestCalibrator %s
-it: Download di QuestCalibrator {0}
-en: QuestCalibrator %s is ready to install
-it: QuestCalibrator {0} è pronto per l'installazione
+en: Nova Calibrator is up to date
+it: Nova Calibrator è aggiornato
+en: Downloading Nova Calibrator %s
+it: Download di Nova Calibrator {0}
+en: Nova Calibrator %s is ready to install
+it: Nova Calibrator {0} è pronto per l'installazione
 en: The update check could not start.
 it: Impossibile avviare il controllo degli aggiornamenti.
 en: Update check cancelled.
@@ -1025,8 +1023,8 @@ en: The update helper could not be created.
 it: Impossibile creare l'assistente di aggiornamento.
 en: The newest release has no trusted release page.
 it: La versione più recente non ha una pagina di rilascio attendibile.
-en: The newest release points outside the QuestCalibrator repository.
-it: La versione più recente punta fuori dal repository di QuestCalibrator.
+en: The newest release points outside the Nova Calibrator repository.
+it: La versione più recente punta fuori dal repository di Nova Calibrator.
 en: The newest release has no install package.
 it: La versione più recente non ha un pacchetto di installazione.
 en: The newest release contains duplicate install packages.
@@ -1037,16 +1035,16 @@ en: The newest release package has invalid metadata.
 it: Il pacchetto della versione più recente ha metadati non validi.
 en: The newest release package has no valid SHA-256 digest.
 it: Il pacchetto della versione più recente non ha un'impronta SHA-256 valida.
-en: The newest release package points outside the QuestCalibrator repository.
-it: Il pacchetto della versione più recente punta fuori dal repository di QuestCalibrator.
+en: The newest release package points outside the Nova Calibrator repository.
+it: Il pacchetto della versione più recente punta fuori dal repository di Nova Calibrator.
 en: The newest release contains duplicate signatures.
 it: La versione più recente contiene firme duplicate.
 en: The newest release is not signed.
 it: La versione più recente non è firmata.
 en: The newest release signature has invalid metadata.
 it: La firma della versione più recente ha metadati non validi.
-en: The newest release signature points outside the QuestCalibrator repository.
-it: La firma della versione più recente punta fuori dal repository di QuestCalibrator.
+en: The newest release signature points outside the Nova Calibrator repository.
+it: La firma della versione più recente punta fuori dal repository di Nova Calibrator.
 
 # ---- Lighthouse tab ----
 en: No Lighthouse devices

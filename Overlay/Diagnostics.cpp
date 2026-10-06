@@ -146,7 +146,7 @@ void PruneOldReports(const std::wstring &dir)
 {
 	std::vector<std::wstring> reports;
 	WIN32_FIND_DATAW found;
-	HANDLE search = FindFirstFileW((dir + L"\\QuestCalibrator-diagnostics-*.txt").c_str(), &found);
+	HANDLE search = FindFirstFileW((dir + L"\\NovaCalibrator-diagnostics-*.txt").c_str(), &found);
 	if (search == INVALID_HANDLE_VALUE)
 		return;
 	do
@@ -638,12 +638,12 @@ void DescribeLogs(std::ostream &out, const DiagnosticCapture &capture, const std
 {
 	std::string driverLog;
 	if (!capture.steamVrRuntimePath.empty())
-		driverLog = ReadFileTail(Wide(capture.steamVrRuntimePath) + L"\\drivers\\01questcalibrator\\bin\\win64\\quest_calibrator_driver.log");
+		driverLog = ReadFileTail(Wide(capture.steamVrRuntimePath) + L"\\drivers\\01novacalibrator\\bin\\win64\\nova_calibrator_driver.log");
 	if (driverLog.empty())
-		driverLog = ReadFileTail(EnvW(L"TEMP") + L"\\quest_calibrator_driver.log");
+		driverLog = ReadFileTail(EnvW(L"TEMP") + L"\\nova_calibrator_driver.log");
 	out << "[driver log tail, newest 256 KiB; may include earlier sessions]\n" << driverLog << "\n";
-	out << "[session log]\n" << ReadWholeFile(appDir + L"\\QuestCalibrator.log") << "\n";
-	out << "[previous session log]\n" << ReadWholeFile(appDir + L"\\QuestCalibrator.prev.log") << "\n";
+	out << "[session log]\n" << ReadWholeFile(appDir + L"\\NovaCalibrator.log") << "\n";
+	out << "[previous session log]\n" << ReadWholeFile(appDir + L"\\NovaCalibrator.prev.log") << "\n";
 }
 
 } // namespace
@@ -657,7 +657,7 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 		error = "Couldn't find the local application data folder.";
 		return false;
 	}
-	std::wstring appDir = localAppData + L"\\QuestCalibrator";
+	std::wstring appDir = localAppData + L"\\NovaCalibrator";
 	std::wstring dir = appDir + L"\\diagnostics";
 	CreateDirectoryW(appDir.c_str(), nullptr);
 	CreateDirectoryW(dir.c_str(), nullptr);
@@ -667,7 +667,7 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 	runtimePoses << std::setprecision(10);
 	DescribeRuntimePoses(runtimePoses, ctx, system);
 	std::ostringstream out;
-	out << "QuestCalibrator " << QUESTCAL_VERSION_STRING << " diagnostics, written " << Stamp("%Y-%m-%d %H:%M:%S") << "\n";
+	out << "Nova Calibrator " << QUESTCAL_VERSION_STRING << " diagnostics, written " << Stamp("%Y-%m-%d %H:%M:%S") << "\n";
 	out << "format: questcal-diagnostics/2\n";
 	out << "Personal folders and the account name are shown as <user>, the computer name as <pc>.\n";
 	out << "Device serial numbers are kept: they identify hardware, not people.\n\n";
@@ -702,7 +702,7 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 	std::string text = AnonymiseDiagnosticsText(out.str(),
 		Utf8(EnvW(L"USERPROFILE")), Utf8(EnvW(L"USERNAME")), Utf8(EnvW(L"COMPUTERNAME")));
 
-	std::wstring path = dir + L"\\QuestCalibrator-diagnostics-" + Wide(Stamp("%Y%m%d-%H%M%S")) + L".txt";
+	std::wstring path = dir + L"\\NovaCalibrator-diagnostics-" + Wide(Stamp("%Y%m%d-%H%M%S")) + L".txt";
 	std::ofstream file(path.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
 	if (!file.is_open())
 	{

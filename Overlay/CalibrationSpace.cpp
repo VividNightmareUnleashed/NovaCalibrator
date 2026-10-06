@@ -472,7 +472,7 @@ void CalibrationSpaceTick(CalibrationContext &ctx, double now)
 		Space.hmd.rotation, Space.hmd.translation))
 	{
 		DisarmChaperoneAndPersist(ctx, now,
-			"The headset re-centered while QuestCalibrator couldn't follow it, so the protected chaperone was switched off. "
+			"The headset re-centered while Nova Calibrator couldn't follow it, so the protected chaperone was switched off. "
 			"Protect it again from the Chaperone tool.\n");
 		return;
 	}
@@ -787,9 +787,9 @@ void ProfileUniverseTick(CalibrationContext &ctx, double now)
 	if (autoApplyChanged)
 		ctx.persistence.MarkSettings(now);
 	ctx.ReportError(autoApplyChanged
-		? "The headset re-centered while QuestCalibrator couldn't follow it. "
+		? "The headset re-centered while Nova Calibrator couldn't follow it. "
 			"The calibration and the protected chaperone are off until you recalibrate.\n"
-		: "The headset re-centered while QuestCalibrator couldn't follow it. "
+		: "The headset re-centered while Nova Calibrator couldn't follow it. "
 			"The calibration is off until you recalibrate.\n",
 		CalibrationContext::ErrorSource::Chaperone);
 	questcal::SynchronizeCalibrationDriver(ctx);

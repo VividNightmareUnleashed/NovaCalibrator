@@ -89,12 +89,12 @@ std::filesystem::path LocalUpdateRoot()
 	if (written == 0 || written >= chars)
 		throw std::runtime_error("Windows did not provide a local app-data folder.");
 	value.resize(written);
-	return std::filesystem::path(value) / L"QuestCalibrator" / L"updates";
+	return std::filesystem::path(value) / L"NovaCalibrator" / L"updates";
 }
 
 InternetHandle OpenSession()
 {
-	InternetHandle session(WinHttpOpen(L"QuestCalibrator/" QUESTCAL_VERSION_STRING,
+	InternetHandle session(WinHttpOpen(L"NovaCalibrator/" QUESTCAL_VERSION_STRING,
 		WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
 		WINHTTP_NO_PROXY_BYPASS, 0));
 	if (!session) throw NetworkError("Opening the update connection");
@@ -161,7 +161,7 @@ std::string FetchReleaseFeed(HINTERNET session,
 {
 	HttpRequest request = OpenGet(session, L"api.github.com",
 		INTERNET_DEFAULT_HTTPS_PORT,
-		L"/repos/VividNightmareUnleashed/QuestCalibrator/releases?per_page=20");
+		L"/repos/VividNightmareUnleashed/NovaCalibrator/releases?per_page=20");
 	SendGet(request,
 		L"Accept: application/vnd.github+json\r\n"
 		L"X-GitHub-Api-Version: 2022-11-28\r\n");
@@ -466,13 +466,13 @@ try {
     $installers = @(Get-ChildItem -LiteralPath $extractDir -Filter Install.ps1 -File -Recurse)
     if ($installers.Count -ne 1) { throw 'The update package does not contain exactly one installer.' }
     $packageDir = $installers[0].Directory.FullName
-    foreach ($required in @('app\QuestCalibrator.exe', 'driver\01questcalibrator\bin\win64\driver_01questcalibrator.dll', 'Uninstall.ps1')) {
+    foreach ($required in @('app\NovaCalibrator.exe', 'driver\01novacalibrator\bin\win64\driver_01novacalibrator.dll', 'Uninstall.ps1')) {
         if (-not (Test-Path -LiteralPath (Join-Path $packageDir $required))) {
             throw "The update package is incomplete: $required is missing."
         }
     }
 
-    Write-Host 'QuestCalibrator is ready to update.' -ForegroundColor Cyan
+    Write-Host 'Nova Calibrator is ready to update.' -ForegroundColor Cyan
     Write-Host 'Close Steam completely, including its system-tray icon. Installation starts when Steam has stopped.'
     while (Get-Process -Name 'steam','vrserver','vrmonitor','vrcompositor' -ErrorAction SilentlyContinue) {
         Start-Sleep -Seconds 2
@@ -594,7 +594,7 @@ bool Updater::CheckNow()
 			snapshot = Snapshot();
 			snapshot.state = State::Prerelease;
 			snapshot.version = prereleaseBuild;
-			snapshot.message = "QuestCalibrator " + prereleaseBuild +
+			snapshot.message = "Nova Calibrator " + prereleaseBuild +
 				" is a prerelease. Automatic updates follow stable releases only, "
 				"so this build will not update itself. Install a stable release by "
 				"hand to rejoin them.";
@@ -716,7 +716,7 @@ void Updater::RunCheck(uint64_t checkRevision)
 		{
 			const std::string version = VersionString(current);
 			if (Publish(checkRevision, State::UpToDate,
-				"QuestCalibrator is up to date", version))
+				"Nova Calibrator is up to date", version))
 				Log("check completed: current " + version +
 					"; no newer stable release");
 		}
@@ -725,7 +725,7 @@ void Updater::RunCheck(uint64_t checkRevision)
 			const std::string version = VersionString(release.version);
 			const SigningPublicKey key = ReleaseKey();
 			if (!Publish(checkRevision, State::Downloading,
-				"Downloading QuestCalibrator " + version, version, 0, release.size))
+				"Downloading Nova Calibrator " + version, version, 0, release.size))
 				throw std::runtime_error("Update check cancelled.");
 			Log("stable release " + version + " found (" +
 				std::to_string(release.size) + " bytes)");
@@ -759,7 +759,7 @@ void Updater::RunCheck(uint64_t checkRevision)
 				DownloadPackage(session, release, part, cancelled,
 					[&](uint64_t bytes) {
 						Publish(checkRevision, State::Downloading,
-							"Downloading QuestCalibrator " + version,
+							"Downloading Nova Calibrator " + version,
 							version, bytes, release.size);
 					});
 				const std::string failure = VerifyPackage(part, release, key);
@@ -788,7 +788,7 @@ void Updater::RunCheck(uint64_t checkRevision)
 				}
 			}
 			if (Publish(checkRevision, State::Ready,
-				"QuestCalibrator " + version + " is ready to install",
+				"Nova Calibrator " + version + " is ready to install",
 				version, release.size, release.size))
 			{
 				Log(std::string(downloaded ? "downloaded package " : "cached package ") +

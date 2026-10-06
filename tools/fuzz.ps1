@@ -61,10 +61,10 @@ $dictionaries = @{
         'universe_world_from_driver_translation_meters', 'settings_version', 'solve_scale', 'mount_extrinsic',
         'rot_rms_deg', 'pos_rms_m', 'field_anchors', 'position', 'field_enabled', 'continuous_enabled',
         'continuous_tracker_serial', 'continuous_mode', 'legacy', 'calibration_speed', 'true', 'false', 'null')
-    feed       = $numbers + @('draft', 'prerelease', 'tag_name', 'questcalibrator-v', 'html_url', 'assets', 'name',
-        'size', 'digest', 'sha256:', 'browser_download_url', 'QuestCalibrator-', '.zip', '.minisig',
-        'https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/', 'tag/', 'download/', 'true', 'false')
-    signature  = @('untrusted comment: ', 'trusted comment: ', 'QuestCalibrator-9.9.9.zip', 'RUQ', 'RWQ', '==', '=')
+    feed       = $numbers + @('draft', 'prerelease', 'tag_name', 'novacalibrator-v', 'html_url', 'assets', 'name',
+        'size', 'digest', 'sha256:', 'browser_download_url', 'NovaCalibrator-', '.zip', '.minisig',
+        'https://github.com/VividNightmareUnleashed/NovaCalibrator/releases/', 'tag/', 'download/', 'true', 'false')
+    signature  = @('untrusted comment: ', 'trusted comment: ', 'NovaCalibrator-9.9.9.zip', 'RUQ', 'RWQ', '==', '=')
     lighthouse = $numbers + @('lighthouse: LHR-', ' C: ', 'SOB: add ', 'SOB: drop ', 'S-', '(generation changed)',
         'also seeing ', 'seeing ', 'No base stations seen', 'BOOTSTRAPPED base ', 'Trying to start tracking from base ',
         'lighthouse: Selected existing universe ', 'lighthouse: Creating new universe ',

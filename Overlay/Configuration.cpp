@@ -252,13 +252,49 @@ static std::string RegistryError(LSTATUS result)
 	return text;
 }
 
-static const char *RegistryKey = "Software\\QuestCalibrator";
+static const char *RegistryKey = "Software\\NovaCalibrator";
+// Where the records lived while the app was called QuestCalibrator.
+static const char *PreviousRegistryKey = "Software\\QuestCalibrator";
 
 // HKEY_CURRENT_USER_LOCAL_SETTINGS resolves under HKCU\Software\Classes\Local
 // Settings, which regedit does not label. An unreadable record is never
 // overwritten, so the error text must say where to delete it by hand.
 static const char *RegistryKeyDisplayPath =
-	"HKEY_CURRENT_USER\\Software\\Classes\\Local Settings\\Software\\QuestCalibrator";
+	"HKEY_CURRENT_USER\\Software\\Classes\\Local Settings\\Software\\NovaCalibrator";
+
+// The first start under the new name copies the records QuestCalibrator saved
+// (the calibration, the settings and their history) to the new key. The old
+// key stays as it was, so a QuestCalibrator build still finds its own. A copy
+// that fails leaves no new key behind, and the next start tries again.
+static void ImportPreviousNameRecords(CalibrationContext &ctx)
+{
+	HKEY current = nullptr;
+	if (RegOpenKeyExA(HKEY_CURRENT_USER_LOCAL_SETTINGS, RegistryKey, 0, KEY_READ, &current) == ERROR_SUCCESS)
+	{
+		RegCloseKey(current);
+		return;
+	}
+	HKEY previous = nullptr;
+	if (RegOpenKeyExA(HKEY_CURRENT_USER_LOCAL_SETTINGS, PreviousRegistryKey, 0, KEY_READ, &previous) != ERROR_SUCCESS)
+		return;
+	HKEY created = nullptr;
+	LSTATUS result = RegCreateKeyExA(HKEY_CURRENT_USER_LOCAL_SETTINGS, RegistryKey, 0, nullptr, 0,
+		KEY_ALL_ACCESS, nullptr, &created, nullptr);
+	if (result == ERROR_SUCCESS)
+	{
+		result = RegCopyTreeA(previous, nullptr, created);
+		RegCloseKey(created);
+		if (result != ERROR_SUCCESS)
+			RegDeleteTreeA(HKEY_CURRENT_USER_LOCAL_SETTINGS, RegistryKey);
+	}
+	RegCloseKey(previous);
+	if (result == ERROR_SUCCESS)
+		ctx.Log("Imported the calibration and settings saved under the QuestCalibrator name\n");
+	else
+		ctx.ReportError("Couldn't bring over the calibration and settings saved by QuestCalibrator (" +
+			RegistryError(result) + "). Restart Nova Calibrator to try again.\n",
+			CalibrationContext::ErrorSource::SettingsPersistence);
+}
 
 enum class RegistryReadStatus
 {
@@ -345,6 +381,7 @@ static bool WriteRegistryValue(const char *valueName, const std::string &str, st
 // Runs once, at startup, on a context whose load states are still Missing.
 void LoadProfile(CalibrationContext &ctx)
 {
+	ImportPreviousNameRecords(ctx);
 	PersistedRevision profileRevision;
 	PersistedRevision settingsRevision;
 	bool settingsRewriteNeeded = false;
@@ -355,7 +392,7 @@ void LoadProfile(CalibrationContext &ctx)
 		ctx.profileLoadState = questcal::RecordLoadState::Unreadable;
 		ctx.Log("Calibration profile read failed: " + profileRead.error + "\n");
 		ctx.ReportError("Couldn't read the saved calibration, so it was left as it is. "
-			"Restart QuestCalibrator. If this repeats, save a diagnostics file in Settings and report it.\n",
+			"Restart Nova Calibrator. If this repeats, save a diagnostics file in Settings and report it.\n",
 			CalibrationContext::ErrorSource::ProfilePersistence);
 	}
 	else if (profileRead.status == RegistryReadStatus::Missing || profileRead.value.empty())
@@ -409,8 +446,8 @@ void LoadProfile(CalibrationContext &ctx)
 	{
 		ctx.settingsLoadState = questcal::RecordLoadState::Unreadable;
 		ctx.Log("Settings read failed: " + settingsRead.error + "\n");
-		ctx.ReportError("Couldn't read QuestCalibrator's settings, so they were left as they are. "
-			"Restart QuestCalibrator. If this repeats, save a diagnostics file in Settings and report it.\n",
+		ctx.ReportError("Couldn't read Nova Calibrator's settings, so they were left as they are. "
+			"Restart Nova Calibrator. If this repeats, save a diagnostics file in Settings and report it.\n",
 			CalibrationContext::ErrorSource::SettingsPersistence);
 	}
 	// Missing or empty keeps whatever the (possibly legacy) Config load produced;
@@ -553,7 +590,7 @@ static bool WriteConfigRecord(CalibrationContext &ctx, const ProfileRecord &reco
 		return false;
 	case questcal::PersistenceWriteGate::RefusedSettingsUnreadable:
 		ctx.ReportError(
-			"Couldn't save the calibration because QuestCalibrator's settings couldn't be read. "
+			"Couldn't save the calibration because Nova Calibrator's settings couldn't be read. "
 			"They were left untouched so they can be recovered.\n",
 			CalibrationContext::ErrorSource::ProfilePersistence);
 		return false;
@@ -562,7 +599,7 @@ static bool WriteConfigRecord(CalibrationContext &ctx, const ProfileRecord &reco
 	{
 		ctx.ReportError(
 			"Couldn't save the calibration because settings from an older version haven't been "
-			"moved over safely yet. Restart QuestCalibrator and try again.\n",
+			"moved over safely yet. Restart Nova Calibrator and try again.\n",
 			CalibrationContext::ErrorSource::ProfilePersistence);
 		return false;
 	}
@@ -584,7 +621,7 @@ static bool WriteConfigRecord(CalibrationContext &ctx, const ProfileRecord &reco
 	if (!WriteRegistryValue("Config", profile.str(), error))
 	{
 		ctx.Log("Calibration profile write failed: " + error + "\n");
-		ctx.ReportError("Couldn't save the calibration. It will be lost when QuestCalibrator closes.\n",
+		ctx.ReportError("Couldn't save the calibration. It will be lost when Nova Calibrator closes.\n",
 			CalibrationContext::ErrorSource::ProfilePersistence);
 		return false;
 	}
@@ -679,13 +716,13 @@ static bool WriteSettingsRecord(CalibrationContext &ctx)
 		return true;
 	case questcal::PersistenceWriteGate::RefusedConfigUnreadable:
 		ctx.ReportError(
-			"Couldn't save QuestCalibrator's settings because the saved calibration couldn't be read. "
+			"Couldn't save Nova Calibrator's settings because the saved calibration couldn't be read. "
 			"Nothing was changed, so both can still be recovered.\n",
 			CalibrationContext::ErrorSource::SettingsPersistence);
 		return false;
 	case questcal::PersistenceWriteGate::RefusedSettingsUnreadable:
 		ctx.ReportError(
-			"Couldn't save QuestCalibrator's settings because the saved ones couldn't be read. "
+			"Couldn't save Nova Calibrator's settings because the saved ones couldn't be read. "
 			"They were left untouched so they can be recovered.\n",
 			CalibrationContext::ErrorSource::SettingsPersistence);
 		return false;
@@ -697,7 +734,7 @@ static bool WriteSettingsRecord(CalibrationContext &ctx)
 	{
 		ctx.Log("Settings rejected: " + why + "\n");
 		ctx.ReportError(
-			"Couldn't save QuestCalibrator's settings because the protected chaperone failed a safety check. "
+			"Couldn't save Nova Calibrator's settings because the protected chaperone failed a safety check. "
 			"Protect it again.\n",
 			CalibrationContext::ErrorSource::SettingsPersistence);
 		return false;
@@ -709,7 +746,7 @@ static bool WriteSettingsRecord(CalibrationContext &ctx)
 	if (!WriteRegistryValue("Settings", settings.str(), error))
 	{
 		ctx.Log("Settings write failed: " + error + "\n");
-		ctx.ReportError("Couldn't save QuestCalibrator's settings. Changes will be lost when it closes.\n",
+		ctx.ReportError("Couldn't save Nova Calibrator's settings. Changes will be lost when it closes.\n",
 			CalibrationContext::ErrorSource::SettingsPersistence);
 		return false;
 	}

@@ -771,7 +771,7 @@ void BuildClearCalibrationDialog()
 		// The write can be refused; a destructive button that did nothing has
 		// to say so instead of leaving the screen unchanged.
 		if (!ClearSavedProfile(CalCtx))
-			CalCtx.ReportError("Couldn't clear the calibration, so it's still saved. Restart QuestCalibrator and try again.\n",
+			CalCtx.ReportError("Couldn't clear the calibration, so it's still saved. Restart Nova Calibrator and try again.\n",
 				CalibrationContext::ErrorSource::ProfilePersistence);
 		CloseDialog();
 	}

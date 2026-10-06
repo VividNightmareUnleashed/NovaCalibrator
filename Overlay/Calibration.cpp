@@ -176,11 +176,11 @@ void InitSessionLog()
 	if (len == 0 || len >= MAX_PATH)
 		return;
 
-	std::wstring dir = std::wstring(base) + L"\\QuestCalibrator";
+	std::wstring dir = std::wstring(base) + L"\\NovaCalibrator";
 	CreateDirectoryW(dir.c_str(), nullptr);
 
-	SessionLogPath = dir + L"\\QuestCalibrator.log";
-	std::wstring previous = dir + L"\\QuestCalibrator.prev.log";
+	SessionLogPath = dir + L"\\NovaCalibrator.log";
+	std::wstring previous = dir + L"\\NovaCalibrator.prev.log";
 	// One-generation rotation: bounded disk use, but the session that ended in
 	// a problem survives the restart that usually precedes the bug report.
 	MoveFileExW(SessionLogPath.c_str(), previous.c_str(), MOVEFILE_REPLACE_EXISTING);
@@ -189,7 +189,7 @@ void InitSessionLog()
 	if (!SessionLog.is_open())
 		return;
 	SessionLogBudget = questcal::SessionLogTrim(SessionLogEndBytes, SessionLogEndBytes, SessionLogMaxBytes);
-	WriteSessionLogLine(std::string("QuestCalibrator ") + QUESTCAL_VERSION_STRING +
+	WriteSessionLogLine(std::string("Nova Calibrator ") + QUESTCAL_VERSION_STRING +
 		" session started " + LocalTimeText("%Y-%m-%d %H:%M:%S") + "\n");
 }
 
@@ -624,7 +624,7 @@ void CalibrationTick(double time)
 		if (!result->succeeded)
 		{
 			AbortCalibration(ctx, {
-				"QuestCalibrator can't talk to SteamVR.",
+				"Nova Calibrator can't talk to SteamVR.",
 				"Restart SteamVR. If it repeats, re-run the installer.",
 				"Raw pose traffic is unavailable and the selected device transforms could not be neutralized" });
 			return;

@@ -276,7 +276,7 @@ jobs:
   # force push, a run started by hand). The release workflow runs the whole
   # suite on the tag regardless.
   formal-scope:
-    if: github.repository == 'VividNightmareUnleashed/QuestCalibrator' && github.event.pull_request.head.repo.fork != true
+    if: github.repository == 'VividNightmareUnleashed/NovaCalibrator' && github.event.pull_request.head.repo.fork != true
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # actions: read finds the last runs where each formal job passed.

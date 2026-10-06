@@ -307,7 +307,7 @@ const std::string &GuideModelCredits()
 			if (bytes)
 				return std::string(bytes, SizeofResource(nullptr, resource));
 		}
-		return "The picture and model credits couldn't load. Reinstall QuestCalibrator to restore them.";
+		return "The picture and model credits couldn't load. Reinstall Nova Calibrator to restore them.";
 	}();
 	return credits;
 }

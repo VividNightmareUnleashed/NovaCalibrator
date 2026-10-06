@@ -1,5 +1,5 @@
 ﻿{
-	"driver_01questcalibrator" : {
+	"driver_01novacalibrator" : {
 		"loadPriority": 9999
 	}
 }

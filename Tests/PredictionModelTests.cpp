@@ -1,4 +1,4 @@
-// What a game sees is not the driver pose QuestCalibrator rewrites but
+// What a game sees is not the driver pose Nova Calibrator rewrites but
 // vrserver's extrapolation of it: the position advanced along the reported
 // velocity and acceleration, the orientation along the angular velocity, to
 // the moment the frame will be shown, all in driver space, then carried into
