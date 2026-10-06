@@ -411,8 +411,8 @@ en: Save diagnostics file
 it: Salva file di diagnostica
 en: Diagnostics saved to %s
 it: Diagnostica salvata in {0}
-en: Motion demos
-it: Animazioni
+en: Pictures and models
+it: Immagini e modelli
 en: Nova Calibrator is made by %s and builds on %s by %s.
 it: Nova Calibrator è realizzato da {0} e si basa su {1} di {2}.
 en: GitHub

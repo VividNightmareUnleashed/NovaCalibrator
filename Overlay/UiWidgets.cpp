@@ -1,6 +1,7 @@
 // The ImGui theme, the vector device glyphs, textures and the tooltip.
 #include "stdafx.h"
 #include "UiInternal.h"
+#include "DevicePictures.h"
 
 // ---------------------------------------------------------------------------
 // Theme
@@ -129,8 +130,11 @@ struct ComScoped
 	T *ptr = nullptr;
 };
 
+// A decoded picture as a texture. A guide atlas is drawn at its own size;
+// everything else is mipmapped, being drawn at a fraction of its size, and
+// grey turns it to its luminance (CSS's grayscale()).
 static bool DecodeTexture(IWICImagingFactory *factory, IWICBitmapDecoder *decoder,
-                         GLuint *outTex, int *outW, int *outH, bool guide)
+                         GLuint *outTex, int *outW, int *outH, bool guide, bool grey = false)
 {
 	ComScoped<IWICBitmapFrameDecode> frame;
 	if (FAILED(decoder->GetFrame(0, frame.Put())))
@@ -158,6 +162,13 @@ static bool DecodeTexture(IWICImagingFactory *factory, IWICBitmapDecoder *decode
 	std::vector<unsigned char> pixels((size_t)w * h * 4);
 	if (FAILED(conv->CopyPixels(nullptr, w * 4, (UINT)pixels.size(), pixels.data())))
 		return false;
+	if (grey)
+		for (size_t i = 0; i < pixels.size(); i += 4)
+		{
+			const auto luma = static_cast<unsigned char>(std::lround(
+				0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2]));
+			pixels[i] = pixels[i + 1] = pixels[i + 2] = luma;
+		}
 
 	GLuint tex = 0;
 	glGenTextures(1, &tex);
@@ -172,7 +183,9 @@ static bool DecodeTexture(IWICImagingFactory *factory, IWICBitmapDecoder *decode
 		glDeleteTextures(1, &tex);
 		return false;
 	}
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	if (!guide)
+		glGenerateMipmap(GL_TEXTURE_2D);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, guide ? GL_LINEAR : GL_LINEAR_MIPMAP_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	*outTex = tex;
 	*outW = (int)w;
@@ -200,7 +213,7 @@ bool LoadTextureFromFile(const char *path, GLuint *outTex, int *outW, int *outH)
 
 // A built-in PNG (an RCDATA resource) decoded into a texture: a guide atlas,
 // whose layout is checked, or a small piece of art.
-static bool LoadResourceTexture(const char *name, bool guide, GLuint *outTex, int *outW, int *outH)
+static bool LoadResourceTexture(const char *name, bool guide, bool grey, GLuint *outTex, int *outW, int *outH)
 {
 	HRSRC resource = FindResourceA(nullptr, name, MAKEINTRESOURCEA(10));
 	if (!resource)
@@ -224,7 +237,7 @@ static bool LoadResourceTexture(const char *name, bool guide, GLuint *outTex, in
 	if (FAILED(factory->CreateDecoderFromStream(stream.Get(), nullptr,
 		WICDecodeMetadataCacheOnDemand, decoder.Put())))
 		return false;
-	return DecodeTexture(factory.Get(), decoder.Get(), outTex, outW, outH, guide);
+	return DecodeTexture(factory.Get(), decoder.Get(), outTex, outW, outH, guide, grey);
 }
 
 bool LoadGuideTexture(GuideDemo demo, GLuint *outTex)
@@ -232,37 +245,56 @@ bool LoadGuideTexture(GuideDemo demo, GLuint *outTex)
 	const char *name = demo == GuideDemo::Mounted ? "GUIDE_HEADSET"
 		: demo == GuideDemo::HeadsetContact ? "GUIDE_CONTACT" : "GUIDE_HANDHELD";
 	int width = 0, height = 0;
-	return LoadResourceTexture(name, true, outTex, &width, &height);
+	return LoadResourceTexture(name, true, false, outTex, &width, &height);
 }
 
 // Kept for the life of the process, like the device icons; loaded lazily on
 // the render thread (GL context current).
-const DeviceIconTex *ArtTexture(const char *resource)
+const DeviceIconTex *ArtTexture(const char *resource, bool grey)
 {
 	static std::map<std::string, DeviceIconTex> cache;
-	auto it = cache.find(resource);
+	const std::string key = std::string(resource) + (grey ? " grey" : "");
+	auto it = cache.find(key);
 	if (it == cache.end())
 	{
 		DeviceIconTex t;
-		if (!LoadResourceTexture(resource, false, &t.tex, &t.w, &t.h))
+		if (!LoadResourceTexture(resource, false, grey, &t.tex, &t.w, &t.h))
 			t.failed = true;
-		it = cache.emplace(resource, t).first;
+		it = cache.emplace(key, t).first;
 	}
 	return it->second.failed ? nullptr : &it->second;
 }
 
+// A texture fitted into box, centred, mirrored left to right when asked.
+static void DrawFitted(ImDrawList *dl, const DeviceIconTex &tex, const FlexRect &box, bool mirrored, float alpha)
+{
+	const float scale = std::min(box.W() / static_cast<float>(tex.w), box.H() / static_cast<float>(tex.h));
+	const ImVec2 half(static_cast<float>(tex.w) * scale * 0.5f, static_cast<float>(tex.h) * scale * 0.5f);
+	const ImVec2 c = box.Center();
+	dl->AddImage(static_cast<ImTextureID>(tex.tex), ImVec2(c.x - half.x, c.y - half.y), ImVec2(c.x + half.x, c.y + half.y),
+		ImVec2(mirrored ? 1.0f : 0.0f, 0.0f), ImVec2(mirrored ? 0.0f : 1.0f, 1.0f), ui::Rgba(255, 255, 255, alpha));
+}
+
+bool DrawPicture(ImDrawList *dl, const char *resource, const FlexRect &box, bool mirrored, bool grey, float alpha)
+{
+	const DeviceIconTex *tex = ArtTexture(resource, grey);
+	if (tex)
+		DrawFitted(dl, *tex, box, mirrored, alpha);
+	return tex != nullptr;
+}
+
 void DrawDeviceArt(ImDrawList *dl, const VRDevice &dev, const FlexRect &box, ImU32 fallbackInk)
 {
-	const DeviceIconTex *tex = GetDeviceIconTex(dev.iconPath);
-	if (!tex)
-	{
-		DeviceIcon(dl, dev, box.Center(), std::min(box.W(), box.H()) * 0.32f, fallbackInk);
+	const questcal::DevicePicture picture = questcal::PictureOfDevice(dev.deviceClass == vr::TrackedDeviceClass_HMD,
+		dev.controllerRole == vr::TrackedControllerRole_LeftHand, dev.model, dev.renderModel);
+	// A device that dropped out shows in grey, as SteamVR's own icons do.
+	if (picture.resource && DrawPicture(dl, picture.resource, box, picture.mirrored, !dev.connected,
+		dev.connected ? 1.0f : 0.45f))
 		return;
-	}
-	const float scale = std::min(box.W() / static_cast<float>(tex->w), box.H() / static_cast<float>(tex->h));
-	const ImVec2 half(static_cast<float>(tex->w) * scale * 0.5f, static_cast<float>(tex->h) * scale * 0.5f);
-	const ImVec2 c = box.Center();
-	dl->AddImage(static_cast<ImTextureID>(tex->tex), ImVec2(c.x - half.x, c.y - half.y), ImVec2(c.x + half.x, c.y + half.y));
+	if (const DeviceIconTex *icon = GetDeviceIconTex(dev.iconPath))
+		DrawFitted(dl, *icon, box, false, 1.0f);
+	else
+		DeviceIcon(dl, dev, box.Center(), std::min(box.W(), box.H()) * 0.32f, fallbackInk);
 }
 
 const std::string &GuideModelCredits()
@@ -275,7 +307,7 @@ const std::string &GuideModelCredits()
 			if (bytes)
 				return std::string(bytes, SizeofResource(nullptr, resource));
 		}
-		return "Motion demo credits couldn't load. Reinstall QuestCalibrator to restore them.";
+		return "The picture and model credits couldn't load. Reinstall QuestCalibrator to restore them.";
 	}();
 	return credits;
 }

@@ -109,7 +109,7 @@ Copy-Item (Join-Path $repoRoot 'lib\inter\LICENSE.txt')                  (Join-P
 Copy-Item (Join-Path $PSScriptRoot 'notices\picojson-LICENSE.txt') $noticesStage
 Copy-Item (Join-Path $PSScriptRoot 'notices\gl3w-LICENSE.txt') $noticesStage
 Copy-Item (Join-Path $PSScriptRoot 'notices\Khronos-*-LICENSE.txt') $noticesStage
-Copy-Item (Join-Path $repoRoot 'Overlay\assets\guide-credits.txt') (Join-Path $noticesStage 'Motion-model-credits.txt')
+Copy-Item (Join-Path $repoRoot 'Overlay\assets\guide-credits.txt') (Join-Path $noticesStage 'Picture-and-model-credits.txt')
 if ($BuildInfoPath) {
     if (-not (Test-Path -LiteralPath $BuildInfoPath -PathType Leaf)) {
         Write-Error "Missing build information file: $BuildInfoPath"

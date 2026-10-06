@@ -16,3 +16,7 @@ install/test-out/
 tools/render-guidance.py
 tools/pack-guidance.py
 tools/README-guidance.md
+# Device picture tools, for the same reason: they need Blender, a SteamVR
+# install and the design's pictures.
+tools/render-device-art.py
+tools/pack-device-art.py

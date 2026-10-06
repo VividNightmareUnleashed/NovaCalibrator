@@ -469,6 +469,7 @@ VRState LoadVRState()
 
 				device.model = readStringProperty(id, vr::Prop_ModelNumber_String);
 				device.serial = readStringProperty(id, vr::Prop_SerialNumber_String);
+				device.renderModel = readStringProperty(id, vr::Prop_RenderModelName_String);
 
 				vr::ETrackedPropertyError roleError = vr::TrackedProp_Success;
 				int32_t role = vr::VRSystem()->GetInt32TrackedDeviceProperty(

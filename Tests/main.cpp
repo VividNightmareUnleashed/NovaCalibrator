@@ -90,6 +90,7 @@ void RunUpdateSignatureScenarios(void (*check)(const char *, bool, const char *)
 void RunCalibrationSpaceScenarios(void (*check)(const char *, bool, const char *));
 void RunPoseMathScenarios(void (*check)(const char *, bool, const char *));
 void RunQualityBandsScenarios(void (*check)(const char *, bool, const char *));
+void RunDevicePictureScenarios(void (*check)(const char *, bool, const char *));
 void RunStreamEventScenarios(void (*check)(const char *, bool, const char *));
 void RunIPCServerTransportScenarios(void (*check)(const char *, bool, const char *));
 void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *));
@@ -7845,6 +7846,7 @@ DOCTEST_TEST_CASE("update signature") { Group([] { RunUpdateSignatureScenarios(C
 DOCTEST_TEST_CASE("review regressions") { Group([] { RunReviewRegressionScenarios(Check); }); }
 DOCTEST_TEST_CASE("tracker frame corrections") { Group([] { RunTrackerFrameCorrectionScenarios(Check); }); }
 DOCTEST_TEST_CASE("persistence") { Group([] { RunPersistenceScenarios(); }); }
+DOCTEST_TEST_CASE("device pictures") { Group([] { RunDevicePictureScenarios(Check); }); }
 
 int main(int argc, char **argv)
 {

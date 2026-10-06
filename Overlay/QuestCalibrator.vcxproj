@@ -158,6 +158,7 @@
     <ClInclude Include="JumpDetector.h" />
     <ClInclude Include="PoseMath.h" />
     <ClInclude Include="PoseStreamHub.h" />
+    <ClInclude Include="DevicePictures.h" />
     <ClInclude Include="QualityBands.h" />
     <ClInclude Include="SessionLogTrim.h" />
     <ClInclude Include="StreamEvents.h" />

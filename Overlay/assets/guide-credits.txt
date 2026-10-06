@@ -1,3 +1,9 @@
+Device pictures
+
+Controllers and trackers: renders of the device models that ship with SteamVR.
+Headsets: product photos from Meta, Valve, Pico and Samsung.
+Each device's name and picture belong to its maker.
+
 Calibration motion demos
 
 Meta Quest Pro Headset by VAR Lab (Penn State Behrend)

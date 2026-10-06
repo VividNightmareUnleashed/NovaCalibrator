@@ -947,8 +947,9 @@ void BuildCreditsSheet()
 	}
 	y += 36.0f + 26.0f;
 
-	// The models the motion demos are rendered from, with their licences.
-	ui::DrawLine(dl, ui::type::Label, ImVec2(c.min.x, y), ui::col::Text, Tr("Motion demos"));
+	// Where the device pictures come from, and the models the motion demos are
+	// rendered from, with their licences.
+	ui::DrawLine(dl, ui::type::Label, ImVec2(c.min.x, y), ui::col::Text, Tr("Pictures and models"));
 	y += 23.0f + 10.0f;
 	const ImVec2 wellMin(c.min.x, y), wellMax(c.max.x, c.max.y);
 	ui::FillRounded(dl, wellMin, wellMax, ui::col::Well, 16.0f);
