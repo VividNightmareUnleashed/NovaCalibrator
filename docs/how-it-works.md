@@ -1,4 +1,4 @@
-# How QuestCalibrator works
+# How Nova Calibrator works
 
 The technical detail behind the [README](../README.md): what changed from
 OpenVR-SpaceCalibrator, how alignment is kept during play, what the logs record, and
@@ -61,8 +61,10 @@ Profiles:
 - The calibrated rotation is stored as a **quaternion** (plus translation in meters);
   Euler angles exist only in the profile editor UI. Stored in the per-user local-settings
   hive, which regedit shows as
-  `HKEY_CURRENT_USER\Software\Classes\Local Settings\Software\QuestCalibrator` — profiles from
-  upstream are not migrated. If the overlay reports a profile or settings record it cannot
+  `HKEY_CURRENT_USER\Software\Classes\Local Settings\Software\NovaCalibrator` — profiles from
+  upstream are not migrated. The first start under the Nova Calibrator name copies the
+  records QuestCalibrator kept under `...\Software\QuestCalibrator` and leaves that key as
+  it was. If the overlay reports a profile or settings record it cannot
   read, it preserves the record rather than overwriting it; deleting the `Config` or
   `Settings` value there is how you start over.
 
@@ -81,7 +83,7 @@ Runtime alignment maintenance uses the timestamped pose ring and calibration sol
   stationary-slide and tracking-loss evidence, shown in the overlay, and raised as
   a one-shot notification instead of letting the alignment degrade silently.
 - **Base station visibility** — SteamVR's lighthouse driver logs which base
-  stations each tracker sees and when one drops out. QuestCalibrator follows that
+  stations each tracker sees and when one drops out. Nova Calibrator follows that
   log, lays the stations out per device on the Lighthouse tab (which ones each
   tracker has in view, and which station drops out most), and stops counting a
   tracker's slide or re-appearance as drift evidence while it sees fewer than
@@ -104,7 +106,7 @@ Runtime alignment maintenance uses the timestamped pose ring and calibration sol
   pauses: it follows every such deviation at once, the headset tracker's own
   faults included, as OpenVR-SpaceCalibrator does. When SteamVR re-solves
   where a base station stands, every device reported in that station's frame
-  jumps with it. QuestCalibrator cancels that exact frame motion separately for
+  jumps with it. Nova Calibrator cancels that exact frame motion separately for
   each affected tracker, including trackers Standable hides. Trackers in other
   frames keep their alignment. This works with either continuous method or
   with continuous calibration off. A returning tracker receives a correction

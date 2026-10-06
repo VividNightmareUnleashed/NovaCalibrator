@@ -1,10 +1,10 @@
 #pragma once
 
-// Optional parts of QuestCalibrator the installer lets the player leave out,
+// Optional parts of Nova Calibrator the installer lets the player leave out,
 // so a plain install stays the classic calibrator (docs/modules.md).
 //
 // Install.ps1 records each module it installed as a DWORD under
-// HKLM\Software\QuestCalibrator\Modules. The list is read once at startup
+// HKLM\Software\NovaCalibrator\Modules. The list is read once at startup
 // and kept on CalibrationContext; everything a module gates asks it there.
 
 namespace questcal

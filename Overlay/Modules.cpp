@@ -11,7 +11,7 @@ ModuleStatus ReadModule(const char *name)
 {
 	DWORD value = 0;
 	DWORD size = sizeof(value);
-	const LSTATUS result = RegGetValueA(HKEY_LOCAL_MACHINE, "Software\\QuestCalibrator\\Modules", name,
+	const LSTATUS result = RegGetValueA(HKEY_LOCAL_MACHINE, "Software\\NovaCalibrator\\Modules", name,
 		RRF_RT_REG_DWORD, nullptr, &value, &size);
 	return result == ERROR_SUCCESS && value != 0 ? ModuleStatus::Installed : ModuleStatus::NotInstalled;
 }

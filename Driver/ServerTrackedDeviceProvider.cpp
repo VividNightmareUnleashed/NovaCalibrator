@@ -38,7 +38,7 @@ vr::EVRInitError ServerTrackedDeviceProvider::Init(vr::IVRDriverContext *pDriver
 	// detour, so the check below proves a pose hook exists, not that every
 	// device driver is routed through it: a driver that resolved its host
 	// interface before this detour existed forwards poses untouched. Only the
-	// `01questcalibrator` manifest name orders this driver first.
+	// `01novacalibrator` manifest name orders this driver first.
 	if (!InjectHooks(this, pDriverContext))
 		return FailInit(vr::VRInitError_Driver_Failed);
 

@@ -1,14 +1,22 @@
 # Fork release and package provenance
 
-The inherited `v*` tags describe OpenVR-SpaceCalibrator releases. QuestCalibrator
+The inherited `v*` tags describe OpenVR-SpaceCalibrator releases. Nova Calibrator
 tags must therefore use the unambiguous form
-`questcalibrator-vMAJOR.MINOR.PATCH` (for example,
-`questcalibrator-v1.0.1`). Do not retag or reuse an inherited version tag.
+`novacalibrator-vMAJOR.MINOR.PATCH` (for example,
+`novacalibrator-v1.2.0`). Do not retag or reuse an inherited version tag.
+
+Until 1.2.0 the app was called QuestCalibrator, and its releases up to
+1.2.0-rc.7 are tagged `questcalibrator-v*` with `QuestCalibrator-*.zip` packages.
+Those stay as they are. None of them updates itself (1.1.0 has no updater, and
+prereleases never update), so the rename strands no installed copy: people move to
+Nova Calibrator by installing it, and its installer replaces QuestCalibrator.
 
 Releases are published in this repository,
-[VividNightmareUnleashed/QuestCalibrator](https://github.com/VividNightmareUnleashed/QuestCalibrator).
+[VividNightmareUnleashed/NovaCalibrator](https://github.com/VividNightmareUnleashed/NovaCalibrator).
 Installed copies look for updates there, so it must keep that exact name and stay
-public.
+public. The repository was QuestCalibrator before the rename; rename it before the
+first `novacalibrator-v*` tag is pushed, since the release workflow and the updater
+both name the new repository.
 
 ## Branches
 
@@ -27,7 +35,7 @@ An alpha prerelease leaves `stable` where it is.
 Scheduled workflows start from the default branch; the weekly fuzz run checks out
 `alpha` so it searches the code still changing.
 
-Pushing a `questcalibrator-v*` tag runs `.github/workflows/release.yml`. It stops at
+Pushing a `novacalibrator-v*` tag runs `.github/workflows/release.yml`. It stops at
 once in any other repository (a fork, or this one under another name). Otherwise, on
 a clean Windows runner, it checks out the tag and the VirtualQuest commit it pins,
 builds with the full solver suite (including the VirtualQuest scenarios and the
@@ -76,7 +84,7 @@ first.
 
 ## Source preflight
 
-- Confirm the release is authorized by the QuestCalibrator copyright holder.
+- Confirm the release is authorized by the Nova Calibrator copyright holder.
 - Start from a clean `alpha` checkout and fetch both `origin` and `upstream`.
 - Review `git status`, `git log upstream/master..HEAD`, and
   `git rev-list --left-right --count upstream/master...HEAD`. Record the upstream
@@ -136,7 +144,7 @@ inputs to this workflow and must not be committed.
 
 - Commit the version and release-note changes, then push `alpha`. Verify the exact
   release commit is visible on `origin`; do not tag an unpushed-only commit.
-- Create an annotated `questcalibrator-vMAJOR.MINOR.PATCH` tag on that reviewed
+- Create an annotated `novacalibrator-vMAJOR.MINOR.PATCH` tag on that reviewed
   commit and include the version, validation result, and upstream base in its
   message.
 - Push the tag explicitly and verify that the remote tag resolves to the recorded
@@ -150,7 +158,7 @@ inputs to this workflow and must not be committed.
   time, runner image, Visual Studio version, the packaging script's SHA-256 and the
   workflow run. The run keeps the zip, its `.sha256`, any `.minisig` and the VirusTotal table as an
   artifact for 90 days; copy them into the private release record. The default package name is
-  `QuestCalibrator-MAJOR.MINOR.PATCH.zip`, from the executable's version resource.
+  `NovaCalibrator-MAJOR.MINOR.PATCH.zip`, from the executable's version resource.
 - `build-package.ps1` writes the SHA-256 of every packaged file to `SHA256SUMS.txt`
   inside the package, and the zip's own hash to `<zip>.sha256` beside it.
 - `virustotal-scan.ps1` hashes the executables, DLLs and scripts inside the zip, plus
@@ -181,7 +189,7 @@ inputs to this workflow and must not be committed.
   local `release.ps1`:
 
   ```powershell
-  gh workflow run install-test.yml --ref alpha -f tag=questcalibrator-vMAJOR.MINOR.PATCH
+  gh workflow run install-test.yml --ref alpha -f tag=novacalibrator-vMAJOR.MINOR.PATCH
   ```
 
   It installs the attached ZIP on a clean Windows runner against the fake OpenVR
@@ -202,16 +210,16 @@ inputs to this workflow and must not be committed.
 ### Automatic-update contract
 
 The overlay's opt-in updater reads the GitHub Releases API of the
-`VividNightmareUnleashed/QuestCalibrator` repository without a token.
+`VividNightmareUnleashed/NovaCalibrator` repository without a token.
 Keep these names exact or the release deliberately fails closed:
 
-- Stable tag: `questcalibrator-vMAJOR.MINOR.PATCH` with no suffix.
-- Package asset: `QuestCalibrator-MAJOR.MINOR.PATCH.zip`.
+- Stable tag: `novacalibrator-vMAJOR.MINOR.PATCH` with no suffix.
+- Package asset: `NovaCalibrator-MAJOR.MINOR.PATCH.zip`.
 - Exactly one asset with that name, containing the normal single-folder package with
-  `Install.ps1`, `Uninstall.ps1`, `app/QuestCalibrator.exe`, and the driver DLL.
+  `Install.ps1`, `Uninstall.ps1`, `app/NovaCalibrator.exe`, and the driver DLL.
 - The published asset must expose GitHub's `sha256:` digest. Verify that digest against
   the provenance record before publishing.
-- Exactly one signature asset, `QuestCalibrator-MAJOR.MINOR.PATCH.zip.minisig`, made
+- Exactly one signature asset, `NovaCalibrator-MAJOR.MINOR.PATCH.zip.minisig`, made
   with the release key, its trusted comment the package name.
 
 Drafts, prereleases, inherited `v*` tags, packages without a SHA-256 digest or a
@@ -241,11 +249,11 @@ signature guards against a package replaced on GitHub or altered on the way, not
 against a compromised account. Setting it up, once:
 
 1. Install minisign (`winget install jedisct1.minisign`) and make the key pair:
-   `minisign -G -p questcalibrator.pub -s questcalibrator.key`. Choose a password.
-2. Keep `questcalibrator.key` and its password backed up offline. Never commit them.
-3. Add the secrets: `gh secret set MINISIGN_SECRET_KEY < questcalibrator.key` and
+   `minisign -G -p novacalibrator.pub -s novacalibrator.key`. Choose a password.
+2. Keep `novacalibrator.key` and its password backed up offline. Never commit them.
+3. Add the secrets: `gh secret set MINISIGN_SECRET_KEY < novacalibrator.key` and
    `gh secret set MINISIGN_PASSWORD` (it asks for the value).
-4. Put the second line of `questcalibrator.pub` in `ReleaseSigningPublicKey` in
+4. Put the second line of `novacalibrator.pub` in `ReleaseSigningPublicKey` in
    `Overlay/UpdateSigningKey.h`, and commit it. Until then a build takes no update
    and a stable tag fails at packaging.
 
@@ -280,7 +288,7 @@ installed by hand and left by hand:
 - Testers move to a stable release by installing it by hand. Say so in the prerelease
   notes: an alpha will not update itself when the release it precedes is published.
 - Prerelease tags stay out of the stable feed as before: tag them
-  `questcalibrator-vMAJOR.MINOR.PATCH-LABEL.N` and mark the GitHub Release as a
+  `novacalibrator-vMAJOR.MINOR.PATCH-LABEL.N` and mark the GitHub Release as a
   prerelease.
 
 Two consequences of the suffix reaching the version resources:
@@ -291,4 +299,4 @@ Two consequences of the suffix reaching the version resources:
   carry the suffix.
 - `install\build-package.ps1` names the ZIP from that string, so a prerelease package
   is named for the prerelease. Stable releases are unaffected, and the exact
-  `QuestCalibrator-MAJOR.MINOR.PATCH.zip` asset name above still applies to them.
+  `NovaCalibrator-MAJOR.MINOR.PATCH.zip` asset name above still applies to them.

@@ -2,7 +2,7 @@
 # that exits non-zero, hangs, writes no picture or draws an empty frame. The
 # previews run on fake state, without SteamVR or a headset.
 #
-#   tools\check-screens.ps1 -Out <folder> [-Exe <QuestCalibrator.exe>] [-OpenGL <folder>]
+#   tools\check-screens.ps1 -Out <folder> [-Exe <NovaCalibrator.exe>] [-OpenGL <folder>]
 #
 # -OpenGL names a folder holding another OpenGL implementation's opengl32.dll
 # and the DLLs it loads. The executable then runs from a copy beside them,
@@ -23,7 +23,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-if (-not $Exe) { $Exe = Join-Path $root 'x64\Release\QuestCalibrator.exe' }
+if (-not $Exe) { $Exe = Join-Path $root 'x64\Release\NovaCalibrator.exe' }
 $Exe = (Resolve-Path -LiteralPath $Exe).Path
 # Every -uipreview flag Overlay\QuestCalibrator.cpp reads; validate-cpp.ps1
 # fails when the two lists differ.

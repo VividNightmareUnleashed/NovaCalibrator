@@ -1,4 +1,4 @@
-# Builds the zip distribution package for QuestCalibrator.
+# Builds the zip distribution package for Nova Calibrator.
 # Run from anywhere after building Release|x64:
 #   .\install\build-package.ps1
 #
@@ -26,8 +26,8 @@ $outDir = [IO.Path]::GetFullPath($outDir)
 
 # --- Locate build outputs ------------------------------------------------------
 $buildDir  = Join-Path $repoRoot "$Platform\$Configuration"
-$appExe    = Join-Path $buildDir 'QuestCalibrator.exe'
-$driverDll = Join-Path $buildDir 'driver_01questcalibrator.dll'
+$appExe    = Join-Path $buildDir 'NovaCalibrator.exe'
+$driverDll = Join-Path $buildDir 'driver_01novacalibrator.dll'
 $openvrDll = Join-Path $repoRoot 'lib\openvr\lib\win64\openvr_api.dll'
 
 foreach ($f in @($appExe, $driverDll, $openvrDll)) {
@@ -44,8 +44,8 @@ if (-not $version) {
     Write-Error "$appExe has no version resource. Check Overlay\QuestCalibrator.rc."
     exit 1
 }
-Write-Host "Packaging QuestCalibrator $version" -ForegroundColor Cyan
-if (-not $PackageName) { $PackageName = "QuestCalibrator-$version" }
+Write-Host "Packaging Nova Calibrator $version" -ForegroundColor Cyan
+if (-not $PackageName) { $PackageName = "NovaCalibrator-$version" }
 if ($PackageName -in @('.', '..') -or
     $PackageName.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
     throw 'PackageName must be a folder name, without path separators.'
@@ -74,10 +74,10 @@ Copy-Item $openvrDll $appStage
 Copy-Item (Join-Path $repoRoot 'Overlay\manifest.vrmanifest') $appStage
 Copy-Item (Join-Path $repoRoot 'Overlay\icon.png')            $appStage
 
-# driver/01questcalibrator/
-$driverStage = Join-Path $stageDir 'driver\01questcalibrator'
+# driver/01novacalibrator/
+$driverStage = Join-Path $stageDir 'driver\01novacalibrator'
 New-Item -ItemType Directory -Force -Path $driverStage | Out-Null
-Copy-Item (Join-Path $repoRoot 'Driver\01questcalibrator\*') -Destination $driverStage -Recurse -Force
+Copy-Item (Join-Path $repoRoot 'Driver\01novacalibrator\*') -Destination $driverStage -Recurse -Force
 
 # drop the driver dll into bin/win64 inside the staged driver folder
 $driverBin = Join-Path $driverStage 'bin\win64'

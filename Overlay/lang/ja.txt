@@ -1,4 +1,4 @@
-# Japanese translations for QuestCalibrator.
+# Japanese translations for Nova Calibrator.
 #
 # Format: an "en:" line holds a key, the English exactly as the overlay builds
 # it, and the line after it holds the translation, starting with the language
@@ -21,8 +21,8 @@ name: 日本語
 
 en: Continuous calibration paused after the headset tracker restarted. It resumes if tracking recovers; another tracker restart may be needed.
 ja: ヘッドセットトラッカーの再起動後、連続キャリブレーションは一時停止中です。トラッキングが回復すると再開します。トラッカーの再起動がもう一度必要な場合があります。
-en: QuestCalibrator: tracking has not recovered after the headset tracker restarted. Wait, or turn that tracker off and on in view of its base stations.
-ja: QuestCalibrator: ヘッドセットトラッカーの再起動後、トラッキングが回復していません。待つか、ベースステーションから見える場所でトラッカーの電源を入れ直してください。
+en: Nova Calibrator: tracking has not recovered after the headset tracker restarted. Wait, or turn that tracker off and on in view of its base stations.
+ja: Nova Calibrator: ヘッドセットトラッカーの再起動後、トラッキングが回復していません。待つか、ベースステーションから見える場所でトラッカーの電源を入れ直してください。
 en: Restart the headset tracker in view of its base stations. If stable tracking stays misaligned, recalibrate.
 ja: ベースステーションから見える場所で、ヘッドセットトラッカーの電源を入れ直してください。トラッキングが安定しても位置がずれる場合は、再キャリブレーションしてください。
 en: Continuous calibration is paused after a tracker restart. Recovery may need another tracker restart.
@@ -105,8 +105,6 @@ en: Good
 ja: 良好
 en: Usable
 ja: 使用可
-en: Rough
-ja: やや不正確
 en: Bad
 ja: 不良
 en: Not measured
@@ -185,30 +183,30 @@ en: Your %s headset isn't connected, so calibration is off until it's back.
 ja: {0} ヘッドセットが接続されていないため、再接続されるまでキャリブレーションはオフです。
 en: SteamVR isn't accepting the calibration. Restart SteamVR.
 ja: SteamVR がキャリブレーションを受け付けていません。SteamVR を再起動してください。
-en: The app and its SteamVR driver are from different releases. Reinstall QuestCalibrator, then restart SteamVR.
-ja: アプリと SteamVR ドライバーのリリースが異なります。QuestCalibrator を再インストールしてから、SteamVR を再起動してください。
+en: The app and its SteamVR driver are from different releases. Reinstall Nova Calibrator, then restart SteamVR.
+ja: アプリと SteamVR ドライバーのリリースが異なります。Nova Calibrator を再インストールしてから、SteamVR を再起動してください。
 en: The SteamVR driver refused the calibration's values. Recalibrate.
 ja: SteamVR ドライバーがキャリブレーションの値を拒否しました。再キャリブレーションしてください。
 en: The saved calibration doesn't match the connected hardware. Recalibrate.
 ja: 保存されたキャリブレーションが接続中の機器と一致しません。再キャリブレーションしてください。
 en: The saved calibration is damaged. Recalibrate.
 ja: 保存されたキャリブレーションが破損しています。再キャリブレーションしてください。
-en: The headset re-centered while QuestCalibrator wasn't watching, so the saved alignment is off. Recalibrate.
-ja: QuestCalibrator が見ていない間にヘッドセットが再センタリングされたため、保存された位置合わせがずれています。再キャリブレーションしてください。
-en: SteamVR moved the base stations more often than QuestCalibrator could follow, so the saved alignment may be off. Recalibrate.
-ja: QuestCalibrator が追従できない頻度で SteamVR がベースステーションの位置を変えたため、保存された位置合わせがずれている可能性があります。再キャリブレーションしてください。
+en: The headset re-centered while Nova Calibrator wasn't watching, so the saved alignment is off. Recalibrate.
+ja: Nova Calibrator が見ていない間にヘッドセットが再センタリングされたため、保存された位置合わせがずれています。再キャリブレーションしてください。
+en: SteamVR moved the base stations more often than Nova Calibrator could follow, so the saved alignment may be off. Recalibrate.
+ja: Nova Calibrator が追従できない頻度で SteamVR がベースステーションの位置を変えたため、保存された位置合わせがずれている可能性があります。再キャリブレーションしてください。
 en: Calibration disabled. Restart SteamVR or recalibrate.
 ja: キャリブレーションは無効です。SteamVR を再起動するか、再キャリブレーションしてください。
-en: QuestCalibrator isn't getting tracking data from SteamVR, so it can't watch for drift. Restart SteamVR.
-ja: QuestCalibrator が SteamVR からトラッキングデータを受け取れていないため、ドリフトを監視できません。SteamVR を再起動してください。
+en: Nova Calibrator isn't getting tracking data from SteamVR, so it can't watch for drift. Restart SteamVR.
+ja: Nova Calibrator が SteamVR からトラッキングデータを受け取れていないため、ドリフトを監視できません。SteamVR を再起動してください。
 en: (host hooks: 005 %s, 006 %s)
 ja: （ホストフック：005 {0}、006 {1}）
 en: active
 ja: 有効
 en: missing
 ja: なし
-en: Calibration can't move some target devices, because their tracking doesn't pass through QuestCalibrator's SteamVR driver.
-ja: 一部の対象デバイスのトラッキングが QuestCalibrator の SteamVR ドライバーを通らないため、キャリブレーションでそれらを動かせません。
+en: Calibration can't move some target devices, because their tracking doesn't pass through Nova Calibrator's SteamVR driver.
+ja: 一部の対象デバイスのトラッキングが Nova Calibrator の SteamVR ドライバーを通らないため、キャリブレーションでそれらを動かせません。
 en: (OpenVR devices %s)
 ja: （OpenVR デバイス {0}）
 en: Nova Calibrator %s is ready
@@ -467,8 +465,8 @@ en: Turn and tilt as you move in a figure eight
 ja: 8の字に動かしながらひねって傾ける
 en: Rest the controller against the visor
 ja: コントローラーをバイザーに当てる
-en: Motion demos couldn't load. Reinstall QuestCalibrator to restore them.
-ja: モーションデモを読み込めませんでした。QuestCalibrator を再インストールしてください。
+en: Motion demos couldn't load. Reinstall Nova Calibrator to restore them.
+ja: モーションデモを読み込めませんでした。Nova Calibrator を再インストールしてください。
 en: Reference device
 ja: 基準デバイス
 en: Target device
@@ -647,8 +645,8 @@ en: The reference device
 ja: 基準デバイス
 en: The target device
 ja: 対象デバイス
-en: QuestCalibrator can't talk to SteamVR.
-ja: QuestCalibrator が SteamVR と通信できません。
+en: Nova Calibrator can't talk to SteamVR.
+ja: Nova Calibrator が SteamVR と通信できません。
 en: Restart SteamVR. If it repeats, re-run the installer.
 ja: SteamVR を再起動してください。繰り返す場合はインストーラーを再実行してください。
 en: No reference device is selected.
@@ -715,8 +713,8 @@ en: Add this one within 1 m of an existing anchor to replace it, or clear the an
 ja: 既存のアンカーから 1 m 以内で追加すると置き換えられます。または設定でアンカーを消去してください。
 en: It couldn't be saved.
 ja: 保存できませんでした。
-en: Restart QuestCalibrator and try again.
-ja: QuestCalibrator を再起動して、もう一度お試しください。
+en: Restart Nova Calibrator and try again.
+ja: Nova Calibrator を再起動して、もう一度お試しください。
 en: This spot now has its own correction, blended in as you walk around.
 ja: この場所専用の補正ができました。歩き回ると滑らかに切り替わります。
 en: Anchor added. This spot now has its own correction.
@@ -739,8 +737,8 @@ ja: 最大 8 件まで保存できます。既存のアンカーから 1 m 以�
 # ---- Runtime monitors (activity feed and VR notifications) ----
 en: Your calibration looks off. Recalibrate.
 ja: キャリブレーションがずれているようです。再キャリブレーションしてください。
-en: QuestCalibrator: your calibration looks off. Recalibrate.
-ja: QuestCalibrator：キャリブレーションがずれているようです。再キャリブレーションしてください。
+en: Nova Calibrator: your calibration looks off. Recalibrate.
+ja: Nova Calibrator：キャリブレーションがずれているようです。再キャリブレーションしてください。
 en: A correction was too large to be safe and was skipped. If this keeps happening, recalibrate.
 ja: 補正量が大きすぎて安全でないため、スキップしました。繰り返し起きる場合は再キャリブレーションしてください。
 en: Correction ready. Pull a trigger to apply it.
@@ -749,20 +747,20 @@ en: Trigger pulled; applying the correction.
 ja: トリガーを確認しました。補正を適用します。
 en: Continuous calibration paused: readings moved too far from the calibration. It re-aligns on its own if they hold steady.
 ja: 連続キャリブレーションを一時停止しました：測定値がキャリブレーションから大きくずれました。ずれが安定すれば自動的に合わせ直します。
-en: QuestCalibrator: continuous calibration paused; readings moved too far from the calibration. It re-aligns on its own if they hold steady, or recalibrate with the headset tracker.
-ja: QuestCalibrator：連続キャリブレーションを一時停止しました。測定値がキャリブレーションから大きくずれました。ずれが安定すれば自動的に合わせ直します。または、ヘッドセットトラッカーで再キャリブレーションしてください。
+en: Nova Calibrator: continuous calibration paused; readings moved too far from the calibration. It re-aligns on its own if they hold steady, or recalibrate with the headset tracker.
+ja: Nova Calibrator：連続キャリブレーションを一時停止しました。測定値がキャリブレーションから大きくずれました。ずれが安定すれば自動的に合わせ直します。または、ヘッドセットトラッカーで再キャリブレーションしてください。
 en: Continuous calibration paused: tracking drifted too far to correct safely.
 ja: 連続キャリブレーションを一時停止しました：トラッキングのずれが大きすぎて、安全に補正できません。
-en: QuestCalibrator: continuous calibration paused; readings drifted too far to correct safely. Recalibrate with the headset tracker to resume.
-ja: QuestCalibrator：連続キャリブレーションを一時停止しました。ずれが大きすぎて安全に補正できません。再開するにはヘッドセットトラッカーで再キャリブレーションしてください。
+en: Nova Calibrator: continuous calibration paused; readings drifted too far to correct safely. Recalibrate with the headset tracker to resume.
+ja: Nova Calibrator：連続キャリブレーションを一時停止しました。ずれが大きすぎて安全に補正できません。再開するにはヘッドセットトラッカーで再キャリブレーションしてください。
 en: Re-aligned your trackers after your headset's tracking shifted.
 ja: ヘッドセットのトラッキングがずれたため、トラッカーを合わせ直しました。
 en: Continuous calibration went back to the alignment it had before it last re-aligned your trackers.
 ja: 連続キャリブレーションが、直前にトラッカーを合わせ直す前の位置合わせに戻しました。
 en: Tracking is noisy here; continuous calibration is waiting and resumes on its own.
 ja: この場所ではトラッキングが不安定なため、連続キャリブレーションは待機中です。自動で再開します。
-en: QuestCalibrator: tracking is noisy here. Continuous calibration is waiting and resumes on its own.
-ja: QuestCalibrator：この場所ではトラッキングが不安定です。連続キャリブレーションは待機中で、自動で再開します。
+en: Nova Calibrator: tracking is noisy here. Continuous calibration is waiting and resumes on its own.
+ja: Nova Calibrator：この場所ではトラッキングが不安定です。連続キャリブレーションは待機中で、自動で再開します。
 en: Continuous calibration resumed.
 ja: 連続キャリブレーションを再開しました。
 en: Headset tracker not tracking; continuous calibration waiting.
@@ -789,8 +787,8 @@ en: The headset tracker switched off or lost its connection.
 ja: ヘッドセットトラッカーの電源が切れたか、接続が切れました。
 en: To keep this from happening, set “Turn off controllers after” to Never in SteamVR's Startup / Shutdown settings.
 ja: こうならないようにするには、SteamVR の設定の「スタートアップ／シャットダウン」で「次の時間経過後にコントローラの電源を切る」を「なし」にしてください。
-en: QuestCalibrator: the headset tracker is off. Turn it back on to resume continuous calibration.
-ja: QuestCalibrator：ヘッドセットトラッカーの電源が切れています。電源を入れ直すと連続キャリブレーションが再開します。
+en: Nova Calibrator: the headset tracker is off. Turn it back on to resume continuous calibration.
+ja: Nova Calibrator：ヘッドセットトラッカーの電源が切れています。電源を入れ直すと連続キャリブレーションが再開します。
 
 # ---- Chaperone ----
 en: Check your room boundaries
@@ -833,18 +831,18 @@ en: The protected chaperone was saved for a different headset, so it was switche
 ja: 保護したシャペロンは別のヘッドセット用に保存されていたため、オフにしました。シャペロンツールからもう一度保護してください。
 en: The headset re-centered, so the protected chaperone no longer lines up and was turned off. Protect it again from the Chaperone tool.
 ja: ヘッドセットが再センタリングされ、保護したシャペロンの位置が合わなくなったため、オフにしました。シャペロンツールからもう一度保護してください。
-en: The headset re-centered while QuestCalibrator couldn't follow it, so the protected chaperone was switched off. Protect it again from the Chaperone tool.
-ja: QuestCalibrator が追跡できない間にヘッドセットが再センタリングされたため、保護したシャペロンをオフにしました。シャペロンツールからもう一度保護してください。
+en: The headset re-centered while Nova Calibrator couldn't follow it, so the protected chaperone was switched off. Protect it again from the Chaperone tool.
+ja: Nova Calibrator が追跡できない間にヘッドセットが再センタリングされたため、保護したシャペロンをオフにしました。シャペロンツールからもう一度保護してください。
 en: The protected chaperone belonged to the previous calibration and was turned off. Protect it again from the Chaperone tool.
 ja: 保護したシャペロンは以前のキャリブレーションのものだったため、オフにしました。シャペロンツールからもう一度保護してください。
 en: A headset re-center was too large to compensate safely. Recalibrate before continuing.
 ja: ヘッドセットの再センタリングが大きすぎて、安全に補正できません。続ける前に再キャリブレーションしてください。
-en: The headset re-centered while QuestCalibrator couldn't follow it. The calibration and the protected chaperone are off until you recalibrate.
-ja: QuestCalibrator が追跡できない間にヘッドセットが再センタリングされました。再キャリブレーションするまで、キャリブレーションと保護したシャペロンはオフです。
-en: The headset re-centered while QuestCalibrator couldn't follow it. The calibration is off until you recalibrate.
-ja: QuestCalibrator が追跡できない間にヘッドセットが再センタリングされました。再キャリブレーションするまで、キャリブレーションはオフです。
-en: SteamVR moved the base stations more often than QuestCalibrator could follow. The calibration is off until you recalibrate.
-ja: QuestCalibrator が追従できない頻度で SteamVR がベースステーションの位置を変えました。再キャリブレーションするまで、キャリブレーションはオフです。
+en: The headset re-centered while Nova Calibrator couldn't follow it. The calibration and the protected chaperone are off until you recalibrate.
+ja: Nova Calibrator が追跡できない間にヘッドセットが再センタリングされました。再キャリブレーションするまで、キャリブレーションと保護したシャペロンはオフです。
+en: The headset re-centered while Nova Calibrator couldn't follow it. The calibration is off until you recalibrate.
+ja: Nova Calibrator が追跡できない間にヘッドセットが再センタリングされました。再キャリブレーションするまで、キャリブレーションはオフです。
+en: SteamVR moved the base stations more often than Nova Calibrator could follow. The calibration is off until you recalibrate.
+ja: Nova Calibrator が追従できない頻度で SteamVR がベースステーションの位置を変えました。再キャリブレーションするまで、キャリブレーションはオフです。
 en: Couldn't protect the chaperone. The headset re-centered since the last calibration. Recalibrate first.
 ja: シャペロンを保護できませんでした。前回のキャリブレーション以降にヘッドセットが再センタリングされています。先に再キャリブレーションしてください。
 en: Couldn't protect the chaperone because SteamVR's chaperone isn't available. Restart SteamVR and try again.
@@ -885,29 +883,29 @@ en: The protected chaperone belongs to a different reference tracking system. It
 ja: 保護したシャペロンは別の基準トラッキングシステムのものです。無効にしたので、このプロファイル用にもう一度保護してください。
 
 # ---- Saving and loading ----
-en: Couldn't clear the calibration, so it's still saved. Restart QuestCalibrator and try again.
-ja: キャリブレーションを消去できなかったため、保存されたままです。QuestCalibrator を再起動して、もう一度お試しください。
-en: Couldn't read the saved calibration, so it was left as it is. Restart QuestCalibrator. If this repeats, save a diagnostics file in Settings and report it.
-ja: 保存されたキャリブレーションを読み取れなかったため、そのままにしています。QuestCalibrator を再起動してください。繰り返す場合は、設定で診断ファイルを保存して報告してください。
-en: Couldn't read QuestCalibrator's settings, so they were left as they are. Restart QuestCalibrator. If this repeats, save a diagnostics file in Settings and report it.
-ja: QuestCalibrator の設定を読み取れなかったため、そのままにしています。QuestCalibrator を再起動してください。繰り返す場合は、設定で診断ファイルを保存して報告してください。
+en: Couldn't clear the calibration, so it's still saved. Restart Nova Calibrator and try again.
+ja: キャリブレーションを消去できなかったため、保存されたままです。Nova Calibrator を再起動して、もう一度お試しください。
+en: Couldn't read the saved calibration, so it was left as it is. Restart Nova Calibrator. If this repeats, save a diagnostics file in Settings and report it.
+ja: 保存されたキャリブレーションを読み取れなかったため、そのままにしています。Nova Calibrator を再起動してください。繰り返す場合は、設定で診断ファイルを保存して報告してください。
+en: Couldn't read Nova Calibrator's settings, so they were left as they are. Restart Nova Calibrator. If this repeats, save a diagnostics file in Settings and report it.
+ja: Nova Calibrator の設定を読み取れなかったため、そのままにしています。Nova Calibrator を再起動してください。繰り返す場合は、設定で診断ファイルを保存して報告してください。
 en: Couldn't save the calibration because the saved one couldn't be read. It was left untouched so it can be recovered.
 ja: 保存済みのキャリブレーションを読み取れないため、保存できませんでした。復旧できるよう、そのままにしています。
-en: Couldn't save the calibration because QuestCalibrator's settings couldn't be read. They were left untouched so they can be recovered.
-ja: QuestCalibrator の設定を読み取れないため、キャリブレーションを保存できませんでした。復旧できるよう、設定はそのままにしています。
-en: Couldn't save the calibration because settings from an older version haven't been moved over safely yet. Restart QuestCalibrator and try again.
-ja: 以前のバージョンの設定がまだ安全に移行されていないため、キャリブレーションを保存できませんでした。QuestCalibrator を再起動して、もう一度お試しください。
+en: Couldn't save the calibration because Nova Calibrator's settings couldn't be read. They were left untouched so they can be recovered.
+ja: Nova Calibrator の設定を読み取れないため、キャリブレーションを保存できませんでした。復旧できるよう、設定はそのままにしています。
+en: Couldn't save the calibration because settings from an older version haven't been moved over safely yet. Restart Nova Calibrator and try again.
+ja: 以前のバージョンの設定がまだ安全に移行されていないため、キャリブレーションを保存できませんでした。Nova Calibrator を再起動して、もう一度お試しください。
 en: Couldn't save the calibration because it failed a safety check. Recalibrate.
 ja: 安全チェックに通らなかったため、キャリブレーションを保存できませんでした。再キャリブレーションしてください。
-en: Couldn't save the calibration. It will be lost when QuestCalibrator closes.
-ja: キャリブレーションを保存できませんでした。QuestCalibrator を閉じると失われます。
-en: Couldn't save QuestCalibrator's settings because the saved calibration couldn't be read. Nothing was changed, so both can still be recovered.
+en: Couldn't save the calibration. It will be lost when Nova Calibrator closes.
+ja: キャリブレーションを保存できませんでした。Nova Calibrator を閉じると失われます。
+en: Couldn't save Nova Calibrator's settings because the saved calibration couldn't be read. Nothing was changed, so both can still be recovered.
 ja: 保存されたキャリブレーションを読み取れないため、設定を保存できませんでした。何も変更していないので、どちらも復旧できます。
-en: Couldn't save QuestCalibrator's settings because the saved ones couldn't be read. They were left untouched so they can be recovered.
+en: Couldn't save Nova Calibrator's settings because the saved ones couldn't be read. They were left untouched so they can be recovered.
 ja: 保存済みの設定を読み取れないため、設定を保存できませんでした。復旧できるよう、そのままにしています。
-en: Couldn't save QuestCalibrator's settings because the protected chaperone failed a safety check. Protect it again.
+en: Couldn't save Nova Calibrator's settings because the protected chaperone failed a safety check. Protect it again.
 ja: 保護したシャペロンが安全チェックに通らなかったため、設定を保存できませんでした。もう一度保護してください。
-en: Couldn't save QuestCalibrator's settings. Changes will be lost when it closes.
+en: Couldn't save Nova Calibrator's settings. Changes will be lost when it closes.
 ja: 設定を保存できませんでした。閉じると変更は失われます。
 en: Error loading calibration profile: %s
 ja: キャリブレーションの読み込みエラー：{0}
@@ -933,16 +931,16 @@ en: Couldn't finish writing the diagnostics file.
 ja: 診断ファイルの書き込みを完了できませんでした。
 
 # ---- Updates ----
-en: QuestCalibrator %s is a prerelease. Automatic updates follow stable releases only, so this build will not update itself. Install a stable release by hand to rejoin them.
-ja: QuestCalibrator {0} はプレリリース版です。自動アップデートは安定版のみが対象のため、このビルドは自動更新されません。安定版を手動でインストールすると自動アップデートに戻れます。
+en: Nova Calibrator %s is a prerelease. Automatic updates follow stable releases only, so this build will not update itself. Install a stable release by hand to rejoin them.
+ja: Nova Calibrator {0} はプレリリース版です。自動アップデートは安定版のみが対象のため、このビルドは自動更新されません。安定版を手動でインストールすると自動アップデートに戻れます。
 en: Checking GitHub for updates
 ja: GitHub でアップデートを確認中
-en: QuestCalibrator is up to date
-ja: QuestCalibrator は最新です
-en: Downloading QuestCalibrator %s
-ja: QuestCalibrator {0} をダウンロード中
-en: QuestCalibrator %s is ready to install
-ja: QuestCalibrator {0} をインストールできます
+en: Nova Calibrator is up to date
+ja: Nova Calibrator は最新です
+en: Downloading Nova Calibrator %s
+ja: Nova Calibrator {0} をダウンロード中
+en: Nova Calibrator %s is ready to install
+ja: Nova Calibrator {0} をインストールできます
 en: The update check could not start.
 ja: アップデートの確認を開始できませんでした。
 en: Update check cancelled.
@@ -1019,8 +1017,8 @@ en: The update helper could not be created.
 ja: アップデートヘルパーを作成できませんでした。
 en: The newest release has no trusted release page.
 ja: 最新リリースに信頼できるリリースページがありません。
-en: The newest release points outside the QuestCalibrator repository.
-ja: 最新リリースが QuestCalibrator のリポジトリ外を指しています。
+en: The newest release points outside the Nova Calibrator repository.
+ja: 最新リリースが Nova Calibrator のリポジトリ外を指しています。
 en: The newest release has no install package.
 ja: 最新リリースにインストールパッケージがありません。
 en: The newest release contains duplicate install packages.
@@ -1031,16 +1029,16 @@ en: The newest release package has invalid metadata.
 ja: 最新リリースのパッケージ情報が無効です。
 en: The newest release package has no valid SHA-256 digest.
 ja: 最新リリースのパッケージに有効な SHA-256 ダイジェストがありません。
-en: The newest release package points outside the QuestCalibrator repository.
-ja: 最新リリースのパッケージが QuestCalibrator のリポジトリ外を指しています。
+en: The newest release package points outside the Nova Calibrator repository.
+ja: 最新リリースのパッケージが Nova Calibrator のリポジトリ外を指しています。
 en: The newest release contains duplicate signatures.
 ja: 最新リリースの署名が重複しています。
 en: The newest release is not signed.
 ja: 最新リリースは署名されていません。
 en: The newest release signature has invalid metadata.
 ja: 最新リリースの署名情報が無効です。
-en: The newest release signature points outside the QuestCalibrator repository.
-ja: 最新リリースの署名が QuestCalibrator のリポジトリ外を指しています。
+en: The newest release signature points outside the Nova Calibrator repository.
+ja: 最新リリースの署名が Nova Calibrator のリポジトリ外を指しています。
 
 # ---- Lighthouse tab ----
 en: No Lighthouse devices

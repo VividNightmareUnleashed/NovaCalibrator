@@ -37,7 +37,7 @@ const char *const InterestingText[] = { "0", "-0", "1", "-1", "2", "3", "0.25", 
 	"1e308", "-1e308", "1e999", "1e-320", "4294967295", "4294967296", "10000", "10000.000000000002", "100",
 	"100.00000000000001", "0.05", "0.049999999999999996", "1.0000000000000002", "1e-7", "nan", "\"\"",
 	"\"x\"", "true", "false", "null", "[]", "{}", "[[[[[[[[[[[[[[[[[[", "\\u0000", "\"S-", "LHR-", ":", " ", "(",
-	")", "S-99999999999", "sha256:", "questcalibrator-v", ".", "Feb 30", "99:99:99.9", "23:59:60.999" };
+	")", "S-99999999999", "sha256:", "novacalibrator-v", ".", "Feb 30", "99:99:99.9", "23:59:60.999" };
 
 double InterestingDouble(std::mt19937 &rng)
 {
@@ -380,9 +380,9 @@ void VersionProperties(Check check, int trials, uint32_t propertySeed)
 			why = "not reflexive";
 		Version parsed;
 		if (why.empty() && !IsPrerelease(a) &&
-			(!ParseReleaseTag("questcalibrator-v" + VersionString(a), parsed) || CompareVersions(parsed, a) != 0))
+			(!ParseReleaseTag("novacalibrator-v" + VersionString(a), parsed) || CompareVersions(parsed, a) != 0))
 			why = "a final version's tag does not parse back";
-		if (why.empty() && IsPrerelease(a) && ParseReleaseTag("questcalibrator-v" + VersionString(a), parsed))
+		if (why.empty() && IsPrerelease(a) && ParseReleaseTag("novacalibrator-v" + VersionString(a), parsed))
 			why = "a prerelease tag parses as a release";
 		if (!why.empty() && ++bad == 1)
 			first = why + " at " + VersionString(a) + " / " + VersionString(b) + " / " + VersionString(c);

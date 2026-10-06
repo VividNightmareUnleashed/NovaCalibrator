@@ -11,10 +11,10 @@ BOOL APIENTRY DllMain(HMODULE /*hModule*/, DWORD ul_reason_for_call, LPVOID /*lp
 	{
 	case DLL_PROCESS_ATTACH:
 		OpenLogFile();
-		LOG("QuestCalibratorDriver " QUESTCAL_VERSION_STRING " loaded");
+		LOG("Nova Calibrator driver " QUESTCAL_VERSION_STRING " loaded");
 		break;
 	case DLL_PROCESS_DETACH:
-		LOG("QuestCalibratorDriver unloaded");
+		LOG("Nova Calibrator driver unloaded");
 		break;
 	case DLL_THREAD_ATTACH:
 	case DLL_THREAD_DETACH:

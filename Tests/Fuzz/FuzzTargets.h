@@ -168,7 +168,7 @@ inline std::string CheckReleaseFeed(const uint8_t *data, size_t size)
 	const std::string text = Text(data, size);
 
 	Version tagged;
-	if (ParseReleaseTag(text, tagged) && text != "questcalibrator-v" + VersionString(tagged))
+	if (ParseReleaseTag(text, tagged) && text != "novacalibrator-v" + VersionString(tagged))
 		return "a release tag parses in a spelling other than its canonical one";
 	std::array<unsigned char, 32> digest;
 	if (ParseSha256Digest(text, digest))
@@ -206,7 +206,7 @@ inline std::string CheckReleaseFeed(const uint8_t *data, size_t size)
 		return "";
 
 	Version fromTag;
-	const std::string base = "https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/";
+	const std::string base = "https://github.com/VividNightmareUnleashed/NovaCalibrator/releases/";
 	if (CompareVersions(candidate.version, current) <= 0)
 		return "the offered release is not newer than the running build";
 	if (IsPrerelease(candidate.version))
@@ -568,21 +568,21 @@ inline std::vector<std::string> FeedSeeds()
 {
 	const std::string digest = "sha256:" + std::string(64, 'a');
 	const std::string release =
-		"{\"draft\":false,\"prerelease\":false,\"tag_name\":\"questcalibrator-v2.1.0\","
-		"\"html_url\":\"https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/tag/questcalibrator-v2.1.0\","
-		"\"assets\":[{\"name\":\"QuestCalibrator-2.1.0.zip\",\"size\":1048576,\"digest\":\"" + digest + "\","
-		"\"browser_download_url\":\"https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/download/"
-		"questcalibrator-v2.1.0/QuestCalibrator-2.1.0.zip\"},"
-		"{\"name\":\"QuestCalibrator-2.1.0.zip.minisig\",\"size\":302,"
-		"\"browser_download_url\":\"https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/download/"
-		"questcalibrator-v2.1.0/QuestCalibrator-2.1.0.zip.minisig\"}]}";
+		"{\"draft\":false,\"prerelease\":false,\"tag_name\":\"novacalibrator-v2.1.0\","
+		"\"html_url\":\"https://github.com/VividNightmareUnleashed/NovaCalibrator/releases/tag/novacalibrator-v2.1.0\","
+		"\"assets\":[{\"name\":\"NovaCalibrator-2.1.0.zip\",\"size\":1048576,\"digest\":\"" + digest + "\","
+		"\"browser_download_url\":\"https://github.com/VividNightmareUnleashed/NovaCalibrator/releases/download/"
+		"novacalibrator-v2.1.0/NovaCalibrator-2.1.0.zip\"},"
+		"{\"name\":\"NovaCalibrator-2.1.0.zip.minisig\",\"size\":302,"
+		"\"browser_download_url\":\"https://github.com/VividNightmareUnleashed/NovaCalibrator/releases/download/"
+		"novacalibrator-v2.1.0/NovaCalibrator-2.1.0.zip.minisig\"}]}";
 	const std::string others =
-		",{\"draft\":true,\"prerelease\":false,\"tag_name\":\"questcalibrator-v9.0.0\"}"
-		",{\"draft\":false,\"prerelease\":true,\"tag_name\":\"questcalibrator-v3.0.0\"}"
+		",{\"draft\":true,\"prerelease\":false,\"tag_name\":\"novacalibrator-v9.0.0\"}"
+		",{\"draft\":false,\"prerelease\":true,\"tag_name\":\"novacalibrator-v3.0.0\"}"
 		",{\"draft\":false,\"prerelease\":false,\"tag_name\":\"v4.0.0\"}";
 	return { std::string("\x01\x00\x00", 3) + "[" + release + others + "]",
 		std::string("\x02\x01\x00", 3) + "[" + release + "]",
-		"questcalibrator-v1.20.3", digest };
+		"novacalibrator-v1.20.3", digest };
 }
 
 inline std::vector<std::string> SignatureSeeds()

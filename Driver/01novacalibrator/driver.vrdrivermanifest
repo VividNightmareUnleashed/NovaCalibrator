@@ -1,6 +1,6 @@
 ﻿{
 	"alwaysActivate": true,
-	"name" : "01questcalibrator",
+	"name" : "01novacalibrator",
 	"directory" : "",
 	"resourceOnly" : false,
 	"activateOtherDriversWhenEnabled" : true

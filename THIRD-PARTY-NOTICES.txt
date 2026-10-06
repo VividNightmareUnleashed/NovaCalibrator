@@ -1,7 +1,7 @@
-QuestCalibrator - Third-party notices
+Nova Calibrator - Third-party notices
 ================================================================================
 
-QuestCalibrator is source-available software (see LICENSE). It includes the
+Nova Calibrator is source-available software (see LICENSE). It includes the
 third-party components below, each used under the license shown with it.
 These licenses apply to those components only, and nothing in LICENSE
 limits the rights they give you.
@@ -33,7 +33,7 @@ Contents
    https://github.com/pushrax/OpenVR-SpaceCalibrator
 ================================================================================
 
-QuestCalibrator is based on OpenVR-SpaceCalibrator by Justin Li. The
+Nova Calibrator is based on OpenVR-SpaceCalibrator by Justin Li. The
 portions that come from it are used under the following license.
 
 MIT License
@@ -102,13 +102,13 @@ Eigen is licensed under the Mozilla Public License, version 2.0. The full
 license text is in THIRD-PARTY-NOTICES\Eigen-COPYING.MPL2.txt and at
 http://mozilla.org/MPL/2.0/.
 
-Source code availability (MPL 2.0, section 3.2): QuestCalibrator uses
+Source code availability (MPL 2.0, section 3.2): Nova Calibrator uses
 Eigen 5.0.1 without modification. Its complete source code is available at
 https://gitlab.com/libeigen/eigen/-/tree/5.0.1 (commit
 bc3b39870ecb690a623a3f49149a358b95c5781d).
 
 Some Eigen files carry third-party code under other licenses. Those in the
-parts of Eigen that QuestCalibrator compiles are:
+parts of Eigen that Nova Calibrator compiles are:
 
 - Half-precision conversion routines (Eigen/src/Core/arch/Default/Half.h):
 
@@ -233,7 +233,7 @@ SOFTWARE.
 
 
 ================================================================================
-6. Inter typeface 4.1 (embedded in QuestCalibrator.exe)
+6. Inter typeface 4.1 (embedded in NovaCalibrator.exe)
    https://github.com/rsms/inter
 ================================================================================
 
@@ -333,9 +333,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 The Regular, Medium, SemiBold and Bold static fonts of the 4.1 release are
 embedded unmodified. The license is also in THIRD-PARTY-NOTICES\Inter-OFL.txt.
 
-On Japanese-language systems QuestCalibrator loads a Japanese font that is
+On Japanese-language systems Nova Calibrator loads a Japanese font that is
 already installed with Windows (Yu Gothic, Meiryo or MS Gothic). Those fonts
-are not included with QuestCalibrator.
+are not included with Nova Calibrator.
 
 
 ================================================================================
@@ -588,7 +588,7 @@ MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
 14. Models in the calibration guidance images
 ================================================================================
 
-The guidance images are renders made for QuestCalibrator from these models.
+The guidance images are renders made for Nova Calibrator from these models.
 
 Meta Quest Pro Headset by VAR Lab (Penn State Behrend)
 https://sketchfab.com/3d-models/meta-quest-pro-headset-66159a79cfb549c1bbaa23f17cb43267

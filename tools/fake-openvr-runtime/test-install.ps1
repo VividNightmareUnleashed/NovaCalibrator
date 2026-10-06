@@ -19,7 +19,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 if ($env:GITHUB_ACTIONS -ne 'true' -and -not $OnThisMachine) {
-    throw 'This test installs QuestCalibrator into Program Files and HKLM. Run it on a disposable machine, or pass -OnThisMachine.'
+    throw 'This test installs Nova Calibrator into Program Files and HKLM. Run it on a disposable machine, or pass -OnThisMachine.'
 }
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -30,10 +30,10 @@ $Runtime = (Resolve-Path $Runtime).Path
 $work = Join-Path ([IO.Path]::GetTempPath()) ('qc-install-test-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Force $work | Out-Null
 
-$installDir = Join-Path ${env:ProgramFiles} 'QuestCalibrator'
-$driverDir = Join-Path $Runtime 'drivers\01questcalibrator'
-$shortcut = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\QuestCalibrator.lnk'
-$uninstallKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\QuestCalibrator'
+$installDir = Join-Path ${env:ProgramFiles} 'NovaCalibrator'
+$driverDir = Join-Path $Runtime 'drivers\01novacalibrator'
+$shortcut = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Nova Calibrator.lnk'
+$uninstallKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCalibrator'
 $stateFile = Join-Path $Runtime 'fake-openvr\state.txt'
 $callsLog = Join-Path $Runtime 'fake-openvr\calls.log'
 $appKey = 'burrow.QuestCalibrator'
@@ -153,18 +153,18 @@ function Assert-Installed([string]$packageDir) {
         foreach ($file in $notices.Keys) { $expectedApp["THIRD-PARTY-NOTICES\$file"] = $notices[$file] }
     }
     Compare-Tree 'install folder matches the package' $expectedApp (Get-Tree $installDir)
-    Compare-Tree 'driver folder matches the package' (Get-Tree (Join-Path $packageDir 'driver\01questcalibrator')) (Get-Tree $driverDir)
+    Compare-Tree 'driver folder matches the package' (Get-Tree (Join-Path $packageDir 'driver\01novacalibrator')) (Get-Tree $driverDir)
 
-    $version = (Get-Item (Join-Path $packageDir 'app\QuestCalibrator.exe')).VersionInfo.ProductVersion
+    $version = (Get-Item (Join-Path $packageDir 'app\NovaCalibrator.exe')).VersionInfo.ProductVersion
     $entry = Get-ItemProperty $uninstallKey -ErrorAction SilentlyContinue
     Check 'Programs and Features entry' ($null -ne $entry -and $entry.DisplayVersion -eq $version -and
         $entry.InstallLocation -eq $installDir -and $entry.QuietUninstallString -like '*Uninstall.ps1*-Silent') `
         "version '$($entry.DisplayVersion)' expected '$version'"
     Check 'install and driver paths recorded' (
-        (Get-ItemProperty 'HKLM:\Software\QuestCalibrator\Main' -ErrorAction SilentlyContinue).'(default)' -eq $installDir -and
-        (Get-ItemProperty 'HKLM:\Software\QuestCalibrator\Driver' -ErrorAction SilentlyContinue).'(default)' -eq $Runtime)
+        (Get-ItemProperty 'HKLM:\Software\NovaCalibrator\Main' -ErrorAction SilentlyContinue).'(default)' -eq $installDir -and
+        (Get-ItemProperty 'HKLM:\Software\NovaCalibrator\Driver' -ErrorAction SilentlyContinue).'(default)' -eq $Runtime)
     $link = if (Test-Path $shortcut) { (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut) } else { $null }
-    Check 'Start Menu shortcut' ($null -ne $link -and $link.TargetPath -eq (Join-Path $installDir 'QuestCalibrator.exe'))
+    Check 'Start Menu shortcut' ($null -ne $link -and $link.TargetPath -eq (Join-Path $installDir 'NovaCalibrator.exe'))
 
     $state = Read-State
     $app = $state.apps[$appKey]
@@ -177,7 +177,7 @@ function Assert-Installed([string]$packageDir) {
 function Assert-Removed {
     Check 'install folder removed' (-not (Test-Path $installDir))
     Check 'driver folder removed' (-not (Test-Path $driverDir))
-    Check 'registry keys removed' (-not (Test-Path 'HKLM:\Software\QuestCalibrator') -and -not (Test-Path $uninstallKey))
+    Check 'registry keys removed' (-not (Test-Path 'HKLM:\Software\NovaCalibrator') -and -not (Test-Path $uninstallKey))
     Check 'shortcut removed' (-not (Test-Path $shortcut))
     Check 'manifest deregistered' (-not (Read-State).apps.ContainsKey($appKey))
 }

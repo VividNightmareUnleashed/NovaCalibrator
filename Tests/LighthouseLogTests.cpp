@@ -130,7 +130,7 @@ void ParserScenarios(Check check)
 		!lighthouselog::ParseLine(std::string(Prefix) + "LHR-A3C36EA5 C: Unexpected centroid ordering error 1.0ms S-5", e) &&
 		!lighthouselog::ParseLine(std::string(Prefix) + "LHR-A3C36EA5: Updated IMU calibration: Accel bias change 0.01m/s/s", e) &&
 		!lighthouselog::ParseLine("Fri Sep 11 2026 22:08:58.279 [Info] - lighthouse: 0C9FF12B16: Triggered keepalive (succeeded)", e) &&
-		!lighthouselog::ParseLine("Fri Sep 11 2026 22:08:45.150 [Info] - Loaded server driver 01questcalibrator", e) &&
+		!lighthouselog::ParseLine("Fri Sep 11 2026 22:08:45.150 [Info] - Loaded server driver 01novacalibrator", e) &&
 		!lighthouselog::ParseLine("", e) &&
 		!lighthouselog::ParseLine("lighthouse: LHR-", e);
 	check("lighthouse log: other driver lines are ignored", noise, "");

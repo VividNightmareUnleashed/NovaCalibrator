@@ -149,10 +149,10 @@ struct CalibrationProfileState
 	void ResetProfile() { *this = CalibrationProfileState{}; }
 };
 
-// Session log file (%LOCALAPPDATA%\QuestCalibrator\QuestCalibrator.log): the
+// Session log file (%LOCALAPPDATA%\NovaCalibrator\NovaCalibrator.log): the
 // in-app message pane persisted for bug reports — the Release build is a GUI
 // binary, so stderr goes nowhere. One fresh file per session; the previous
-// session survives as QuestCalibrator.prev.log (one generation only) and a
+// session survives as NovaCalibrator.prev.log (one generation only) and a
 // hard size cap bounds a runaway session, so disk use can never grow.
 void InitSessionLog();
 void AppendSessionLog(const std::string &msg);

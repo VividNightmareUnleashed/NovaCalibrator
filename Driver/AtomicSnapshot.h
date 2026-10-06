@@ -6,7 +6,7 @@
 // Scalar building blocks for coherent snapshots shared between the IPC thread
 // and vrserver's pose threads. The surrounding sequence counter still detects
 // mixed generations, but every payload access is itself atomic, so a rejected
-// snapshot is not a formal C++ data race. QuestCalibrator only builds an x64
+// snapshot is not a formal C++ data race. Nova Calibrator only builds an x64
 // driver; fail the build rather than quietly introduce a blocking atomic on a
 // pose thread if that platform contract ever changes.
 namespace questcal

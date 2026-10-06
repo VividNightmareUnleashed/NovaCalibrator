@@ -1,7 +1,7 @@
 #pragma once
 
 // A simulated lighthouse-tracked device: the pose stream and the driver log
-// lines QuestCalibrator sees from one tracker while its base stations come
+// lines Nova Calibrator sees from one tracker while its base stations come
 // and go. Test-only.
 //
 // It reproduces the shape of the failure, not Valve's closed tracking code:

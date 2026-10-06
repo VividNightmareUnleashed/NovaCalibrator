@@ -1,5 +1,5 @@
 #requires -Version 7
-# Packages a full build of a questcalibrator-v* tag for its draft release, the
+# Packages a full build of a novacalibrator-v* tag for its draft release, the
 # same way for the release workflow and install\release.ps1: checks the built
 # version against the tag and VirtualQuest against the commit the tag pins,
 # records how the package was built in BUILD-INFO.txt, packages it with
@@ -41,8 +41,8 @@ try {
     if ($env:GITHUB_ACTIONS -eq 'true') { git fetch --quiet --force origin "refs/tags/${Tag}:refs/tags/${Tag}" }
     $commit = "$(git rev-parse HEAD)".Trim()
     if ("$(git rev-parse "$Tag^{commit}" 2>$null)".Trim() -ne $commit) { throw "$Tag is not the commit checked out ($commit)." }
-    $version = (Get-Item x64\Release\QuestCalibrator.exe).VersionInfo.ProductVersion
-    if ("questcalibrator-v$version" -ne $Tag) {
+    $version = (Get-Item x64\Release\NovaCalibrator.exe).VersionInfo.ProductVersion
+    if ("novacalibrator-v$version" -ne $Tag) {
         throw "The build reports version $version, but the tag is $Tag. Fix common/Version.h and tag again."
     }
     # A release is never tested on less than the full suite, which needs the
@@ -57,10 +57,10 @@ try {
     }
 
     # --- Package ---------------------------------------------------------------
-    $info = Join-Path ([IO.Path]::GetTempPath()) "QuestCalibrator-$version-BUILD-INFO.txt"
+    $info = Join-Path ([IO.Path]::GetTempPath()) "NovaCalibrator-$version-BUILD-INFO.txt"
     $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property catalog_productDisplayVersion
     @(
-        'QuestCalibrator release build'
+        'Nova Calibrator release build'
         "version=$version"
         "tag=$Tag"
         "commit=$commit"
@@ -72,7 +72,7 @@ try {
         $BuildInfo
     ) | Set-Content -LiteralPath $info -Encoding utf8
     & install\build-package.ps1 -BuildInfoPath $info | Out-Host
-    $zip = Join-Path $repoRoot "install\out\QuestCalibrator-$version.zip"
+    $zip = Join-Path $repoRoot "install\out\NovaCalibrator-$version.zip"
     if (-not (Test-Path -LiteralPath $zip)) { throw "Expected package $zip was not produced." }
     $zipName = Split-Path -Leaf $zip
 

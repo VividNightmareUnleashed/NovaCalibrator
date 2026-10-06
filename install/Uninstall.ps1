@@ -1,4 +1,4 @@
-# QuestCalibrator uninstaller (script-based).
+# Nova Calibrator uninstaller (script-based).
 # Run elevated. Removes the app, driver, SteamVR registration, and shortcuts.
 [CmdletBinding()]
 param(
@@ -43,14 +43,14 @@ if ($steamProcesses) {
     Fail "Steam is still running ($names). Please close Steam completely (check the system tray) and run this again."
 }
 
-$installDir = (Get-ItemProperty 'HKLM:\Software\QuestCalibrator\Main' -ErrorAction SilentlyContinue).'(default)'
-if (-not $installDir) { $installDir = Join-Path ${env:ProgramFiles} 'QuestCalibrator' }
-Assert-QuestcalTree $installDir 'QuestCalibrator'
+$installDir = (Get-ItemProperty 'HKLM:\Software\NovaCalibrator\Main' -ErrorAction SilentlyContinue).'(default)'
+if (-not $installDir) { $installDir = Join-Path ${env:ProgramFiles} 'NovaCalibrator' }
+Assert-QuestcalTree $installDir 'NovaCalibrator'
 
 # --- Deregister from SteamVR ---------------------------------------------------
 # GUI binary: use Start-Process -Wait so the app has actually exited before we
 # delete it, and set the working directory it resolves manifest.vrmanifest from.
-$appExe = Join-Path $installDir 'QuestCalibrator.exe'
+$appExe = Join-Path $installDir 'NovaCalibrator.exe'
 if (Test-Path $appExe) {
     $proc = Start-Process -FilePath $appExe -ArgumentList @('-removemanifest', '-noui') `
         -WorkingDirectory $installDir -Wait -PassThru
@@ -115,14 +115,14 @@ function Get-VrRuntimePath {
     return $null
 }
 
-$vrRuntimePath = (Get-ItemProperty 'HKLM:\Software\QuestCalibrator\Driver' -ErrorAction SilentlyContinue).'(default)'
+$vrRuntimePath = (Get-ItemProperty 'HKLM:\Software\NovaCalibrator\Driver' -ErrorAction SilentlyContinue).'(default)'
 if (-not $vrRuntimePath -or -not (Test-Path $vrRuntimePath)) { $vrRuntimePath = Get-VrRuntimePath }
 
 if ($vrRuntimePath) {
-    $driverDir = Join-Path $vrRuntimePath 'drivers\01questcalibrator'
-    Assert-QuestcalTree $driverDir '01questcalibrator'
+    $driverDir = Join-Path $vrRuntimePath 'drivers\01novacalibrator'
+    Assert-QuestcalTree $driverDir '01novacalibrator'
     if (Test-Path $driverDir) {
-        Remove-QuestcalTree $driverDir '01questcalibrator'
+        Remove-QuestcalTree $driverDir '01novacalibrator'
         if (Test-Path $driverDir) {
             Write-Host "Warning: could not fully remove $driverDir - delete it manually after a reboot." -ForegroundColor Yellow
         } else {
@@ -135,7 +135,7 @@ if ($vrRuntimePath) {
 
 # --- Remove installed files ------------------------------------------------------
 if (Test-Path $installDir) {
-    Remove-QuestcalTree $installDir 'QuestCalibrator'
+    Remove-QuestcalTree $installDir 'NovaCalibrator'
     if (Test-Path $installDir) {
         Write-Host "Warning: could not fully remove $installDir - delete it manually after a reboot." -ForegroundColor Yellow
     } else {
@@ -146,15 +146,15 @@ if (Test-Path $installDir) {
 # --- Registry + shortcut -----------------------------------------------------------
 # SteamVR's activateMultipleDrivers setting is deliberately left enabled: other
 # OpenVR tools rely on it, and turning it off would break them.
-foreach ($path in @('HKLM:\Software\QuestCalibrator',
-    'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\QuestCalibrator',
-    (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\QuestCalibrator.lnk'))) {
+foreach ($path in @('HKLM:\Software\NovaCalibrator',
+    'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCalibrator',
+    (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Nova Calibrator.lnk'))) {
     if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop }
     if (Test-Path -LiteralPath $path) { Fail "Cleanup did not complete: $path" }
 }
 
 if (-not $Silent) {
     Write-Host ""
-    Write-Host "QuestCalibrator uninstalled." -ForegroundColor Green
+    Write-Host "Nova Calibrator uninstalled." -ForegroundColor Green
     Read-Host "Press Enter to close"
 }

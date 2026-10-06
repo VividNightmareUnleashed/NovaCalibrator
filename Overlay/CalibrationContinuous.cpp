@@ -62,7 +62,7 @@ static void NotifyResolveFreeze(CalibrationContext &ctx)
 	NotifyOnce(ctx, Monitors.freezeNotified,
 		"Continuous calibration paused after the headset tracker restarted. It resumes if tracking recovers; another tracker restart may be needed.",
 		CalibrationContext::Tone::Warn,
-		"QuestCalibrator: tracking has not recovered after the headset tracker restarted. Wait, or turn that tracker off and on in view of its base stations.",
+		"Nova Calibrator: tracking has not recovered after the headset tracker restarted. Wait, or turn that tracker off and on in view of its base stations.",
 		ctx.notifyPoorCalibration, CalibrationContext::Event::Paused);
 }
 
@@ -186,7 +186,7 @@ static void TrackerPresenceTick(CalibrationContext &ctx, double now)
 		ctx.continuousTrackerOffEpisodes++;
 	}
 	static const char *const Toast =
-		"QuestCalibrator: the headset tracker is off. Turn it back on to resume continuous calibration.";
+		"Nova Calibrator: the headset tracker is off. Turn it back on to resume continuous calibration.";
 	const bool toasts = ctx.notifyPoorCalibration && ToastSink;
 	// The log line naming the reason precedes OpenVR dropping the device by
 	// half a second and is read four times a second; it gets a moment.
@@ -454,7 +454,7 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 				NotifyOnce(ctx, Monitors.freezeNotified,
 					"Continuous calibration paused: readings moved too far from the calibration. It re-aligns on its own if they hold steady.",
 					CalibrationContext::Tone::Warn,
-					"QuestCalibrator: continuous calibration paused; readings moved too far from the calibration. It re-aligns on its own if they hold steady, or recalibrate with the headset tracker.",
+					"Nova Calibrator: continuous calibration paused; readings moved too far from the calibration. It re-aligns on its own if they hold steady, or recalibrate with the headset tracker.",
 					ctx.notifyPoorCalibration, CalibrationContext::Event::Paused);
 			else
 				// Without the tracker's restarts in view nothing re-aligns on
@@ -462,7 +462,7 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 				NotifyOnce(ctx, Monitors.freezeNotified,
 					"Continuous calibration paused: tracking drifted too far to correct safely.",
 					CalibrationContext::Tone::Warn,
-					"QuestCalibrator: continuous calibration paused; readings drifted too far to correct safely. Recalibrate with the headset tracker to resume.",
+					"Nova Calibrator: continuous calibration paused; readings drifted too far to correct safely. Recalibrate with the headset tracker to resume.",
 					ctx.notifyPoorCalibration, CalibrationContext::Event::Paused);
 			break;
 		case questcal::ContinuousAlignment::Event::Reanchored:
@@ -509,7 +509,7 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 			NotifyOnce(ctx, Monitors.unstableNotified,
 				"Tracking is noisy here; continuous calibration is waiting and resumes on its own.",
 				CalibrationContext::Tone::Warn,
-				"QuestCalibrator: tracking is noisy here. Continuous calibration is waiting and resumes on its own.",
+				"Nova Calibrator: tracking is noisy here. Continuous calibration is waiting and resumes on its own.",
 				ctx.notifyPoorCalibration, CalibrationContext::Event::Paused);
 			break;
 		case questcal::ContinuousAlignment::Event::Resumed:

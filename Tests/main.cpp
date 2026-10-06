@@ -7109,7 +7109,7 @@ picojson::value UpdateReleaseValue(const std::string &tag, bool draft,
 	bool duplicate = false, const std::string &signatureFault = std::string())
 {
 	const std::string downloads =
-		"https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/download/" + tag + "/";
+		"https://github.com/VividNightmareUnleashed/NovaCalibrator/releases/download/" + tag + "/";
 	picojson::object asset;
 	asset["name"] = picojson::value(assetName);
 	asset["size"] = picojson::value(1329433.0);
@@ -7137,7 +7137,7 @@ picojson::value UpdateReleaseValue(const std::string &tag, bool draft,
 	release["draft"] = picojson::value(draft);
 	release["prerelease"] = picojson::value(prerelease);
 	release["html_url"] = picojson::value(
-		"https://github.com/VividNightmareUnleashed/QuestCalibrator/releases/tag/" + tag);
+		"https://github.com/VividNightmareUnleashed/NovaCalibrator/releases/tag/" + tag);
 	release["assets"] = picojson::value(assets);
 	return picojson::value(release);
 }
@@ -7168,13 +7168,13 @@ void RunUpdatePolicyScenarios()
 	const std::string digest =
 		"sha256:d768f19e0724ef00432d694bf6e5ad23c9010de5a32b087d56e0c6bd094d8072";
 	Version parsed;
-	const bool validTag = ParseReleaseTag("questcalibrator-v12.34.56", parsed);
+	const bool validTag = ParseReleaseTag("novacalibrator-v12.34.56", parsed);
 	Check("updates: only canonical stable tags parse",
 		validTag && parsed.major == 12 && parsed.minor == 34 && parsed.patch == 56 &&
 		!ParseReleaseTag("v12.34.56", parsed) &&
-		!ParseReleaseTag("questcalibrator-v12.34.56-alpha.1", parsed) &&
-		!ParseReleaseTag("questcalibrator-v12.034.56", parsed) &&
-		!ParseReleaseTag("questcalibrator-v42949672960.0.0", parsed), "");
+		!ParseReleaseTag("novacalibrator-v12.34.56-alpha.1", parsed) &&
+		!ParseReleaseTag("novacalibrator-v12.034.56", parsed) &&
+		!ParseReleaseTag("novacalibrator-v42949672960.0.0", parsed), "");
 
 	// Ordering the three numbers alone made 1.2.0-alpha.3 equal to 1.2.0.
 	const Version alpha3 = UpdateVersion(1, 2, 0, "alpha", 3);
@@ -7195,7 +7195,7 @@ void RunUpdatePolicyScenarios()
 	Check("updates: a prerelease renders its suffix",
 		VersionString(alpha3) == "1.2.0-alpha.3" &&
 		VersionString(stable120) == "1.2.0" &&
-		CanonicalPackageName(stable120) == "QuestCalibrator-1.2.0.zip", "");
+		CanonicalPackageName(stable120) == "NovaCalibrator-1.2.0.zip", "");
 
 	// The resource compiler cannot build the string from the numbers, so the two
 	// halves of Version.h are written out separately and can drift apart.
@@ -7215,10 +7215,10 @@ void RunUpdatePolicyScenarios()
 	// A draft, a prerelease and a non-canonical tag, all newer than the one
 	// eligible release.
 	const std::string feed = UpdateFeed({
-		UpdateReleaseValue("questcalibrator-v9.0.0", true, false, "QuestCalibrator-9.0.0.zip", digest),
-		UpdateReleaseValue("questcalibrator-v8.0.0", false, true, "QuestCalibrator-8.0.0.zip", digest),
-		UpdateReleaseValue("v99.0.0", false, false, "QuestCalibrator-99.0.0.zip", digest),
-		UpdateReleaseValue("questcalibrator-v1.2.0", false, false, "QuestCalibrator-1.2.0.zip", digest) });
+		UpdateReleaseValue("novacalibrator-v9.0.0", true, false, "NovaCalibrator-9.0.0.zip", digest),
+		UpdateReleaseValue("novacalibrator-v8.0.0", false, true, "NovaCalibrator-8.0.0.zip", digest),
+		UpdateReleaseValue("v99.0.0", false, false, "NovaCalibrator-99.0.0.zip", digest),
+		UpdateReleaseValue("novacalibrator-v1.2.0", false, false, "NovaCalibrator-1.2.0.zip", digest) });
 	ReleaseCandidate candidate;
 	bool available = false;
 	std::string error;
@@ -7227,10 +7227,10 @@ void RunUpdatePolicyScenarios()
 	Check("updates: newest eligible stable release wins",
 		selected && available && error.empty() &&
 		VersionString(candidate.version) == "1.2.0" &&
-		candidate.packageName == "QuestCalibrator-1.2.0.zip" &&
+		candidate.packageName == "NovaCalibrator-1.2.0.zip" &&
 		candidate.size == 1329433 &&
-		candidate.signatureUrl == "https://github.com/VividNightmareUnleashed/QuestCalibrator/"
-			"releases/download/questcalibrator-v1.2.0/QuestCalibrator-1.2.0.zip.minisig" &&
+		candidate.signatureUrl == "https://github.com/VividNightmareUnleashed/NovaCalibrator/"
+			"releases/download/novacalibrator-v1.2.0/NovaCalibrator-1.2.0.zip.minisig" &&
 		candidate.signatureSize == 302, error.c_str());
 
 	ReleaseCandidate none;
@@ -7245,18 +7245,18 @@ void RunUpdatePolicyScenarios()
 	bool stableAvailable = false;
 	error.clear();
 	const bool stableSelected = SelectReleaseCandidate(UpdateFeed({
-			UpdateReleaseValue("questcalibrator-v9.9.9", false, false, "QuestCalibrator-9.9.9.zip", digest),
-			UpdateReleaseValue("questcalibrator-v1.1.0", false, false, "QuestCalibrator-1.1.0.zip", digest) }),
+			UpdateReleaseValue("novacalibrator-v9.9.9", false, false, "NovaCalibrator-9.9.9.zip", digest),
+			UpdateReleaseValue("novacalibrator-v1.1.0", false, false, "NovaCalibrator-1.1.0.zip", digest) }),
 		UpdateVersion(1, 2, 0), stableSide, stableAvailable, error);
 	Check("updates: the newest stable release is offered past an older one",
 		stableSelected && stableAvailable && error.empty() &&
 		VersionString(stableSide.version) == "9.9.9" &&
-		stableSide.packageName == "QuestCalibrator-9.9.9.zip", error.c_str());
+		stableSide.packageName == "NovaCalibrator-9.9.9.zip", error.c_str());
 
 	available = false;
 	error.clear();
 	const bool acceptedMissingDigest = SelectReleaseCandidate(UpdateFeed({
-			UpdateReleaseValue("questcalibrator-v2.0.0", false, false, "QuestCalibrator-2.0.0.zip", "") }),
+			UpdateReleaseValue("novacalibrator-v2.0.0", false, false, "NovaCalibrator-2.0.0.zip", "") }),
 		UpdateVersion(1, 1, 0), candidate, available, error);
 	Check("updates: package without digest fails closed",
 		!acceptedMissingDigest && available && !error.empty(), error.c_str());
@@ -7264,7 +7264,7 @@ void RunUpdatePolicyScenarios()
 	available = false;
 	error.clear();
 	const bool acceptedDuplicate = SelectReleaseCandidate(UpdateFeed({
-			UpdateReleaseValue("questcalibrator-v2.0.0", false, false, "QuestCalibrator-2.0.0.zip", digest, true) }),
+			UpdateReleaseValue("novacalibrator-v2.0.0", false, false, "NovaCalibrator-2.0.0.zip", digest, true) }),
 		UpdateVersion(1, 1, 0), candidate, available, error);
 	Check("updates: duplicate canonical packages fail closed",
 		!acceptedDuplicate && available && !error.empty(), error.c_str());
@@ -7278,9 +7278,9 @@ void RunUpdatePolicyScenarios()
 		available = false;
 		error.clear();
 		const bool accepted = SelectReleaseCandidate(UpdateFeed({
-				UpdateReleaseValue("questcalibrator-v2.0.0", false, false, "QuestCalibrator-2.0.0.zip", digest,
+				UpdateReleaseValue("novacalibrator-v2.0.0", false, false, "NovaCalibrator-2.0.0.zip", digest,
 					false, fault),
-				UpdateReleaseValue("questcalibrator-v1.5.0", false, false, "QuestCalibrator-1.5.0.zip", digest) }),
+				UpdateReleaseValue("novacalibrator-v1.5.0", false, false, "NovaCalibrator-1.5.0.zip", digest) }),
 			UpdateVersion(1, 1, 0), candidate, available, error);
 		if (accepted || !available || error.empty())
 		{

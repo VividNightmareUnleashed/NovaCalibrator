@@ -80,7 +80,7 @@ static void ShowVRToast(const char *message)
 	}
 }
 
-// Directory containing QuestCalibrator.exe, in UTF-8 as the OpenVR APIs expect.
+// Directory containing NovaCalibrator.exe, in UTF-8 as the OpenVR APIs expect.
 // Everything loaded or registered by path sits next to the executable, never
 // the working directory: installers, shortcuts and SteamVR auto-launch start
 // us elsewhere, and a wrong manifest path fails silently.
@@ -171,7 +171,7 @@ static void CliReport(bool noUi, const char *message, bool isError)
 	if (noUi)
 		return;
 
-	MessageBoxA(nullptr, message, "QuestCalibrator",
+	MessageBoxA(nullptr, message, "Nova Calibrator",
 		MB_OK | (isError ? MB_ICONERROR : MB_ICONINFORMATION));
 }
 
@@ -196,7 +196,7 @@ static ManifestInstallResult EnsureManifestRegistration(bool forceAutoLaunch)
 	std::error_code fileError;
 	if (!std::filesystem::is_regular_file(std::filesystem::u8path(manifestPath), fileError))
 	{
-		result.message = "QuestCalibrator's application manifest is missing. The existing SteamVR registration was left unchanged.\n\n" + manifestPath;
+		result.message = "Nova Calibrator's application manifest is missing. The existing SteamVR registration was left unchanged.\n\n" + manifestPath;
 		return result;
 	}
 
@@ -213,7 +213,7 @@ static ManifestInstallResult EnsureManifestRegistration(bool forceAutoLaunch)
 			MAX_PATH, &error);
 		if (error != vr::VRApplicationError_None)
 		{
-			result.message = "Couldn't find the previously registered QuestCalibrator manifest. The old registration was left unchanged.\n\n" +
+			result.message = "Couldn't find the previously registered Nova Calibrator manifest. The old registration was left unchanged.\n\n" +
 				std::string(vr::VRApplications()->GetApplicationsErrorNameFromEnum(error));
 			return result;
 		}
@@ -246,7 +246,7 @@ static ManifestInstallResult EnsureManifestRegistration(bool forceAutoLaunch)
 	{
 		auto error = vr::VRApplications()->RemoveApplicationManifest(oldManifest.c_str());
 		if (error != vr::VRApplicationError_None)
-			return failed("Couldn't remove the previously registered QuestCalibrator manifest. The old registration was left unchanged.\n\n" + oldManifest + "\n\n" +
+			return failed("Couldn't remove the previously registered Nova Calibrator manifest. The old registration was left unchanged.\n\n" + oldManifest + "\n\n" +
 				vr::VRApplications()->GetApplicationsErrorNameFromEnum(error), false);
 	}
 
@@ -254,7 +254,7 @@ static ManifestInstallResult EnsureManifestRegistration(bool forceAutoLaunch)
 	{
 		auto error = vr::VRApplications()->AddApplicationManifest(manifestPath.c_str());
 		if (error != vr::VRApplicationError_None)
-			return failed("Couldn't register QuestCalibrator with SteamVR.\n\n" +
+			return failed("Couldn't register Nova Calibrator with SteamVR.\n\n" +
 				manifestPath + "\n\n" +
 				vr::VRApplications()->GetApplicationsErrorNameFromEnum(error), replacing);
 	}
@@ -272,7 +272,7 @@ static ManifestInstallResult EnsureManifestRegistration(bool forceAutoLaunch)
 		{
 			if (adding)
 				vr::VRApplications()->RemoveApplicationManifest(manifestPath.c_str());
-			return failed("SteamVR couldn't set QuestCalibrator to start automatically.\n\n" +
+			return failed("SteamVR couldn't set Nova Calibrator to start automatically.\n\n" +
 				std::string(vr::VRApplications()->GetApplicationsErrorNameFromEnum(error)),
 				replacing);
 		}
@@ -280,7 +280,7 @@ static ManifestInstallResult EnsureManifestRegistration(bool forceAutoLaunch)
 
 	result.success = true;
 	result.changed = adding || (settingAutoLaunch && wantAutoLaunch != oldAutoLaunch);
-	result.message = "QuestCalibrator registered with SteamVR.\n\n" + manifestPath;
+	result.message = "Nova Calibrator registered with SteamVR.\n\n" + manifestPath;
 	return result;
 }
 
@@ -485,7 +485,7 @@ public:
 		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 		glfwWindowHint(GLFW_RESIZABLE, false);
 
-		window = glfwCreateWindow(width, height, "QuestCalibrator", NULL, NULL);
+		window = glfwCreateWindow(width, height, "Nova Calibrator", NULL, NULL);
 		if (!window)
 			throw std::runtime_error("Couldn't create the window.");
 		glfwWindow = window;
@@ -643,17 +643,17 @@ void TryCreateVROverlay()
 		return;
 
 	vr::VROverlayError error = vr::VROverlay()->CreateDashboardOverlay(
-		"burrow.QuestCalibrator", "Quest Cal",
+		"burrow.QuestCalibrator", "Nova Calibrator",
 		&overlayMainHandle, &overlayThumbnailHandle
 	);
 
 	if (error == vr::VROverlayError_KeyInUse)
 	{
-		throw std::runtime_error("QuestCalibrator is already running.");
+		throw std::runtime_error("Nova Calibrator is already running.");
 	}
 	else if (error != vr::VROverlayError_None)
 	{
-		throw std::runtime_error("SteamVR refused QuestCalibrator's overlay (" +
+		throw std::runtime_error("SteamVR refused Nova Calibrator's overlay (" +
 			std::string(vr::VROverlay()->GetOverlayErrorNameFromEnum(error)) +
 			").\n\nRestart SteamVR and try again.");
 	}
@@ -687,7 +687,7 @@ void ActivateMultipleDrivers()
 		{
 			std::string err = "Couldn't turn on SteamVR's \"" + std::string(vr::k_pch_SteamVR_ActivateMultipleDrivers_Bool) +
 				"\" setting (" + vr::VRSettings()->GetSettingsErrorNameFromEnum(vrSettingsError) +
-				").\n\nQuestCalibrator needs it to see both tracking systems. "
+				").\n\nNova Calibrator needs it to see both tracking systems. "
 				"Set it to true in steamvr.vrsettings, then restart SteamVR.";
 
 			throw std::runtime_error(err);
@@ -706,7 +706,7 @@ void InitVR(bool &initialized)
 	{
 		auto error = vr::VR_GetVRInitErrorAsEnglishDescription(initError);
 		throw std::runtime_error("SteamVR couldn't start: " + std::string(error) +
-			".\n\nMake sure SteamVR is installed and your headset is connected, then start QuestCalibrator again.");
+			".\n\nMake sure SteamVR is installed and your headset is connected, then start Nova Calibrator again.");
 	}
 	// Publish successful OpenVR ownership immediately. Interface validation and
 	// settings setup below can still throw; the caller must then shut this
@@ -717,8 +717,8 @@ void InitVR(bool &initialized)
 		!vr::VR_IsInterfaceVersionValid(vr::IVRSettings_Version) ||
 		!vr::VR_IsInterfaceVersionValid(vr::IVROverlay_Version))
 	{
-		throw std::runtime_error("Your SteamVR is too old for this version of QuestCalibrator.\n\n"
-			"Update SteamVR, then start QuestCalibrator again.");
+		throw std::runtime_error("Your SteamVR is too old for this version of Nova Calibrator.\n\n"
+			"Update SteamVR, then start Nova Calibrator again.");
 	}
 
 	ActivateMultipleDrivers();
@@ -859,7 +859,7 @@ bool RunLoop(const LaunchOptions &options, const OverlayFramebuffer &framebuffer
 
 					vr::EVROverlayError error = vr::VROverlay()->ShowKeyboardForOverlay(
 						overlayMainHandle, vr::k_EGamepadTextInputModeNormal, vr::k_EGamepadTextInputLineModeSingleLine,
-						unFlags, "QuestCalibrator Overlay", 0x400, text, 0
+						unFlags, "Nova Calibrator Overlay", 0x400, text, 0
 					);
 					if (error == vr::VROverlayError_None)
 					{
@@ -1028,7 +1028,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE /*hInstance*/, _In_opt_ HINSTANCE /*hPrevIn
 	bool appDirResolved = ResolveAppDir();
 	const LaunchOptions options = ParseCommandLine(lpCmdLine);
 	if (!appDirResolved)
-		return CliFinish(options, "QuestCalibrator couldn't find its own install folder.", true);
+		return CliFinish(options, "Nova Calibrator couldn't find its own install folder.", true);
 	if (!options.error.empty())
 		return CliFinish(options, options.error, true);
 	if (options.command != LaunchOptions::Command::Overlay)
@@ -1042,8 +1042,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE /*hInstance*/, _In_opt_ HINSTANCE /*hPrevIn
 	// rotate a live session's log away.
 	if (!g_uiPreviewMode && !ClaimSingleInstance())
 	{
-		MessageBox(nullptr, L"QuestCalibrator is already running.",
-			L"QuestCalibrator", MB_ICONINFORMATION | MB_OK);
+		MessageBox(nullptr, L"Nova Calibrator is already running.",
+			L"Nova Calibrator", MB_ICONINFORMATION | MB_OK);
 		return -1;
 	}
 
@@ -1062,9 +1062,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE /*hInstance*/, _In_opt_ HINSTANCE /*hPrevIn
 	if (!glfwLibrary.initialized)
 	{
 		MessageBox(nullptr,
-			L"QuestCalibrator couldn't create its window.\n\n"
+			L"Nova Calibrator couldn't create its window.\n\n"
 			L"Update your graphics driver and start it again.",
-			L"QuestCalibrator", MB_OK | MB_ICONERROR);
+			L"Nova Calibrator", MB_OK | MB_ICONERROR);
 		return -1;
 	}
 
@@ -1142,7 +1142,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE /*hInstance*/, _In_opt_ HINSTANCE /*hPrevIn
 	}
 	catch (...)
 	{
-		fatal = "QuestCalibrator stopped because of an unknown fatal error.";
+		fatal = "Nova Calibrator stopped because of an unknown fatal error.";
 	}
 
 	questcal::update::AppUpdater.Shutdown();
@@ -1163,7 +1163,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE /*hInstance*/, _In_opt_ HINSTANCE /*hPrevIn
 		shutdownRuntime(false);
 		shutdownGraphics();
 		if (fatal.empty())
-			fatal = "QuestCalibrator hit a fatal error while shutting down.";
+			fatal = "Nova Calibrator hit a fatal error while shutting down.";
 	}
 
 	if (!fatal.empty())
@@ -1171,7 +1171,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE /*hInstance*/, _In_opt_ HINSTANCE /*hPrevIn
 		AppendSessionLog(fatal);
 		wchar_t message[1024];
 		swprintf(message, 1024, L"%hs", fatal.c_str());
-		MessageBox(nullptr, message, L"QuestCalibrator", MB_OK | MB_ICONERROR);
+		MessageBox(nullptr, message, L"Nova Calibrator", MB_OK | MB_ICONERROR);
 	}
 
 	// glfwLibrary terminates GLFW after this, on return.
@@ -1228,7 +1228,7 @@ static LaunchOptions ParseCommandLine(LPWSTR lpCmdLine)
 {
 	// CommandLineToArgvW applies program-name rules to the first token, so
 	// prepend a placeholder for it.
-	std::wstring full = L"QuestCalibrator.exe ";
+	std::wstring full = L"NovaCalibrator.exe ";
 	full += lpCmdLine ? lpCmdLine : L"";
 	std::vector<std::wstring> args;
 	int argc = 0;
@@ -1397,7 +1397,7 @@ static int RunCommand(const LaunchOptions &options)
 		// stdout and use it directly as a path.
 		printf("%s", runtimePath);
 		if (!options.noUi)
-			MessageBoxA(nullptr, runtimePath, "QuestCalibrator", MB_OK | MB_ICONINFORMATION);
+			MessageBoxA(nullptr, runtimePath, "Nova Calibrator", MB_OK | MB_ICONINFORMATION);
 		vr::VR_Shutdown();
 		return 0;
 	}
@@ -1415,13 +1415,13 @@ static int RunCommand(const LaunchOptions &options)
 				manifestPath.c_str());
 			if (vrAppErr != vr::VRApplicationError_None)
 			{
-				return CliFinish(options, "Couldn't unregister QuestCalibrator from SteamVR.\n\n" +
+				return CliFinish(options, "Couldn't unregister Nova Calibrator from SteamVR.\n\n" +
 					manifestPath + "\n\n" +
 					vr::VRApplications()->GetApplicationsErrorNameFromEnum(vrAppErr), true);
 			}
 		}
 
-		return CliFinish(options, "QuestCalibrator deregistered from SteamVR.", false);
+		return CliFinish(options, "Nova Calibrator deregistered from SteamVR.", false);
 	}
 	case Command::ActivateMultipleDrivers:
 	{

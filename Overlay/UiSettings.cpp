@@ -394,7 +394,7 @@ void GeneralRows(RowPage &page)
 	// A translation says it may be imperfect and where corrections go.
 	if (translated)
 		page.Link(ui::Icon::Globe, "Report on GitHub", ui::col::Link, false,
-			[] { OpenUrl("https://github.com/VividNightmareUnleashed/QuestCalibrator/issues"); });
+			[] { OpenUrl("https://github.com/VividNightmareUnleashed/NovaCalibrator/issues"); });
 
 	page.Toggle("Advanced mode", "Shows calibration measurements, drift readings and extra settings.",
 		CalCtx.uiAdvanced, SettingSwitch(CalCtx.uiAdvanced));

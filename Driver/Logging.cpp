@@ -11,7 +11,7 @@ FILE *LogFile;
 
 // The driver runs inside vrserver.exe, whose working directory is not ours to
 // rely on. Anchor the log next to the driver DLL itself so it is discoverable
-// (...\01questcalibrator\bin\win64\quest_calibrator_driver.log).
+// (...\01novacalibrator\bin\win64\nova_calibrator_driver.log).
 static std::string LogFilePath()
 {
 	HMODULE module = nullptr;
@@ -32,7 +32,7 @@ static std::string LogFilePath()
 	if (slash == std::string::npos)
 		return "";
 
-	return dir.substr(0, slash + 1) + "quest_calibrator_driver.log";
+	return dir.substr(0, slash + 1) + "nova_calibrator_driver.log";
 }
 
 // A log past this size is set aside as quest_calibrator_driver.old.log when
@@ -65,7 +65,7 @@ void OpenLogFile()
 		char tempDir[MAX_PATH];
 		DWORD len = GetTempPathA(MAX_PATH, tempDir);
 		if (len > 0 && len < MAX_PATH)
-			LogFile = OpenRotatedLog(std::string(tempDir) + "quest_calibrator_driver.log");
+			LogFile = OpenRotatedLog(std::string(tempDir) + "nova_calibrator_driver.log");
 	}
 
 	if (LogFile == nullptr)

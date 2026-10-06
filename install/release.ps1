@@ -1,5 +1,5 @@
 #requires -Version 7
-# Builds, packages and scans a pushed questcalibrator-v* tag, then creates a
+# Builds, packages and scans a pushed novacalibrator-v* tag, then creates a
 # DRAFT release for it with your own gh login. It holds the release to what the
 # release workflow does: the full solver suite with VirtualQuest at the commit
 # the tag pins, Clang-Tidy over every translation unit, and the same packaging
@@ -29,7 +29,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 # Installed copies look for updates only here.
-$releaseRepo = 'VividNightmareUnleashed/QuestCalibrator'
+$releaseRepo = 'VividNightmareUnleashed/NovaCalibrator'
 
 function Invoke-Native {
     param([string]$What, [scriptblock]$Command)
@@ -48,8 +48,8 @@ try {
 
     $head = Invoke-Native 'git rev-parse' { git rev-parse HEAD }
     if (-not $Tag) {
-        $Tag = @(git tag --points-at HEAD --list 'questcalibrator-v*') | Select-Object -First 1
-        if (-not $Tag) { throw 'HEAD has no questcalibrator-v* tag. Tag it, push the tag, and run again.' }
+        $Tag = @(git tag --points-at HEAD --list 'novacalibrator-v*') | Select-Object -First 1
+        if (-not $Tag) { throw 'HEAD has no novacalibrator-v* tag. Tag it, push the tag, and run again.' }
     }
     $tagCommit = Invoke-Native "Resolving $Tag" { git rev-parse "$Tag^{commit}" }
     if ($tagCommit -ne $head) { throw "$Tag points at $tagCommit, but HEAD is $head. Check out the tag first." }
@@ -126,7 +126,7 @@ try {
         '--repo', $releaseRepo,
         '--verify-tag',
         '--draft',
-        '--title', "QuestCalibrator $($release.Version)",
+        '--title', "Nova Calibrator $($release.Version)",
         '--notes-file', $release.Notes
     )
     if ($release.Prerelease) { $arguments += '--prerelease' }

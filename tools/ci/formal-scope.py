@@ -183,7 +183,7 @@ def github(path, attempts=3):
     failed read is retried: one that fails for good makes the search look
     further back, which runs more checks than needed rather than fewer."""
     token = os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_TOKEN')
-    repo = os.environ.get('GITHUB_REPOSITORY', 'VividNightmareUnleashed/QuestCalibrator')
+    repo = os.environ.get('GITHUB_REPOSITORY', 'VividNightmareUnleashed/NovaCalibrator')
     if not token:
         return None
     request = urllib.request.Request(f'https://api.github.com/repos/{repo}/{path}', headers={
