@@ -204,6 +204,10 @@ const std::vector<ShownCall> &ShownCalls()
 		{ "NavRow", false, { 3, 6, 7 } },
 		{ "ToolTile", false, { 3 } },
 		{ "Tip", false, { 0 } },
+		{ "MenuItem", false, { 2 } },
+		{ "Toggle", true, { 0, 1 } },
+		{ "Link", true, { 1 } },
+		{ "Section", true, { 0, 1 } },
 	};
 	return calls;
 }

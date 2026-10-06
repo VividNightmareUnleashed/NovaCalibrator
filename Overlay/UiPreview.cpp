@@ -385,7 +385,20 @@ void SetupPreviewState()
 		g_page = Page::Lighthouse;
 		break;
 	case PreviewScenario::Settings:
+	case PreviewScenario::SettingsMore:
 		g_page = Page::Settings;
+		break;
+	case PreviewScenario::Editor:
+		// A transform with something in every field, as a real one has.
+		g_page = Page::Settings;
+		CalCtx.transform.rotation = CalibrationContext::RebuildRotationFromEuler(Eigen::Vector3d(-0.0482, -1.8422, 0.3175));
+		CalCtx.transform.translationMeters = Eigen::Vector3d(0.124063, -0.031127, 0.41889);
+		SeedTransformEditorDraft();
+		CalCtx.state = CalibrationState::Editing;
+		break;
+	case PreviewScenario::Credits:
+		g_page = Page::Settings;
+		OpenSheet(Sheet::Credits);
 		break;
 	case PreviewScenario::Healthy:
 		break;

@@ -51,6 +51,20 @@ en: Dismiss
 it: Chiudi
 en: Settings
 it: Impostazioni
+en: General
+it: Generali
+en: Experimental
+it: Sperimentale
+en: Updates
+it: Aggiornamenti
+en: Support
+it: Assistenza
+en: Credits
+it: Crediti
+en: More actions
+it: Altre azioni
+en: Pick a tracker
+it: Scegli un tracker
 en: Soon
 it: In arrivo
 en: Version %s
@@ -59,20 +73,12 @@ it: Versione {0}
 # ---- Continuous calibration state ----
 en: Off
 it: Spento
-en: Needs a tracker
-it: Serve un tracker
-en: Needs setup
-it: Da configurare
 en: Waiting
 it: In attesa
 en: Active
 it: Attiva
 en: Paused
 it: In pausa
-en: Warming up
-it: In avvio
-en: Tracker off
-it: Tracker spento
 en: Continuous calibration is off.
 it: La calibrazione continua è disattivata.
 en: Continuous calibration needs a headset tracker. Pick one in Settings.
@@ -299,16 +305,12 @@ en: Language
 it: Lingua
 en: English
 it: English
-en: Italiano
-it: Italiano
 en: Japanese
 it: Japanese
 en: This translation may not be accurate.
 it: Questa traduzione potrebbe non essere precisa.
 en: Japanese needs a Japanese font, and Windows doesn't have one installed. Add the Japanese Supplemental Fonts in Windows Settings > System > Optional features.
 it: Il giapponese richiede un font giapponese, ma Windows non ne ha uno installato. Aggiungi i Font supplementari giapponesi in Impostazioni di Windows > Sistema > Funzionalità facoltative.
-en: Feel free to send any feedback:
-it: Qualsiasi suggerimento è benvenuto:
 en: Report on GitHub
 it: Segnala su GitHub
 en: Advanced mode
@@ -317,12 +319,10 @@ en: Shows calibration measurements, drift readings and extra settings.
 it: Mostra le misure della calibrazione, i valori di deriva e impostazioni aggiuntive.
 en: Alignment notifications in VR
 it: Notifiche di allineamento in VR
-en: A SteamVR notification when the calibration looks off or continuous calibration pauses.
-it: Una notifica di SteamVR quando la calibrazione sembra errata o la calibrazione continua va in pausa.
+en: Get a SteamVR notification when the alignment looks off or continuous calibration pauses.
+it: Ricevi una notifica di SteamVR quando l'allineamento sembra errato o la calibrazione continua va in pausa.
 en: Field anchors
 it: Ancore di campo
-en: Corrects the alignment in the spots where you added an anchor.
-it: Corregge l'allineamento nei punti in cui hai aggiunto un'ancora.
 en: Clear anchors
 it: Cancella ancore
 en: Keep anchors
@@ -337,16 +337,14 @@ en: Those spots go back to the main calibration. The calibration itself is kept.
 it: Quei punti tornano alla calibrazione principale. La calibrazione resta.
 en: %zu anchor%s saved
 it: Ancore salvate: {0}
-en: Anchor %zu at (%+.1f, %+.1f): %.1f cm / %.2f deg from base
-it: Ancora {0} in ({1}, {2}): {3} cm / {4}° dalla base
-en: Solve playspace scale (experimental)
-it: Stima la scala dello spazio di gioco (sperimentale)
-en: Measures whether the two systems disagree on distances. Leave off unless you know you need it.
-it: Misura se i due sistemi misurano le distanze in modo diverso. Lascialo spento se non sai di averne bisogno.
+en: Measure playspace scale
+it: Misura la scala dello spazio di gioco
+en: Checks whether your headset and SteamVR measure distances differently. Leave it off unless you need it.
+it: Controlla se il visore e SteamVR misurano le distanze in modo diverso. Lascialo spento se non ti serve.
 en: Correct for tracking delay
 it: Compensa il ritardo di tracciamento
-en: Uses the delay between the two systems measured during calibration.
-it: Usa il ritardo tra i due sistemi misurato durante la calibrazione.
+en: Makes up for the lag between your headset and SteamVR, measured when you calibrate.
+it: Compensa il ritardo tra il visore e SteamVR, misurato durante la calibrazione.
 en: Continuous calibration
 it: Calibrazione continua
 en: Keeps devices aligned while you play, using a tracker strapped to your headset.
@@ -365,32 +363,22 @@ en: Hide the headset tracker from games
 it: Nascondi il tracker del visore ai giochi
 en: Moves it far out of reach in games so full-body setups never\nmistake it for a body tracker. Calibration still sees it.
 it: Nei giochi lo sposta lontano, così le configurazioni full-body\nnon lo scambiano per un tracker del corpo. La calibrazione lo vede comunque.
-en: Keep tracking delay up to date
-it: Aggiorna di continuo il ritardo di tracciamento
+en: Re-measure tracking delay while you play
+it: Rimisura il ritardo di tracciamento mentre giochi
 en: Re-measures the delay between the two systems during play, using\nthe headset tracker. Off keeps the value from calibration.
 it: Rimisura durante il gioco il ritardo tra i due sistemi, usando\nil tracker del visore. Se spento, usa il valore della calibrazione.
 en: Ask before applying each correction
 it: Chiedi prima di applicare ogni correzione
-en: Each correction waits until you pull a controller trigger.\nRecent activity on the main screen lists each one.
-it: Ogni correzione attende che tu prema un grilletto del controller.\nL'attività recente nella schermata principale le elenca.
+en: Each correction waits until you pull a controller trigger.\nRecent activity on the Calibration page lists each one.
+it: Ogni correzione attende che tu prema un grilletto del controller.\nL'attività recente nella pagina Calibrazione le elenca.
 en: Strap a tracker to your headset and pick it above.
 it: Fissa un tracker al visore e sceglilo qui sopra.
 en: Recalibrate with the headset tracker (%.0f s)
 it: Ricalibra con il tracker del visore ({0} s)
 en: Set up headset tracker (%.0f s)
 it: Configura il tracker del visore ({0} s)
-en: Turn off to let the Quest boundary import win each session;\nthe protected chaperone then only applies when you press Restore.
-it: Spegnilo per dare la precedenza al confine del Quest a ogni sessione;\nil chaperone protetto si applica solo quando premi Ripristina.
-en: Restore protected chaperone automatically
-it: Ripristina automaticamente il chaperone protetto
 en: Only the play area center was saved (no walls), so there's nothing to restore automatically.
 it: È stato salvato solo il centro dell'area di gioco (senza pareti), quindi non c'è nulla da ripristinare automaticamente.
-en: %zu wall%s, %.1f x %.1f m, protected %s
-it: Pareti: {0}, {2} × {3} m, protetto {4}
-en: age unknown
-it: data sconosciuta
-en: Restore chaperone now
-it: Ripristina ora il chaperone
 en: Automatic updates
 it: Aggiornamenti automatici
 en: Downloads verified updates. Close Steam before installing them.
@@ -401,8 +389,8 @@ en: Downloading %s  %u%%
 it: Download di {0}  {1}%
 en: You're up to date (%s)
 it: Sei aggiornato ({0})
-en: Version %s is downloaded and verified
-it: La versione {0} è scaricata e verificata
+en: Version %s is ready to install
+it: La versione {0} è pronta da installare
 en: Update check failed
 it: Controllo aggiornamenti non riuscito
 en: Update check failed: %s
@@ -417,32 +405,40 @@ en: Check again
 it: Controlla di nuovo
 en: Detailed calibration logging
 it: Registro dettagliato della calibrazione
-en: Records extra tracking and calibration details. Saved diagnostics remove your name and folder paths.
-it: Registra più dettagli su tracciamento e calibrazione. Le diagnostiche salvate rimuovono il tuo nome e i percorsi delle cartelle.
+en: Records extra tracking and calibration details. Saved files leave out your name and folder paths.
+it: Registra più dettagli su tracciamento e calibrazione. I file salvati non includono il tuo nome né i percorsi delle cartelle.
 en: Save diagnostics file
 it: Salva file di diagnostica
 en: Diagnostics saved to %s
 it: Diagnostica salvata in {0}
-en: Motion demo credits
-it: Crediti delle animazioni
+en: Motion demos
+it: Animazioni
+en: Nova Calibrator is made by %s and builds on %s by %s.
+it: Nova Calibrator è realizzato da {0} e si basa su {1} di {2}.
+en: GitHub
+it: GitHub
 en: Edit calibration (advanced)
 it: Modifica calibrazione (avanzato)
 en: Edit calibration
 it: Modifica calibrazione
 
 # Calibration editor.
-en: ROTATION (DEGREES)
-it: ROTAZIONE (GRADI)
+en: Rotation, degrees
+it: Rotazione, gradi
 en: Yaw
 it: Imbardata
 en: Pitch
 it: Beccheggio
 en: Roll
 it: Rollio
-en: TRANSLATION (CENTIMETERS)
-it: TRASLAZIONE (CENTIMETRI)
-en: SCALE
-it: SCALA
+en: Translation, centimeters
+it: Traslazione, centimetri
+en: Scale
+it: Scala
+en: Fine-tune the calibration by hand. Nothing changes until you save.
+it: Regola a mano la calibrazione. Non cambia nulla finché non salvi.
+en: Playspace scale
+it: Scala dello spazio di gioco
 en: These values can't be applied. Use plain numbers within range. The saved calibration is unchanged.
 it: Questi valori non si possono applicare. Usa numeri semplici entro i limiti. La calibrazione salvata non è cambiata.
 en: Save calibration
@@ -601,12 +597,8 @@ en: Make bigger turns, and keep them pressed together.
 it: Fai rotazioni più ampie e tienili premuti l'uno contro l'altro.
 en: The devices only rotated in one direction.
 it: I dispositivi hanno ruotato in una sola direzione.
-en: The devices didn't rotate in enough directions.
-it: I dispositivi non hanno ruotato in abbastanza direzioni.
 en: Turn and tilt both devices together in different directions.
 it: Gira e inclina insieme i due dispositivi in direzioni diverse.
-en: Turn and tilt both devices together, then try again.
-it: Gira e inclina insieme i due dispositivi, poi riprova.
 en: The devices' rotation readings didn't match closely enough.
 it: Le misure di rotazione dei dispositivi non coincidevano abbastanza.
 en: Hold them firmly together and try again.
@@ -765,10 +757,6 @@ en: Re-aligned your trackers after your headset's tracking shifted.
 it: Tracker riallineati dopo uno spostamento del tracciamento del visore.
 en: Continuous calibration went back to the alignment it had before it last re-aligned your trackers.
 it: La calibrazione continua è tornata all'allineamento che aveva prima dell'ultimo riallineamento dei tracker.
-en: Continuous calibration paused: the headset tracker's base station tracking restarted and doesn't match the headset yet. It resumes on its own once that settles.
-it: Calibrazione continua in pausa: il tracciamento del tracker del visore con le stazioni base è ripartito e non corrisponde ancora al visore. Riprenderà da sola quando si sarà stabilizzato.
-en: QuestCalibrator: continuous calibration paused while the headset tracker's base station tracking settles. It resumes on its own, so don't recalibrate yet.
-it: QuestCalibrator: calibrazione continua in pausa finché il tracciamento del tracker del visore con le stazioni base si stabilizza. Riprenderà da sola, quindi non ricalibrare ancora.
 en: Tracking is noisy here; continuous calibration is waiting and resumes on its own.
 it: Qui il tracciamento è instabile; la calibrazione continua è in attesa e riprenderà da sola.
 en: QuestCalibrator: tracking is noisy here. Continuous calibration is waiting and resumes on its own.
@@ -1063,8 +1051,18 @@ en: Base stations appear here once SteamVR has written %s
 it: Le stazioni base compaiono qui dopo che SteamVR ha scritto {0}
 en: its vrserver log.
 it: il suo registro vrserver.
-en: BASE STATIONS
-it: STAZIONI BASE
+en: Base stations
+it: Stazioni base
+en: Which base stations each device can see, live from SteamVR's log.
+it: Quali stazioni base vede ogni dispositivo, in tempo reale dal registro di SteamVR.
+en: Device
+it: Dispositivo
+en: Dropped out once
+it: Interrotta una volta
+en: Dropped out twice
+it: Interrotta due volte
+en: Dropped out %u times
+it: Interrotta {0} volte
 en: None named yet. Each base station appears as SteamVR reports it.
 it: Ancora nessuna. Ogni stazione base compare quando SteamVR la segnala.
 en: id not logged yet
@@ -1073,20 +1071,18 @@ en: No reports yet
 it: Nessuna segnalazione
 en: Seen by %d of %d
 it: Vista da {0} su {1}
-en: No dropouts this session
-it: Nessuna interruzione in questa sessione
+en: No dropouts
+it: Nessuna interruzione
 en: Dropped out %u time%s
 it: Interruzioni: {0}
 en: Dropped out %u time%s · the last one left %u time%s
 it: Interruzioni: {0} · ultima rimasta: {2}
-en: IN VIEW OF EACH DEVICE
-it: VISTE DA OGNI DISPOSITIVO
+en: What each device sees
+it: Cosa vede ogni dispositivo
 en: Not in the log yet
 it: Non ancora nel registro
 en: %d of %d in view
 it: {0} su {1} in vista
-en: no dropouts
-it: nessuna interruzione
 en: %u dropout%s
 it: interruzioni: {0}
 en: %u dropout%s, %u full loss%s

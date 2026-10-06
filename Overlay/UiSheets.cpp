@@ -141,6 +141,7 @@ void BuildOverlays(const VRState &state)
 	case Sheet::Anchors: BuildAnchorsSheet(); break;
 	case Sheet::Activity: BuildActivitySheet(); break;
 	case Sheet::Editor: BuildEditorSheet(); break;
+	case Sheet::Credits: BuildCreditsSheet(); break;
 	case Sheet::None: break;
 	}
 	ImGui::PopID();
