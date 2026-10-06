@@ -255,7 +255,6 @@ namespace ui
 				out.lines.push_back(line);
 				out.width = std::max(out.width, font->CalcTextSizeA(glyph, FLT_MAX, 0.0f, line.first, line.second).x);
 			}
-			s = paragraphEnd;
 			if (!newline)
 				break;
 			s = newline + 1;

@@ -169,7 +169,7 @@ public:
 
 	// A switch. value is shown; changed is called with the new one. A value
 	// string (advanced numbers) sits beside the switch.
-	Row &Toggle(const char *english, const char *subEnglish, bool value, std::function<void(bool)> changed,
+	Row &Toggle(const char *english, const char *subEnglish, bool value, const std::function<void(bool)> &changed,
 		const char *badgeEnglish = nullptr, const std::string &valueText = std::string())
 	{
 		const ui::TextStyle valueStyle = ui::type::Callout;
@@ -250,7 +250,7 @@ public:
 	}
 
 	// A full-width button on its own row; label is English, as built.
-	Row &Action(const std::string &label, ui::Icon icon, std::function<void()> pressed)
+	Row &Action(const std::string &label, ui::Icon icon, const std::function<void()> &pressed)
 	{
 		Row &row = NewRow();
 		YGNodeStyleSetPadding(row.node, YGEdgeAll, 12.0f);
