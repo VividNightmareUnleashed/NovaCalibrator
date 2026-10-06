@@ -269,6 +269,23 @@ static void ToneIcon(CalibrationContext::Tone tone, ui::Icon &icon, ImU32 &ink, 
 	}
 }
 
+// An entry's icon: what it is about, or its tone for the rest.
+static void EntryIcon(const CalibrationContext::ActivityEntry &entry, ui::Icon &icon, ImU32 &ink, ImU32 &fill)
+{
+	using Event = CalibrationContext::Event;
+	ToneIcon(entry.tone, icon, ink, fill);
+	switch (entry.event)
+	{
+	case Event::TrackerOff: icon = ui::Icon::Power; ink = ui::Rgba(236, 238, 244, 0.75f); fill = ui::Rgba(255, 255, 255, 0.08f); break;
+	case Event::Paused: icon = ui::Icon::Pause; ink = ui::col::Caution; fill = ui::col::CautionTint; break;
+	case Event::Realigned: icon = ui::Icon::Refresh; ink = ui::col::Link; fill = ui::col::LinkTint; break;
+	case Event::Anchor: icon = ui::Icon::Anchor; ink = ui::col::Link; fill = ui::col::LinkTint; break;
+	case Event::Chaperone: icon = ui::Icon::Chaperone; ink = ui::col::Link; fill = ui::col::LinkTint; break;
+	case Event::Calibrated: icon = ui::Icon::Check; break;
+	default: break;
+	}
+}
+
 // "Today", "Yesterday" or the date, for the day an entry belongs to.
 static std::string DayLabel(double unixTime)
 {
@@ -363,7 +380,7 @@ void BuildActivitySheet()
 				ui::Hairline(dl, r.min.x + 64.0f, r.max.x, r.min.y);
 			ui::Icon icon;
 			ImU32 ink, fill;
-			ToneIcon(row.entry->tone, icon, ink, fill);
+			EntryIcon(*row.entry, icon, ink, fill);
 			ui::RoundIcon(dl, fl.Rect(row.icon).Center(), 32.0f, icon, 17.0f, ink, fill);
 			const FlexRect time = fl.Rect(row.time);
 			ui::DrawLine(dl, ui::TextStyle{ ui::Weight::Regular, 15.0f, time.H() }, time.min, ui::col::Quiet,
@@ -793,7 +810,7 @@ void BuildChaperoneWarningDialog()
 	std::vector<DialogText> paragraphs = {
 		{ Tr("Nova Calibrator saves and restores your SteamVR chaperone. "
 			"Tracking drift can still shift it away from your real walls."), ui::col::Muted },
-		{ Tr("Keep the Quest boundary turned on too. A protected chaperone "
+		{ Tr("Keep the Quest boundary on too. A protected chaperone "
 			"doesn't guarantee that your play area is clear or correctly aligned."), ui::col::Muted },
 		{ Tr("Before you play, check that the walls match your room and leave "
 			"enough space to move safely, especially when dancing."), ui::col::Lavender },

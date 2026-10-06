@@ -73,14 +73,14 @@ void SetToastSink(std::function<void(const char *)> sink)
 // re-arm flag. The line goes through Tell so it reaches the main screen's
 // activity feed as well as the log.
 void calibration_internal::NotifyOnce(CalibrationContext &ctx, bool &notified, const char *line,
-	CalibrationContext::Tone tone, const char *toast, bool showToast)
+	CalibrationContext::Tone tone, const char *toast, bool showToast, CalibrationContext::Event event)
 {
 	if (notified)
 		return;
 	notified = true;
 
 	// Always logged, even with toasts off or no sink.
-	ctx.Tell(std::string(line) + "\n", tone);
+	ctx.Tell(std::string(line) + "\n", tone, event);
 
 	if (showToast && ToastSink)
 		ToastSink(toast);

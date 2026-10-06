@@ -930,7 +930,8 @@ bool LoadChaperoneBounds()
 			"Chaperone saved: %u wall%s, %.1f x %.1f m.",
 			quadCount, quadCount == 1 ? "" : "s", CalCtx.chaperone.playSpaceSize.v[0],
 			CalCtx.chaperone.playSpaceSize.v[1]);
-	CalCtx.Tell(message, quadCount == 0 ? CalibrationContext::Tone::Warn : CalibrationContext::Tone::Good);
+	CalCtx.Tell(message, quadCount == 0 ? CalibrationContext::Tone::Warn : CalibrationContext::Tone::Good,
+		CalibrationContext::Event::Chaperone);
 	return true;
 }
 
@@ -1033,7 +1034,7 @@ bool ApplyChaperoneBounds(bool logSuccess)
 		return false;
 	}
 	if (logSuccess)
-		CalCtx.Tell("Chaperone restored.", CalibrationContext::Tone::Good);
+		CalCtx.Tell("Chaperone restored.", CalibrationContext::Tone::Good, CalibrationContext::Event::Chaperone);
 	CalCtx.ClearError(CalibrationContext::ErrorSource::Chaperone);
 	return true;
 }

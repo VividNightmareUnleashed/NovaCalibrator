@@ -104,7 +104,8 @@ std::string DeviceName(const CalibrationContext &ctx, const std::string &model,
 	const std::string &serial, bool reference);
 uint32_t LighthouseRestarts(const CalibrationContext &ctx, const std::string &serial);
 void NotifyOnce(CalibrationContext &ctx, bool &notified, const char *line,
-	CalibrationContext::Tone tone, const char *toast, bool showToast);
+	CalibrationContext::Tone tone, const char *toast, bool showToast,
+	CalibrationContext::Event event = CalibrationContext::Event::Other);
 
 // The per-tick steps CalibrationTick runs from the other files.
 void LighthouseTick(CalibrationContext &ctx, double time);

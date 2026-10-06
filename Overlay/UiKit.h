@@ -80,7 +80,9 @@ namespace ui
 	// Type
 	// -----------------------------------------------------------------------
 
-	enum class Weight { Regular, Medium, SemiBold, Bold };
+	// Mono is the design's monospace face for measurements and ids, at its
+	// regular weight.
+	enum class Weight { Regular, Medium, SemiBold, Bold, Mono };
 
 	// A CSS size and line height in pixels. Lines are spaced lineHeight apart
 	// and the glyphs sit in each line box the way a browser places them.
@@ -193,6 +195,7 @@ namespace ui
 		Chevron, ChevronLeft, ChevronUpDown, Close, Check, Plus, Minus,
 		Trash, Download, Doc, Pencil, Info, Warn, Refresh, Power, Pause, Play,
 		Book, Globe, Bell, Clock, ShieldCheck, Headset, Tracker, Controller, More,
+		Replay, DownloadCircle,
 		Count
 	};
 	// size is the drawn width of the 24-unit grid; stroke is in grid units.
@@ -224,8 +227,10 @@ namespace ui
 
 	// A row of choices in a rounded track; the chosen one carries a lit pill.
 	float PillSegmentedWidth(const char *const items[], int count, float fontSize, float minItemW, bool translate = true);
+	// lead leaves room inside the track, before the first choice, for an icon
+	// the caller draws.
 	int PillSegmented(const char *id, int value, const char *const items[], int count, const FlexRect &r,
-		float fontSize = 16.0f, bool translate = true);
+		float fontSize = 16.0f, bool translate = true, float lead = 0.0f);
 
 	// A status pill with a coloured dot. The text is the caller's, translated.
 	float ChipWidth(const char *text);

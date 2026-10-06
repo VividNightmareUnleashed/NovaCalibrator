@@ -63,7 +63,7 @@ static void NotifyResolveFreeze(CalibrationContext &ctx)
 		"Continuous calibration paused after the headset tracker restarted. It resumes if tracking recovers; another tracker restart may be needed.",
 		CalibrationContext::Tone::Warn,
 		"QuestCalibrator: tracking has not recovered after the headset tracker restarted. Wait, or turn that tracker off and on in view of its base stations.",
-		ctx.notifyPoorCalibration);
+		ctx.notifyPoorCalibration, CalibrationContext::Event::Paused);
 }
 
 // ---------------------------------------------------------------------------
@@ -200,22 +200,24 @@ static void TrackerPresenceTick(CalibrationContext &ctx, double now)
 		p.lastNoticeAt = now;
 		std::string line;
 		if (!standby)
-			line = "The headset tracker switched off or lost its connection. Turn it back on to resume continuous calibration.";
+			line = "The headset tracker switched off or lost its connection.";
 		else if (const int minutes = TurnOffControllersMinutes())
 		{
 			char buf[256];
 			snprintf(buf, sizeof buf,
-				"SteamVR switched the headset tracker off after it sat still for %d minutes. Turn it back on to resume continuous calibration.",
+				"SteamVR switched the headset tracker off after it sat still for %d minutes.",
 				minutes);
 			line = buf;
 		}
 		else
-			line = "SteamVR switched the headset tracker off after it sat still. Turn it back on to resume continuous calibration.";
-		ctx.Tell(line + "\n", CalibrationContext::Tone::Warn);
+			line = "SteamVR switched the headset tracker off after it sat still.";
+		// The main screen says to turn it back on; the feed says what happened.
+		ctx.Tell(line + "\n", CalibrationContext::Tone::Warn, CalibrationContext::Event::TrackerOff);
 		if (standby && !p.settingHinted)
 		{
 			p.settingHinted = true;
-			ctx.Tell("To keep SteamVR from doing this, set \"Turn off controllers after\" to Never in SteamVR's Startup / Shutdown settings.\n");
+			ctx.Tell("To keep this from happening, set \xE2\x80\x9CTurn off controllers after\xE2\x80\x9D to Never in SteamVR's Startup / "
+				"Shutdown settings.\n", CalibrationContext::Tone::Neutral, CalibrationContext::Event::TrackerOff);
 		}
 		if (toasts)
 			ToastSink(Toast);
@@ -453,7 +455,7 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 					"Continuous calibration paused: readings moved too far from the calibration. It re-aligns on its own if they hold steady.",
 					CalibrationContext::Tone::Warn,
 					"QuestCalibrator: continuous calibration paused; readings moved too far from the calibration. It re-aligns on its own if they hold steady, or recalibrate with the headset tracker.",
-					ctx.notifyPoorCalibration);
+					ctx.notifyPoorCalibration, CalibrationContext::Event::Paused);
 			else
 				// Without the tracker's restarts in view nothing re-aligns on
 				// its own; only the readings coming back resume it.
@@ -461,7 +463,7 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 					"Continuous calibration paused: tracking drifted too far to correct safely.",
 					CalibrationContext::Tone::Warn,
 					"QuestCalibrator: continuous calibration paused; readings drifted too far to correct safely. Recalibrate with the headset tracker to resume.",
-					ctx.notifyPoorCalibration);
+					ctx.notifyPoorCalibration, CalibrationContext::Event::Paused);
 			break;
 		case questcal::ContinuousAlignment::Event::Reanchored:
 			if (!reanchorApplied)
@@ -483,7 +485,7 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 			Monitors.freezeNotified = false;
 			if (!ctx.continuousNoPause)
 				ctx.Tell("Re-aligned your trackers after your headset's tracking shifted.\n",
-					CalibrationContext::Tone::Good);
+					CalibrationContext::Tone::Good, CalibrationContext::Event::Realigned);
 			break;
 		case questcal::ContinuousAlignment::Event::ReanchorUndone:
 			if (!reanchorApplied)
@@ -508,7 +510,7 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 				"Tracking is noisy here; continuous calibration is waiting and resumes on its own.",
 				CalibrationContext::Tone::Warn,
 				"QuestCalibrator: tracking is noisy here. Continuous calibration is waiting and resumes on its own.",
-				ctx.notifyPoorCalibration);
+				ctx.notifyPoorCalibration, CalibrationContext::Event::Paused);
 			break;
 		case questcal::ContinuousAlignment::Event::Resumed:
 			ctx.Tell("Continuous calibration resumed.\n", CalibrationContext::Tone::Good);

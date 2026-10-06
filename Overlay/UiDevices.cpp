@@ -386,6 +386,7 @@ void BuildPairSheet(const VRState &state)
 			ui::Fade(panel, 0.0f), ui::Fade(panel, 0.0f), panel, panel);
 	}
 	ImGui::EndChild();
+	ui::Hairline(ImGui::GetWindowDrawList(), c.min.x, c.max.x, c.max.y - footerH - 18.0f);
 
 	FlexRect done, identify;
 	const float doneW = std::max(140.0f, ui::PillWidth("Done", 18.0f));

@@ -259,12 +259,14 @@ void WelcomeStep()
 	ImDrawList *dl = ImGui::GetWindowDrawList();
 	// Each language in its own words, so a player who cannot read this one
 	// still finds theirs.
-	const float languageW = LanguagePickerWidth();
+	// The globe sits inside the pill, ahead of the choices.
+	const float globe = 10.0f + 18.0f + 6.0f + 2.0f;
 	FlexRect language;
 	language.max = ImVec2(kWindowW - 32.0f, 28.0f + 44.0f);
-	language.min = ImVec2(language.max.x - languageW, 28.0f);
-	ui::DrawIcon(dl, ui::Icon::Globe, ImVec2(language.min.x - 20.0f, language.Center().y), 20.0f, ui::col::Muted);
-	LanguagePicker("##setuplanguage", language);
+	language.min = ImVec2(language.max.x - LanguagePickerWidth() - globe, 28.0f);
+	LanguagePicker("##setuplanguage", language, globe);
+	ui::DrawIcon(dl, ui::Icon::Globe, ImVec2(language.min.x + 4.0f + 10.0f + 9.0f, language.Center().y), 18.0f,
+		ui::Rgba(236, 238, 244, 0.66f));
 
 	static const Feature features[] = {
 		{ ui::Icon::Reticle, "Calibrate in seconds", "Hold a controller to a tracker and move both for 10 seconds." },
@@ -501,7 +503,7 @@ void UpdatesStep()
 		{ ui::Icon::Globe, "Talks only to GitHub", "It only ever checks Nova Calibrator's releases on GitHub." },
 	};
 	Page page(72.0f);
-	YGNodeRef icon = page.fl.Box(page.root, 56.0f, 56.0f);
+	YGNodeRef icon = page.fl.Box(page.root, 68.0f, 68.0f);
 	page.Text(ui::type::SetupTitle, Tr("Keep Nova Calibrator up to date"), 20.0f, 1000.0f);
 	page.Text(kLead, Tr("New versions download in the background. You decide when to install them."), 12.0f, 620.0f);
 	const auto nodes = LayOutFeatures(page, features, 3, 40.0f, 22.0f);
@@ -511,8 +513,7 @@ void UpdatesStep()
 	page.Compute();
 
 	const ImVec2 ic = page.fl.Rect(icon).Center();
-	dl->AddCircle(ic, 26.0f, ui::col::Link, 48, 3.0f);
-	ui::DrawIcon(dl, ui::Icon::Download, ImVec2(ic.x, ic.y - 1.0f), 30.0f, ui::col::Link, 2.4f);
+	ui::DrawIcon(dl, ui::Icon::DownloadCircle, ic, 68.0f, ui::col::Link, 1.4f);
 	page.DrawTexts(dl, ui::col::Text, kLeadInk);
 	DrawFeatures(dl, page, features, nodes);
 	const FlexRect n = page.fl.Rect(note);

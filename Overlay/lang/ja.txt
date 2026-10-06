@@ -181,8 +181,8 @@ en: Upkeep: %u corrections
 ja: 維持：補正 {0} 回
 
 # Warnings above the buttons.
-en: %s headset isn't connected. Calibration is off until it's back.
-ja: {0} ヘッドセットが接続されていません。再接続されるまでキャリブレーションはオフです。
+en: Your %s headset isn't connected, so calibration is off until it's back.
+ja: {0} ヘッドセットが接続されていないため、再接続されるまでキャリブレーションはオフです。
 en: SteamVR isn't accepting the calibration. Restart SteamVR.
 ja: SteamVR がキャリブレーションを受け付けていません。SteamVR を再起動してください。
 en: The app and its SteamVR driver are from different releases. Reinstall QuestCalibrator, then restart SteamVR.
@@ -547,6 +547,10 @@ ja: 完了
 # ---- Run outcomes ----
 en: Calibration complete
 ja: キャリブレーション完了
+en: Calibration complete.
+ja: キャリブレーション完了。
+en: Calibrated with %s and %s.
+ja: {0} と {1} でキャリブレーションしました。
 en: Calibration failed
 ja: キャリブレーションに失敗しました
 en: Calibration stopped
@@ -629,9 +633,11 @@ en: Waiting for %s to settle.
 ja: {0} が安定するのを待っています。
 en: Waiting for %s to start tracking.
 ja: {0} のトラッキングが始まるのを待っています。
-en: The calibration starts on its own in a few seconds. Keep it in view of its base stations.
-ja: 数秒後にキャリブレーションが自動で始まります。ベースステーションから見える位置に保ってください。
-en: The calibration starts on its own once it tracks. Wake it and keep it in view.
+en: Calibration starts on its own in a few seconds. Keep the tracker in view of its base stations.
+ja: 数秒後にキャリブレーションが自動で始まります。トラッカーをベースステーションから見える位置に保ってください。
+en: Calibration starts on its own in a few seconds.
+ja: 数秒後にキャリブレーションが自動で始まります。
+en: Calibration starts on its own once it tracks. Wake it and keep it in view.
 ja: トラッキングされるとキャリブレーションが自動で始まります。デバイスを起動して、見える位置に保ってください。
 en: %s's base station tracking restarted during the measurement.
 ja: 計測中に {0} のベースステーションによるトラッキングが再開されました。
@@ -713,6 +719,8 @@ en: Restart QuestCalibrator and try again.
 ja: QuestCalibrator を再起動して、もう一度お試しください。
 en: This spot now has its own correction, blended in as you walk around.
 ja: この場所専用の補正ができました。歩き回ると滑らかに切り替わります。
+en: Anchor added. This spot now has its own correction.
+ja: アンカーを追加しました。この場所専用の補正ができました。
 en: If your trackers are a little off in one part of the room, stand there and add an anchor. Nova Calibrator fixes that spot and blends the correction in as you walk toward it.
 ja: 部屋の一部でトラッカーが少しずれる場合は、その場所に立ってアンカーを追加してください。Nova Calibrator がその場所を補正し、近づくにつれて滑らかに補正を適用します。
 en: Anchor %zu
@@ -773,13 +781,13 @@ en: No usable readings from the headset and its tracker; continuous calibration 
 ja: ヘッドセットとトラッカーから使える計測値が得られないため、連続キャリブレーションは待機中です。
 en: Readings back; continuous calibration warming up.
 ja: 計測値が戻りました。連続キャリブレーションを準備中です。
-en: SteamVR switched the headset tracker off after it sat still for %d minutes. Turn it back on to resume continuous calibration.
-ja: ヘッドセットトラッカーが {0} 分間動かなかったため、SteamVR が電源を切りました。電源を入れ直すと連続キャリブレーションが再開します。
-en: SteamVR switched the headset tracker off after it sat still. Turn it back on to resume continuous calibration.
-ja: ヘッドセットトラッカーが動かなかったため、SteamVR が電源を切りました。電源を入れ直すと連続キャリブレーションが再開します。
-en: The headset tracker switched off or lost its connection. Turn it back on to resume continuous calibration.
-ja: ヘッドセットトラッカーの電源が切れたか、接続が切れました。電源を入れ直すと連続キャリブレーションが再開します。
-en: To keep SteamVR from doing this, set "Turn off controllers after" to Never in SteamVR's Startup / Shutdown settings.
+en: SteamVR switched the headset tracker off after it sat still for %d minutes.
+ja: ヘッドセットトラッカーが {0} 分間動かなかったため、SteamVR が電源を切りました。
+en: SteamVR switched the headset tracker off after it sat still.
+ja: ヘッドセットトラッカーが動かなかったため、SteamVR が電源を切りました。
+en: The headset tracker switched off or lost its connection.
+ja: ヘッドセットトラッカーの電源が切れたか、接続が切れました。
+en: To keep this from happening, set “Turn off controllers after” to Never in SteamVR's Startup / Shutdown settings.
 ja: こうならないようにするには、SteamVR の設定の「スタートアップ／シャットダウン」で「次の時間経過後にコントローラの電源を切る」を「なし」にしてください。
 en: QuestCalibrator: the headset tracker is off. Turn it back on to resume continuous calibration.
 ja: QuestCalibrator：ヘッドセットトラッカーの電源が切れています。電源を入れ直すと連続キャリブレーションが再開します。
@@ -789,7 +797,7 @@ en: Check your room boundaries
 ja: 部屋の境界を確認してください
 en: Nova Calibrator saves and restores your SteamVR chaperone. Tracking drift can still shift it away from your real walls.
 ja: Nova Calibrator は SteamVR のシャペロンを保存・復元します。それでもトラッキングのドリフトで、実際の壁からずれることがあります。
-en: Keep the Quest boundary turned on too. A protected chaperone doesn't guarantee that your play area is clear or correctly aligned.
+en: Keep the Quest boundary on too. A protected chaperone doesn't guarantee that your play area is clear or correctly aligned.
 ja: Quest の境界線もオンのままにしてください。シャペロンを保護しても、プレイエリアに障害物がないことや位置が正しいことは保証されません。
 en: Before you play, check that the walls match your room and leave enough space to move safely, especially when dancing.
 ja: プレイ前に、壁が部屋と合っていて、安全に動ける十分なスペースがあるか確認してください。ダンスをするときは特に注意してください。

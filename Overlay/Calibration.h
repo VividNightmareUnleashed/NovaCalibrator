@@ -511,10 +511,13 @@ struct CalibrationContext : CalibrationProfileState
 	// reach someone who is not inside the calibration modal (which is the only
 	// place the pane itself renders).
 	enum class Tone { Neutral, Good, Warn, Bad };
+	// What an entry is about, which picks its icon in the activity sheet.
+	enum class Event { Other, Calibrated, Realigned, Paused, TrackerOff, Anchor, Chaperone };
 	struct ActivityEntry
 	{
 		double unixTime = 0.0;
 		Tone tone = Tone::Neutral;
+		Event event = Event::Other;
 		std::string text;
 	};
 	// The home screen shows the newest three; the activity sheet all of these.
@@ -579,10 +582,10 @@ struct CalibrationContext : CalibrationProfileState
 
 	// A sentence for the player: its own pane entry, the activity feed on the
 	// main screen, and the session log.
-	void Tell(const std::string &msg, Tone tone = Tone::Neutral)
+	void Tell(const std::string &msg, Tone tone = Tone::Neutral, Event event = Event::Other)
 	{
 		PushEntry(Message::Info, msg);
-		PushActivity(msg, tone);
+		PushActivity(msg, tone, event);
 		AppendSessionLog(msg);
 	}
 
@@ -603,9 +606,11 @@ struct CalibrationContext : CalibrationProfileState
 
 	// How a run ended: a headline everyone reads, what happened in the
 	// player's words, an action line when there is something to do, and the
-	// engineer's reason behind the details toggle.
+	// engineer's reason behind the details toggle. The activity feed gets the
+	// headline and body, or activityLine when the feed says it shorter.
 	void Outcome(const std::string &headline, const std::string &body,
-		const std::string &action, const std::string &detail, Tone tone = Tone::Neutral)
+		const std::string &action, const std::string &detail, Tone tone = Tone::Neutral,
+		Event event = Event::Other, const std::string &activityLine = std::string())
 	{
 		PushEntry(Message::Headline, headline);
 		if (!body.empty())
@@ -614,7 +619,8 @@ struct CalibrationContext : CalibrationProfileState
 			PushEntry(Message::Action, action);
 		if (!detail.empty())
 			PushEntry(Message::Detail, detail);
-		PushActivity(body.empty() ? headline : headline + ": " + body, tone);
+		PushActivity(!activityLine.empty() ? activityLine : body.empty() ? headline : headline + ": " + body,
+			tone, event);
 		std::string line = headline;
 		if (!body.empty())
 			line += ": " + body;
@@ -625,11 +631,12 @@ struct CalibrationContext : CalibrationProfileState
 		AppendSessionLog(line);
 	}
 
-	void PushActivity(const std::string &text, Tone tone)
+	void PushActivity(const std::string &text, Tone tone, Event event = Event::Other)
 	{
 		ActivityEntry entry;
 		entry.unixTime = static_cast<double>(std::time(nullptr));
 		entry.tone = tone;
+		entry.event = event;
 		entry.text = text;
 		while (!entry.text.empty() && (entry.text.back() == '\n' || entry.text.back() == '\r'))
 			entry.text.pop_back();

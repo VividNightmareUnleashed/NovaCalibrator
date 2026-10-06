@@ -36,7 +36,7 @@ namespace ui
 	// Type
 	// -----------------------------------------------------------------------
 
-	static ImFont *s_fonts[4] = {};
+	static ImFont *s_fonts[5] = {};
 
 	void SetFont(Weight weight, ImFont *font)
 	{
@@ -46,6 +46,9 @@ namespace ui
 	ImFont *FontOf(Weight weight)
 	{
 		ImFont *font = s_fonts[static_cast<int>(weight)];
+		// Without a monospace face Windows has, Inter sets it.
+		if (!font && weight == Weight::Mono)
+			font = s_fonts[static_cast<int>(Weight::Regular)];
 		return font ? font : ImGui::GetFont();
 	}
 
@@ -462,6 +465,8 @@ namespace ui
 			case Icon::Tracker: return { P("M12 4.5l6.5 3.75v7.5L12 19.5l-6.5-3.75v-7.5z"), D(12, 12, 1.8f) };
 			case Icon::Controller: return { O(9.5f, 8.5f, 5.5f), P("M12.6 13l4 7") };
 			case Icon::More: return { D(6, 12, 1.7f), D(12, 12, 1.7f), D(18, 12, 1.7f) };
+			case Icon::Replay: return { P("M4.5 12a7.5 7.5 0 1 0 2.2-5.3"), P("M4.5 4.5v4.2h4.2") };
+			case Icon::DownloadCircle: return { O(12, 12, 9), P("M12 7.2v8.6M8.2 12.4l3.8 3.8 3.8-3.8") };
 			default: return {};
 			}
 		}

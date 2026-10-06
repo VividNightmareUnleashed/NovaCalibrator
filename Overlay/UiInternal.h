@@ -214,7 +214,7 @@ void BuildSetup(const VRState &state);
 
 // The language choice, each language written in its own (UiSettings.cpp).
 float LanguagePickerWidth();
-bool LanguagePicker(const char *id, const FlexRect &r);
+bool LanguagePicker(const char *id, const FlexRect &r, float lead = 0.0f);
 
 // The window's pages, each laid out from origin across width; each returns
 // the height it took so the page can scroll.

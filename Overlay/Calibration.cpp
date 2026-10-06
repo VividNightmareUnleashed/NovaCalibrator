@@ -717,9 +717,10 @@ void CalibrationTick(double time)
 					if (instruction != run.waitInstruction)
 					{
 						run.waitInstruction = instruction;
-						run.waitNote = tracking
-							? "The calibration starts on its own in a few seconds. Keep it in view of its base stations."
-							: "The calibration starts on its own once it tracks. Wake it and keep it in view.";
+						// Only the lighthouse device has base stations to keep in view.
+						run.waitNote = !tracking ? "Calibration starts on its own once it tracks. Wake it and keep it in view."
+							: reference ? "Calibration starts on its own in a few seconds."
+							: "Calibration starts on its own in a few seconds. Keep the tracker in view of its base stations.";
 						ctx.Log("Calibration waiting: " + instruction + "\n");
 					}
 					return;

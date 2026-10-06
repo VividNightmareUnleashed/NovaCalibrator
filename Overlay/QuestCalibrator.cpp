@@ -435,6 +435,21 @@ static ImFont *AddInterFont(ImGuiIO &io, const char *resource, float size, ui::W
 	return font;
 }
 
+// The design's monospace face, for measurements and ids: Cascadia Mono, which
+// Windows 11 has, or Consolas before it. Sized to Inter's em like the Japanese
+// fallback; null when Windows has neither, and Inter sets that text.
+static ImFont *AddMonoFont(ImGuiIO &io, float size)
+{
+	const WindowsFace face = FindWindowsFace({ { L"CascadiaMono.ttf", 0 }, { L"consola.ttf", 0 } });
+	if (!face.data)
+		return nullptr;
+	ImFontConfig config;
+	config.FontDataOwnedByAtlas = false;   // the cached file
+	config.ExtraSizeScale = face.span / ui::GlyphSize(1.0f);
+	return io.Fonts->AddFontFromMemoryTTF(const_cast<char *>(face.data->data()), static_cast<int>(face.data->size()),
+		size, &config);
+}
+
 // The overlay texture's size: what SteamVR shows, what the UI lays out for and
 // what -shot writes.
 static constexpr int OverlayWidth = 1200;
@@ -523,6 +538,7 @@ public:
 		ui::SetFont(ui::Weight::Medium, AddInterFont(io, "FONT_INTER_MEDIUM", 17.0f, ui::Weight::Medium));
 		ui::SetFont(ui::Weight::SemiBold, AddInterFont(io, "FONT_INTER_SEMIBOLD", 17.0f, ui::Weight::SemiBold));
 		ui::SetFont(ui::Weight::Bold, AddInterFont(io, "FONT_INTER_BOLD", 17.0f, ui::Weight::Bold));
+		ui::SetFont(ui::Weight::Mono, AddMonoFont(io, 17.0f));
 		// What ImGui's own widgets draw with when nothing pushes a size.
 		io.FontDefault = ui::FontOf(ui::Weight::Regular);
 
