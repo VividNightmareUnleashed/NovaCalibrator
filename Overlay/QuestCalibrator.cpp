@@ -1,9 +1,9 @@
 #include "stdafx.h"
 #include "Calibration.h"
 #include "Configuration.h"
-#include "EmbeddedFiles.h"
 #include "Localization.h"
 #include "Updater.h"
+#include "UiKit.h"
 #include "UserInterface.h"
 #include "ImGuiVRInput.h"
 
@@ -30,9 +30,11 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #pragma comment(linker,"\"/manifestdependency:type='win32' \
@@ -280,21 +282,15 @@ static ManifestInstallResult EnsureManifestRegistration(bool forceAutoLaunch)
 	return result;
 }
 
-// Japanese is drawn from a font Windows already has rather than a bundled
-// one: Yu Gothic ships with Windows 10 and 11, Meiryo and MS Gothic before it.
-// Read once and shared by every size.
-static const std::vector<char> &JapaneseFontData()
+// The first of these fonts Windows has, read whole.
+static std::vector<char> ReadWindowsFont(std::initializer_list<const wchar_t *> candidates)
 {
-	static std::vector<char> data;
-	static bool searched = false;
-	if (searched)
-		return data;
-	searched = true;
+	std::vector<char> data;
 	wchar_t windows[MAX_PATH] = {};
 	const UINT len = GetWindowsDirectoryW(windows, MAX_PATH);
 	if (len == 0 || len >= MAX_PATH)
 		return data;
-	for (const wchar_t *name : { L"YuGothM.ttc", L"YuGothR.ttc", L"meiryo.ttc", L"msgothic.ttc" })
+	for (const wchar_t *name : candidates)
 	{
 		std::error_code ec;
 		const std::filesystem::path path = std::filesystem::path(windows) / L"Fonts" / name;
@@ -310,21 +306,53 @@ static const std::vector<char> &JapaneseFontData()
 	return data;
 }
 
-// One UI face at one size: DroidSans, with the Japanese font merged in as its
-// fallback so Japanese text (the UI's, or a tracker renamed in Japanese)
-// draws. ImGui 1.92 bakes glyphs on first use, so the merge costs nothing
-// until a Japanese glyph is drawn.
-static ImFont *AddUiFont(ImGuiIO &io, float size)
+// Japanese is drawn from a font Windows already has rather than a bundled
+// one: Yu Gothic ships with Windows 10 and 11, Meiryo and MS Gothic before it.
+// The heavier Inter weights get Yu Gothic's bold where Windows has it. Each
+// file is read once and shared by every font that uses it.
+static const std::vector<char> &JapaneseFontData(bool bold)
 {
-	ImFont *font = io.Fonts->AddFontFromMemoryCompressedTTF(
-		DroidSans_compressed_data, DroidSans_compressed_size, size);
-	const std::vector<char> &japanese = JapaneseFontData();
-	const bool merged = font && !japanese.empty();
+	static const std::vector<char> regular = ReadWindowsFont({ L"YuGothM.ttc", L"YuGothR.ttc", L"meiryo.ttc", L"msgothic.ttc" });
+	if (!bold)
+		return regular;
+	static const std::vector<char> heavy = ReadWindowsFont({ L"YuGothB.ttc", L"meiryob.ttc" });
+	return heavy.empty() ? regular : heavy;
+}
+
+// An embedded resource's bytes, valid for the life of the process.
+static std::pair<void *, int> EmbeddedBytes(const char *name)
+{
+	HRSRC resource = FindResourceA(nullptr, name, MAKEINTRESOURCEA(10));   // RT_RCDATA
+	if (!resource)
+		return { nullptr, 0 };
+	void *bytes = LockResource(LoadResource(nullptr, resource));
+	return { bytes, bytes ? static_cast<int>(SizeofResource(nullptr, resource)) : 0 };
+}
+
+// One Inter weight (Fonts.rc) with the Japanese font merged in as its
+// fallback, so Japanese text (the UI's, or a tracker renamed in Japanese)
+// draws. ImGui 1.92 bakes glyphs on first use and at any size, so one font
+// serves every size and the merge costs nothing until a Japanese glyph is
+// drawn. size only sets the font's default (LegacySize).
+static ImFont *AddInterFont(ImGuiIO &io, const char *resource, float size, bool bold)
+{
+	const auto [data, bytes] = EmbeddedBytes(resource);
+	ImFont *font = nullptr;
+	if (data)
+	{
+		ImFontConfig config;
+		config.FontDataOwnedByAtlas = false;   // read-only resource memory
+		font = io.Fonts->AddFontFromMemoryTTF(data, bytes, size, &config);
+	}
+	if (!font)
+		return io.Fonts->AddFontDefault();
+	const std::vector<char> &japanese = JapaneseFontData(bold);
+	const bool merged = !japanese.empty();
 	if (merged)
 	{
 		ImFontConfig config;
 		config.MergeMode = true;
-		config.FontDataOwnedByAtlas = false;   // shared by all three sizes
+		config.FontDataOwnedByAtlas = false;   // shared by every weight
 		io.Fonts->AddFontFromMemoryTTF(const_cast<char *>(japanese.data()),
 			static_cast<int>(japanese.size()), size, &config);
 	}
@@ -416,9 +444,14 @@ public:
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
 		io.IniFilename = nullptr;
-		g_fontBody = AddUiFont(io, 21.0f);
-		g_fontSmall = AddUiFont(io, 14.0f);
-		g_fontTitle = AddUiFont(io, 27.0f);
+		ui::SetFont(ui::Weight::Regular, AddInterFont(io, "FONT_INTER_REGULAR", 17.0f, false));
+		ui::SetFont(ui::Weight::Medium, AddInterFont(io, "FONT_INTER_MEDIUM", 17.0f, false));
+		ui::SetFont(ui::Weight::SemiBold, AddInterFont(io, "FONT_INTER_SEMIBOLD", 17.0f, true));
+		ui::SetFont(ui::Weight::Bold, AddInterFont(io, "FONT_INTER_BOLD", 17.0f, true));
+		// The fixed sizes the screens not yet on the design kit still draw at.
+		g_fontBody = AddInterFont(io, "FONT_INTER_REGULAR", 21.0f, false);
+		g_fontSmall = AddInterFont(io, "FONT_INTER_REGULAR", 14.0f, false);
+		g_fontTitle = AddInterFont(io, "FONT_INTER_SEMIBOLD", 27.0f, true);
 		io.FontDefault = g_fontBody;
 
 		ImGui_ImplGlfw_InitForOpenGL(window, true);

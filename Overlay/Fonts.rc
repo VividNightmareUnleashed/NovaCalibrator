@@ -1,0 +1,6 @@
+// Inter, the interface typeface, built in as its four static weights
+// (lib/inter, SIL Open Font License 1.1).
+FONT_INTER_REGULAR RCDATA "..\\lib\\inter\\Inter-Regular.ttf"
+FONT_INTER_MEDIUM RCDATA "..\\lib\\inter\\Inter-Medium.ttf"
+FONT_INTER_SEMIBOLD RCDATA "..\\lib\\inter\\Inter-SemiBold.ttf"
+FONT_INTER_BOLD RCDATA "..\\lib\\inter\\Inter-Bold.ttf"

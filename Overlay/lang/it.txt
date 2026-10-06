@@ -1065,3 +1065,11 @@ en: Jinxxy
 it: Jinxxy
 en: OpenVR-SpaceCalibrator
 it: OpenVR-SpaceCalibrator
+
+# The calibration steps, as the sheet's stepper names them.
+en: Get set
+it: Preparazione
+en: Move
+it: Movimento
+en: Check
+it: Verifica

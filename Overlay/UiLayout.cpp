@@ -1,6 +1,8 @@
 #include "stdafx.h"
 #include "UiLayout.h"
 
+#include <cfloat>
+
 FlexLayout::FlexLayout() : origin(0.0f, 0.0f)
 {
 	config = YGConfigNew();
@@ -39,6 +41,24 @@ YGNodeRef FlexLayout::Text(YGNodeRef parent, ImFont *font, const char *text)
 	YGNodeStyleSetHeight(node, font->LegacySize);
 	// Text is the one thing that must not give way to a neighbour.
 	YGNodeStyleSetFlexShrink(node, 0.0f);
+	return node;
+}
+
+static YGSize MeasureThroughContext(YGNodeConstRef node, float width, YGMeasureMode widthMode,
+	float /*height*/, YGMeasureMode /*heightMode*/)
+{
+	const auto &measure = *static_cast<const std::function<ImVec2(float)> *>(YGNodeGetContext(node));
+	const ImVec2 size = measure(widthMode == YGMeasureModeUndefined ? FLT_MAX : width);
+	return YGSize{ widthMode == YGMeasureModeExactly ? width : size.x, size.y };
+}
+
+YGNodeRef FlexLayout::Measured(YGNodeRef parent, std::function<ImVec2(float)> measure)
+{
+	YGNodeRef node = Add(parent);
+	measures.push_back(std::move(measure));
+	YGNodeSetContext(node, &measures.back());
+	YGNodeSetMeasureFunc(node, MeasureThroughContext);
+	YGNodeSetNodeType(node, YGNodeTypeText);
 	return node;
 }
 
