@@ -255,10 +255,10 @@ en: Yesterday
 ja: 昨日
 en: Tools
 ja: ツール
-en: Identify the pair
-ja: ペアを確認
-en: Makes both vibrate or blink
-ja: 2 台を振動・点滅させます
+en: The Quest device and the SteamVR device you hold together to calibrate.
+ja: キャリブレーションのときに一緒に持つ Quest のデバイスと SteamVR のデバイスです。
+en: Not chosen yet
+ja: まだ選ばれていません
 en: Chaperone
 ja: シャペロン
 en: Protected %s
