@@ -259,10 +259,10 @@ en: Yesterday
 it: Ieri
 en: Tools
 it: Strumenti
-en: Identify the pair
-it: Identifica la coppia
-en: Makes both vibrate or blink
-it: Li fa vibrare o lampeggiare
+en: The Quest device and the SteamVR device you hold together to calibrate.
+it: Il dispositivo Quest e il dispositivo SteamVR da tenere insieme durante la calibrazione.
+en: Not chosen yet
+it: Non ancora scelta
 en: Chaperone
 it: Chaperone
 en: Protected %s

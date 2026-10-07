@@ -676,11 +676,27 @@ float BuildHomePage(const VRState &state, ImVec2 origin, float width)
 	}
 
 	ui::DrawLine(dl, ui::type::Section, fl.Rect(toolsTitle).min, ui::col::Text, Tr("Tools"));
-	if (ui::ToolTile("##identify", fl.Rect(tileNodes[0]), ui::Icon::Identify, "Identify the pair", Tr("Makes both vibrate or blink"),
-		false, false))
-		StartIdentifyPulse(CalCtx.targetID, CalCtx.referenceID);
-	if (ImGui::IsItemHovered())
-		ShowTip("Vibrates or blinks the two selected devices so you can tell which is which.");
+	{
+		// The pair is set once and rarely changed, and a calibration carried
+		// over skips the setup that asks for it, so its tile says which two
+		// devices it is. The sheet has Identify too.
+		std::string reference, target;
+		for (const auto &d : state.devices)
+		{
+			if (static_cast<uint32_t>(d.id) == CalCtx.referenceID)
+				reference = DeviceDisplayName(d);
+			if (static_cast<uint32_t>(d.id) == CalCtx.targetID)
+				target = DeviceDisplayName(d);
+		}
+		const bool chosen = CalCtx.referenceID < vr::k_unMaxTrackedDeviceCount || CalCtx.targetID < vr::k_unMaxTrackedDeviceCount;
+		const std::string sub = !chosen ? std::string(Tr("Not chosen yet"))
+			: (reference.empty() ? std::string(Tr("Not connected")) : reference) + " + " +
+				(target.empty() ? std::string(Tr("Not connected")) : target);
+		if (ui::ToolTile("##pair", fl.Rect(tileNodes[0]), ui::Icon::Controller, "Choose the pair", sub.c_str(), true, false))
+			OpenSheet(Sheet::Pair);
+		if (ImGui::IsItemHovered())
+			ShowTip("The Quest device and the SteamVR device you hold together to calibrate.");
+	}
 	{
 		std::string sub;
 		if (CalCtx.chaperone.valid)
