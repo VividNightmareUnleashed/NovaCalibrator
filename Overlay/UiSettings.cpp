@@ -542,7 +542,7 @@ void TrackerPicker(const FlexRect &r, const PickerLabel &label, const std::vecto
 
 void ContinuousRows(RowPage &page, const VRState &state)
 {
-	page.Section("Continuous calibration", "Experimental");
+	page.Section("Continuous calibration");
 	page.Toggle("Continuous calibration", "Keeps devices aligned while you play, using a tracker strapped to your headset.",
 		CalCtx.continuousEnabled, [](bool value) {
 			SaveProfileFieldEdit(CalCtx, [&](questcal::ProfileRecord &candidate) {
