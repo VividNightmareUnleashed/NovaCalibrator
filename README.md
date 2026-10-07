@@ -81,10 +81,10 @@ as the **Headset tracker**. Nova Calibrator then uses it to keep the two systems
 up while you play. **Hide the headset tracker from games** keeps full-body setups
 from mistaking it for a body tracker.
 
-> **Continuous calibration is experimental.** I can't test it myself and rely on
-> feedback from people who use it. If you do, the best way to help is to
+> Continuous calibration was shaped by testers' reports, since I can't test it on my
+> own hardware. If something goes wrong with it,
 > [open an issue](https://github.com/VividNightmareUnleashed/NovaCalibrator/issues)
-> saying how it went, with the log files described below.
+> with the log files described below.
 
 ![Settings, with continuous calibration turned on](docs/images/settings.png)
 
