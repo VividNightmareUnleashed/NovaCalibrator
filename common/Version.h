@@ -4,7 +4,7 @@
 // anything the resource compiler's preprocessor can't handle.
 #define QUESTCAL_VERSION_MAJOR 1
 #define QUESTCAL_VERSION_MINOR 2
-#define QUESTCAL_VERSION_PATCH 0
+#define QUESTCAL_VERSION_PATCH 1
 
 // Prerelease identity, and the thing that puts this build on the hand-installed
 // lane rather than the stable one. A final release leaves the label empty and
@@ -19,4 +19,4 @@
 
 // The resource compiler cannot build this from the numbers above, so it is
 // written out by hand; the solver harness asserts the two agree.
-#define QUESTCAL_VERSION_STRING "1.2.0"
+#define QUESTCAL_VERSION_STRING "1.2.1"
