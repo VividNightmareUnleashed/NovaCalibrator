@@ -637,7 +637,7 @@ float BuildHomePage(const VRState &state, ImVec2 origin, float width)
 			ShowTip(menu ? "More actions" : "Choose the pair to calibrate");
 		if (ui::BeginMenuPopup("##moremenu", ImVec2(r.min.x, r.max.y + 8.0f), ImVec2(0.0f, 0.0f), 280.0f))
 		{
-			if (ui::MenuItem("##pairitem", ui::Icon::Controller, "Choose the pair"))
+			if (ui::MenuItem("##pairitem", ui::Icon::Identify, "Choose the pair"))
 				OpenSheet(Sheet::Pair);
 			if (ui::MenuItem("##clearitem", ui::Icon::Trash, "Clear calibration", ui::col::DangerInk))
 				OpenDialog(Dialog::ClearCalibration);
@@ -692,7 +692,7 @@ float BuildHomePage(const VRState &state, ImVec2 origin, float width)
 		const std::string sub = !chosen ? std::string(Tr("Not chosen yet"))
 			: (reference.empty() ? std::string(Tr("Not connected")) : reference) + " + " +
 				(target.empty() ? std::string(Tr("Not connected")) : target);
-		if (ui::ToolTile("##pair", fl.Rect(tileNodes[0]), ui::Icon::Controller, "Choose the pair", sub.c_str(), true, false))
+		if (ui::ToolTile("##pair", fl.Rect(tileNodes[0]), ui::Icon::Identify, "Choose the pair", sub.c_str(), true, false))
 			OpenSheet(Sheet::Pair);
 		if (ImGui::IsItemHovered())
 			ShowTip("The Quest device and the SteamVR device you hold together to calibrate.");

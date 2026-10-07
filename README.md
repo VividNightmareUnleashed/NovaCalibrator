@@ -15,7 +15,7 @@ Nova Calibrator was called QuestCalibrator until 1.2.0. It started as a fork of
 [OpenVR-SpaceCalibrator](https://github.com/pushrax/OpenVR-SpaceCalibrator) and has
 since been largely rewritten, so calibrating is more accurate and harder to get wrong.
 
-![The calibration page in the SteamVR dashboard](docs/images/nova-home.png)
+![The calibration page in the SteamVR dashboard](docs/images/nova-calibration.png)
 
 > **Before you install:** uninstall or disable OpenVR-SpaceCalibrator, and any fork
 > of it. Both install a SteamVR driver that moves your devices, and two running at
