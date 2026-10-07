@@ -1,7 +1,7 @@
-# <img src="Overlay/icon.png" alt="" width="40" align="top"> Nova Calibrator
+# <img src="docs/images/nova-icon.png" alt="" width="40" align="top"> Nova Calibrator
 
 [![Latest release](https://img.shields.io/github/v/release/VividNightmareUnleashed/NovaCalibrator?label=stable&sort=semver&display_name=release)](https://github.com/VividNightmareUnleashed/NovaCalibrator/releases/latest)
-[![Latest prerelease](https://img.shields.io/github/v/release/VividNightmareUnleashed/NovaCalibrator?include_prereleases&label=prerelease&sort=semver&display_name=release&color=orange)](https://github.com/VividNightmareUnleashed/NovaCalibrator/releases)
+[![Latest prerelease](https://img.shields.io/github/v/release/VividNightmareUnleashed/NovaCalibrator?include_prereleases&label=latest&sort=date&display_name=release&color=orange)](https://github.com/VividNightmareUnleashed/NovaCalibrator/releases)
 [![VirusTotal Scan](https://img.shields.io/badge/VirusTotal-1.2.0%20scan-394EFF?logo=virustotal&logoColor=white)](https://www.virustotal.com/gui/file/f57b4c231ab1507fb0f18724ab276c19e24a84898057e64ba9e215bc11f2c8e9)
 [![SteamVR](https://img.shields.io/badge/SteamVR-Windows%20x64-1b2838?logo=steam&logoColor=white)](https://store.steampowered.com/app/250820/SteamVR/)
 [![OpenVR](https://img.shields.io/badge/OpenVR-C%2B%2B17-00599C?logo=cplusplus&logoColor=white)](https://github.com/ValveSoftware/openvr)
@@ -15,7 +15,7 @@ Nova Calibrator was called QuestCalibrator until 1.2.0. It started as a fork of
 [OpenVR-SpaceCalibrator](https://github.com/pushrax/OpenVR-SpaceCalibrator) and has
 since been largely rewritten, so calibrating is more accurate and harder to get wrong.
 
-![The calibration page in the SteamVR dashboard](docs/images/calibration.png)
+![The calibration page in the SteamVR dashboard](docs/images/nova-home.png)
 
 > **Before you install:** uninstall or disable OpenVR-SpaceCalibrator, and any fork
 > of it. Both install a SteamVR driver that moves your devices, and two running at
@@ -40,7 +40,7 @@ installer again to add or remove it.
 The first time it opens, Nova Calibrator walks you through your language, your
 headset, the kinds of tracker you use, automatic updates and a first calibration.
 
-![The first-launch setup](docs/images/setup.png)
+![The first-launch setup](docs/images/nova-setup.png)
 
 Every release lists the SHA-256 of its zip and a VirusTotal report for each file in
 it. Only download Nova Calibrator from this repository's releases.
@@ -53,13 +53,13 @@ move: 10 seconds, or 20 or 35 if a short one doesn't come out well. A sheet show
 to hold the two devices together and move them, counts down while you do, and tells
 you the result.
 
-![Getting set to calibrate](docs/images/guide.png)
+![Getting set to calibrate](docs/images/nova-guide.png)
 
 To change which devices you calibrate with, open **…** next to the length and choose
 **Choose the pair**: one Quest device and one SteamVR device. **Identify** makes the
 two you picked vibrate or blink.
 
-![Choosing the pair](docs/images/pair.png)
+![Choosing the pair](docs/images/nova-pair.png)
 
 When it finishes, check in VR that your trackers line up. Nova Calibrator can send a
 SteamVR notification when the alignment starts to look off, and **Recent activity**
@@ -86,7 +86,7 @@ from mistaking it for a body tracker.
 > [open an issue](https://github.com/VividNightmareUnleashed/NovaCalibrator/issues)
 > with the log files described below.
 
-![Settings, with continuous calibration turned on](docs/images/settings.png)
+![Settings, with continuous calibration turned on](docs/images/nova-settings.png)
 
 Continuous calibration has two methods:
 
@@ -112,7 +112,7 @@ With the Lighthouse module installed, the **Lighthouse** page lists your base
 stations, which ones each device can see, and which drops out most often. It's the
 quickest way to find a badly placed station.
 
-![The Lighthouse page](docs/images/lighthouse.png)
+![The Lighthouse page](docs/images/nova-lighthouse.png)
 
 ## Other things it does
 
