@@ -2,7 +2,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/VividNightmareUnleashed/NovaCalibrator?label=stable&sort=semver&display_name=release)](https://github.com/VividNightmareUnleashed/NovaCalibrator/releases/latest)
 [![Latest prerelease](https://img.shields.io/github/v/release/VividNightmareUnleashed/NovaCalibrator?include_prereleases&label=prerelease&sort=semver&display_name=release&color=orange)](https://github.com/VividNightmareUnleashed/NovaCalibrator/releases)
-[![VirusTotal Scan](https://img.shields.io/badge/VirusTotal-1.2.0--rc.7%20scan-394EFF?logo=virustotal&logoColor=white)](https://www.virustotal.com/gui/file/c3ee8bf8d9b519084e14ff9932e712e1f6900382c5221aeb630e33558feebbc3)
+[![VirusTotal Scan](https://img.shields.io/badge/VirusTotal-1.2.0%20scan-394EFF?logo=virustotal&logoColor=white)](https://www.virustotal.com/gui/file/f57b4c231ab1507fb0f18724ab276c19e24a84898057e64ba9e215bc11f2c8e9)
 [![SteamVR](https://img.shields.io/badge/SteamVR-Windows%20x64-1b2838?logo=steam&logoColor=white)](https://store.steampowered.com/app/250820/SteamVR/)
 [![OpenVR](https://img.shields.io/badge/OpenVR-C%2B%2B17-00599C?logo=cplusplus&logoColor=white)](https://github.com/ValveSoftware/openvr)
 
