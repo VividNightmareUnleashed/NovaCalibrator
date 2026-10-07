@@ -14,9 +14,9 @@
 //
 // Making a final release means clearing these two back to "" and 0 in the
 // same commit that drops the suffix from the string below.
-#define QUESTCAL_VERSION_PRERELEASE_LABEL "rc"
-#define QUESTCAL_VERSION_PRERELEASE_ORDINAL 7
+#define QUESTCAL_VERSION_PRERELEASE_LABEL ""
+#define QUESTCAL_VERSION_PRERELEASE_ORDINAL 0
 
 // The resource compiler cannot build this from the numbers above, so it is
 // written out by hand; the solver harness asserts the two agree.
-#define QUESTCAL_VERSION_STRING "1.2.0-rc.7"
+#define QUESTCAL_VERSION_STRING "1.2.0"
