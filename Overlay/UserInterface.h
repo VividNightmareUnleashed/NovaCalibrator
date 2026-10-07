@@ -24,4 +24,20 @@ extern PreviewScenario g_uiPreviewScenario;
 void ApplyTheme();
 void SetupPreviewState();
 void BuildMainWindow(bool runningInOverlay);
+
+// The desktop window's own title bar, above the screen the overlay shows. The
+// window procedure (QuestCalibrator.cpp) hit-tests it and runs its buttons, the
+// UI draws it; both read this layout. The buttons sit at the right edge,
+// minimize then close.
+constexpr int TitleBarHeight = 32;
+constexpr int TitleBarButtonWidth = 46;
+enum class TitleBarButton { None, Minimize, Close };
+struct TitleBarState
+{
+	TitleBarButton hovered = TitleBarButton::None;
+	TitleBarButton pressed = TitleBarButton::None;
+	bool focused = true;
+};
+// Drawn at negative y, outside the overlay's texture and -shot pictures.
+void BuildTitleBar(const TitleBarState &state);
 void RequestApplicationExit();

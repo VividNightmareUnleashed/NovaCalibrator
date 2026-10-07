@@ -66,6 +66,7 @@ namespace ui
 		constexpr ImU32 Secondary = Rgba(255, 255, 255, 0.12f);
 		constexpr ImU32 Selected = Rgba(255, 255, 255, 0.14f); // the current page in the sidebar
 		constexpr ImU32 Sidebar = Rgba(0, 0, 0, 0.16f);
+		constexpr ImU32 BackdropTop = Rgba(46, 49, 55);        // the page backdrop at its top edge
 		constexpr ImU32 Scrim = Rgba(12, 13, 16, 0.68f);       // behind sheets and dialogs
 		constexpr ImU32 SheetTop = Rgba(58, 61, 68);
 		constexpr ImU32 SheetBottom = Rgba(47, 50, 56);
