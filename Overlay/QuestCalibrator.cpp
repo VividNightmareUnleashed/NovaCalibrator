@@ -21,6 +21,7 @@
 #endif
 #include <dwmapi.h>
 #pragma comment(lib, "dwmapi.lib")
+#include <windowsx.h>
 #include <wincodec.h>
 #pragma comment(lib, "windowscodecs.lib")
 // WIN32_LEAN_AND_MEAN keeps shellapi.h out of windows.h; CommandLineToArgvW
@@ -474,7 +475,85 @@ struct GlfwLibrary
 	}
 };
 
+// The window's own title bar (BuildTitleBar draws it). The whole window is
+// client area, so Windows keeps the frame's shadow, rounded corners and
+// snapping without drawing a caption; this procedure, ahead of GLFW's, says
+// where the bar is and runs its two buttons. Windows' hit codes for them keep
+// the bar working while a sheet's modal popup holds ImGui's input.
+static WNDPROC glfwWindowProc = nullptr;
+static TitleBarState titleBar;
+static bool trackingTitleBarLeave = false;
+
+static TitleBarButton TitleBarButtonAt(WPARAM hit)
+{
+	return hit == HTMINBUTTON ? TitleBarButton::Minimize
+		: hit == HTCLOSE ? TitleBarButton::Close : TitleBarButton::None;
+}
+
+static LRESULT CALLBACK TitleBarWindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+	switch (message)
+	{
+	case WM_NCCALCSIZE:
+		if (wParam)
+			return 0;
+		break;
+	case WM_NCACTIVATE:
+		// -1: activation must not paint Windows' caption over the bar.
+		return DefWindowProcW(hwnd, message, wParam, -1);
+	case WM_NCHITTEST: {
+		POINT p = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+		ScreenToClient(hwnd, &p);
+		RECT client;
+		GetClientRect(hwnd, &client);
+		if (p.y >= TitleBarHeight)
+			return HTCLIENT;
+		if (p.x >= client.right - TitleBarButtonWidth)
+			return HTCLOSE;
+		if (p.x >= client.right - 2 * TitleBarButtonWidth)
+			return HTMINBUTTON;
+		return HTCAPTION;
+	}
+	case WM_NCMOUSEMOVE:
+		if (!trackingTitleBarLeave)
+		{
+			TRACKMOUSEEVENT track = { sizeof track, TME_LEAVE | TME_NONCLIENT, hwnd, 0 };
+			trackingTitleBarLeave = TrackMouseEvent(&track) != FALSE;
+		}
+		titleBar.hovered = TitleBarButtonAt(wParam);
+		// Windows would draw its own button over the bar.
+		if (titleBar.hovered != TitleBarButton::None)
+			return 0;
+		break;
+	case WM_NCMOUSELEAVE:
+		trackingTitleBarLeave = false;
+		titleBar.hovered = titleBar.pressed = TitleBarButton::None;
+		break;
+	case WM_NCLBUTTONDOWN:
+	case WM_NCLBUTTONDBLCLK:
+		titleBar.pressed = TitleBarButtonAt(wParam);
+		if (titleBar.pressed != TitleBarButton::None)
+			return 0;
+		break;
+	case WM_NCLBUTTONUP: {
+		const TitleBarButton released = TitleBarButtonAt(wParam);
+		const bool clicked = released != TitleBarButton::None && released == titleBar.pressed;
+		titleBar.pressed = TitleBarButton::None;
+		if (clicked)
+		{
+			titleBar.hovered = TitleBarButton::None;
+			PostMessageW(hwnd, WM_SYSCOMMAND, released == TitleBarButton::Close ? SC_CLOSE : SC_MINIMIZE, 0);
+		}
+		if (released != TitleBarButton::None)
+			return 0;
+		break;
+	}
+	}
+	return CallWindowProcW(glfwWindowProc, hwnd, message, wParam, lParam);
+}
+
 // The overlay's window, and the OpenGL context StartContext makes current.
+// Its client area is the title bar over the overlay's screen.
 class OverlayWindow
 {
 public:
@@ -489,12 +568,20 @@ public:
 		if (!window)
 			throw std::runtime_error("Couldn't create the window.");
 		glfwWindow = window;
+
+		// GLFW sized the window for Windows' frame; without it the window is
+		// exactly its client area.
+		HWND hwnd = glfwGetWin32Window(window);
+		glfwWindowProc = reinterpret_cast<WNDPROC>(
+			SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(TitleBarWindowProc)));
+		SetWindowPos(hwnd, nullptr, 0, 0, width, height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 	}
 	OverlayWindow(const OverlayWindow &) = delete;
 	OverlayWindow &operator=(const OverlayWindow &) = delete;
 	~OverlayWindow()
 	{
 		glfwWindow = nullptr;
+		SetWindowLongPtrW(glfwGetWin32Window(window), GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(glfwWindowProc));
 		glfwDestroyWindow(window);
 	}
 
@@ -506,9 +593,18 @@ public:
 		if (gl3wInit() != 0)
 			return false;
 
-		// Dark titlebar on Windows 10 20H1+ (attribute 20 = DWMWA_USE_IMMERSIVE_DARK_MODE).
+		// Dark frame and system menu on Windows 10 20H1+ (attribute 20 =
+		// DWMWA_USE_IMMERSIVE_DARK_MODE).
 		BOOL darkTitlebar = TRUE;
 		DwmSetWindowAttribute(glfwGetWin32Window(window), 20, &darkTitlebar, sizeof darkTitlebar);
+		// Without Windows' frame the window needs asking for what the frame
+		// gave it: rounded corners on Windows 11 (attribute 33 =
+		// DWMWA_WINDOW_CORNER_PREFERENCE, 2 = DWMWCP_ROUND) and the shadow,
+		// which DWM draws for a frame that reaches into the client area.
+		const int roundCorners = 2;
+		DwmSetWindowAttribute(glfwGetWin32Window(window), 33, &roundCorners, sizeof roundCorners);
+		const MARGINS shadowFrame = { 0, 0, 1, 0 };
+		DwmExtendFrameIntoClientArea(glfwGetWin32Window(window), &shadowFrame);
 
 		if (!g_uiPreviewMode)
 			glfwIconifyWindow(window);
@@ -544,6 +640,21 @@ public:
 
 		ImGui_ImplGlfw_InitForOpenGL(window, true);
 		glfwBackendStarted = true;
+		// The UI's coordinates start below the title bar. The backend keeps
+		// the window as the mouse's from here on, so it never falls back to
+		// the raw, unshifted cursor position; leaving the screen for the bar
+		// or the desktop clears the position instead.
+		ImGui_ImplGlfw_CursorEnterCallback(window, GLFW_TRUE);
+		ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+		glfwSetCursorPosCallback(window, [](GLFWwindow *w, double x, double y) {
+			ImGui_ImplGlfw_CursorPosCallback(w, x, y - TitleBarHeight);
+		});
+		glfwSetCursorEnterCallback(window, [](GLFWwindow *w, int entered) {
+			if (entered)
+				ImGui_ImplGlfw_CursorEnterCallback(w, entered);
+			else
+				ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+		});
 		glfwSetWindowFocusCallback(window, [](GLFWwindow *, int focused) {
 			imgui_vr::DesktopFocusEvent(focused != 0, dashboardOwnsInput);
 		});
@@ -626,7 +737,7 @@ private:
 static void StartGraphics(std::optional<OverlayWindow> &window,
 	std::optional<ImGuiSession> &imgui, std::optional<OverlayFramebuffer> &framebuffer)
 {
-	window.emplace(OverlayWidth, OverlayHeight);
+	window.emplace(OverlayWidth, OverlayHeight + TitleBarHeight);
 	if (!window->StartContext())
 		throw std::runtime_error("Couldn't start OpenGL. Update your graphics driver.");
 	imgui.emplace(window->Handle());
@@ -924,6 +1035,8 @@ bool RunLoop(const LaunchOptions &options, const OverlayFramebuffer &framebuffer
 		ImGui::NewFrame();
 
 		BuildMainWindow(dashboardVisible);
+		titleBar.focused = glfwGetWindowAttrib(glfwWindow, GLFW_FOCUSED) != 0;
+		BuildTitleBar(titleBar);
 
 		ImGui::Render();
 
@@ -936,10 +1049,16 @@ bool RunLoop(const LaunchOptions &options, const OverlayFramebuffer &framebuffer
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
+		// The window draws the same frame again with the title bar above it.
 		if (width && height)
 		{
-			glBindFramebuffer(GL_READ_FRAMEBUFFER, fboHandle);
-			glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+			ImDrawData desktop = *ImGui::GetDrawData();
+			desktop.DisplayPos = ImVec2(0.0f, -static_cast<float>(TitleBarHeight));
+			desktop.DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));
+			desktop.FramebufferScale = ImVec2(1.0f, 1.0f);
+			glViewport(0, 0, width, height);
+			glClear(GL_COLOR_BUFFER_BIT);
+			ImGui_ImplOpenGL3_RenderDrawData(&desktop);
 			glfwSwapBuffers(glfwWindow);
 		}
 

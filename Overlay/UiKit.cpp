@@ -386,7 +386,7 @@ namespace ui
 		// linear-gradient(165deg, #2E3137 0%, #24262B 55%, #1D1F23 100%): nearly
 		// vertical at this aspect, so two vertical bands.
 		const float split = a.y + (b.y - a.y) * 0.55f;
-		const ImU32 top = Rgba(46, 49, 55), middle = Rgba(36, 38, 43), bottom = Rgba(29, 31, 35);
+		const ImU32 top = col::BackdropTop, middle = Rgba(36, 38, 43), bottom = Rgba(29, 31, 35);
 		dl->AddRectFilledMultiColor(a, ImVec2(b.x, split), top, top, middle, middle);
 		dl->AddRectFilledMultiColor(ImVec2(a.x, split), b, middle, middle, bottom, bottom);
 		// radial-gradient(900px 620px at 16% -14%, white 10%, transparent 70%).

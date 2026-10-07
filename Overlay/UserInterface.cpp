@@ -41,6 +41,60 @@ void StartIdentifyPulse(uint32_t targetId, uint32_t referenceId)
 }
 
 // ---------------------------------------------------------------------------
+// Title bar
+// ---------------------------------------------------------------------------
+
+void BuildTitleBar(const TitleBarState &state)
+{
+	const ImVec2 display = ImGui::GetIO().DisplaySize;
+	const float h = static_cast<float>(TitleBarHeight);
+	const ImVec2 min(0.0f, -h), max(display.x, 0.0f);
+	ImDrawList *dl = ImGui::GetBackgroundDrawList();
+	dl->PushClipRect(min, max, false);
+
+	// The page's backdrop and the sidebar carry on up to the window's edge:
+	// the backdrop's top colour, and its glow, the only part of it that
+	// reaches above the screen.
+	dl->AddRectFilled(min, max, ui::col::BackdropTop);
+	ui::PageBackdrop(dl, ImVec2(0.0f, 0.0f), display);
+	if (!SetupShowing())
+		dl->AddRectFilled(min, ImVec2(kSidebarW, 0.0f), ui::col::Sidebar);
+	// A sheet or dialog dims the bar with the page; its buttons stay as they are.
+	const ImGuiContext &g = *GImGui;
+	if (ImGui::GetTopMostPopupModal() && g.DimBgRatio > 0.0f)
+		dl->AddRectFilled(min, max, ImGui::GetColorU32(ImGuiCol_ModalWindowDimBg, g.DimBgRatio));
+
+	// Windows' caption buttons, in its proportions: a fill on hover, red
+	// behind the close button, 10 px glyphs.
+	const TitleBarButton buttons[] = { TitleBarButton::Minimize, TitleBarButton::Close };
+	const float w = static_cast<float>(TitleBarButtonWidth);
+	for (int i = 0; i < 2; ++i)
+	{
+		const TitleBarButton button = buttons[i];
+		const bool close = button == TitleBarButton::Close;
+		const ImVec2 a(display.x - w * static_cast<float>(2 - i), -h), b(a.x + w, 0.0f);
+		const bool hovered = state.hovered == button, pressed = hovered && state.pressed == button;
+		if (hovered)
+		{
+			const ImU32 fill = close ? ui::Rgba(196, 43, 28, pressed ? 0.9f : 1.0f)
+				: pressed ? ui::Rgba(255, 255, 255, 0.05f) : ui::col::Fill;
+			dl->AddRectFilled(a, b, fill);
+		}
+		const ImU32 ink = close && hovered ? ui::col::White : state.focused ? ui::col::Text : ui::col::Faint;
+		// AddLine centres on the pixel, so whole coordinates draw crisp lines.
+		const float cx = std::floor((a.x + b.x) * 0.5f), cy = std::floor(-h * 0.5f);
+		if (close)
+		{
+			dl->AddLine(ImVec2(cx - 5.0f, cy - 5.0f), ImVec2(cx + 5.0f, cy + 5.0f), ink);
+			dl->AddLine(ImVec2(cx + 5.0f, cy - 5.0f), ImVec2(cx - 5.0f, cy + 5.0f), ink);
+		}
+		else
+			dl->AddLine(ImVec2(cx - 5.0f, cy), ImVec2(cx + 5.0f, cy), ink);
+	}
+	dl->PopClipRect();
+}
+
+// ---------------------------------------------------------------------------
 // Sidebar
 // ---------------------------------------------------------------------------
 
