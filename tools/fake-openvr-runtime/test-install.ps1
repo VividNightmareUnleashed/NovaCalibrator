@@ -30,10 +30,24 @@ $Runtime = (Resolve-Path $Runtime).Path
 $work = Join-Path ([IO.Path]::GetTempPath()) ('qc-install-test-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
 New-Item -ItemType Directory -Force $work | Out-Null
 
-$installDir = Join-Path ${env:ProgramFiles} 'NovaCalibrator'
-$driverDir = Join-Path $Runtime 'drivers\01novacalibrator'
-$shortcut = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Nova Calibrator.lnk'
-$uninstallKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCalibrator'
+# Where a package installs. Releases before 1.2.0 were named QuestCalibrator,
+# and the upgrade scenario installs one of them first.
+function Get-Layout([string]$packageDir) {
+    $previousName = Test-Path (Join-Path $packageDir 'app\QuestCalibrator.exe')
+    $name = if ($previousName) { 'QuestCalibrator' } else { 'NovaCalibrator' }
+    $driver = if ($previousName) { '01questcalibrator' } else { '01novacalibrator' }
+    $link = if ($previousName) { 'QuestCalibrator.lnk' } else { 'Nova Calibrator.lnk' }
+    [pscustomobject]@{
+        Exe = "$name.exe"
+        InstallDir = Join-Path ${env:ProgramFiles} $name
+        Driver = $driver
+        DriverDir = Join-Path $Runtime "drivers\$driver"
+        Shortcut = Join-Path $env:ProgramData "Microsoft\Windows\Start Menu\Programs\$link"
+        UninstallKey = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$name"
+        Key = "HKLM:\Software\$name"
+    }
+}
+
 $stateFile = Join-Path $Runtime 'fake-openvr\state.txt'
 $callsLog = Join-Path $Runtime 'fake-openvr\calls.log'
 $appKey = 'burrow.QuestCalibrator'
@@ -101,8 +115,8 @@ function Install([string]$packageDir) {
     Invoke-Script $script $arguments
 }
 
-function Uninstall {
-    Invoke-Script (Join-Path $installDir 'Uninstall.ps1') @('-Silent')
+function Uninstall([string]$packageDir) {
+    Invoke-Script (Join-Path (Get-Layout $packageDir).InstallDir 'Uninstall.ps1') @('-Silent')
 }
 
 function Read-State {
@@ -136,6 +150,7 @@ function Compare-Tree([string]$name, [hashtable]$expected, [hashtable]$actual) {
 }
 
 function Assert-Installed([string]$packageDir) {
+    $layout = Get-Layout $packageDir
     $expectedApp = Get-Tree (Join-Path $packageDir 'app')
     # Uninstall.ps1 loads FilesystemPolicy.ps1 from beside it; packages from
     # before the policy ship neither the file nor a copy of it.
@@ -152,34 +167,37 @@ function Assert-Installed([string]$packageDir) {
         $notices = Get-Tree (Join-Path $packageDir 'THIRD-PARTY-NOTICES')
         foreach ($file in $notices.Keys) { $expectedApp["THIRD-PARTY-NOTICES\$file"] = $notices[$file] }
     }
-    Compare-Tree 'install folder matches the package' $expectedApp (Get-Tree $installDir)
-    Compare-Tree 'driver folder matches the package' (Get-Tree (Join-Path $packageDir 'driver\01novacalibrator')) (Get-Tree $driverDir)
+    Compare-Tree 'install folder matches the package' $expectedApp (Get-Tree $layout.InstallDir)
+    Compare-Tree 'driver folder matches the package' (Get-Tree (Join-Path $packageDir "driver\$($layout.Driver)")) (Get-Tree $layout.DriverDir)
 
-    $version = (Get-Item (Join-Path $packageDir 'app\NovaCalibrator.exe')).VersionInfo.ProductVersion
-    $entry = Get-ItemProperty $uninstallKey -ErrorAction SilentlyContinue
+    $version = (Get-Item (Join-Path $packageDir "app\$($layout.Exe)")).VersionInfo.ProductVersion
+    $entry = Get-ItemProperty $layout.UninstallKey -ErrorAction SilentlyContinue
     Check 'Programs and Features entry' ($null -ne $entry -and $entry.DisplayVersion -eq $version -and
-        $entry.InstallLocation -eq $installDir -and $entry.QuietUninstallString -like '*Uninstall.ps1*-Silent') `
+        $entry.InstallLocation -eq $layout.InstallDir -and $entry.QuietUninstallString -like '*Uninstall.ps1*-Silent') `
         "version '$($entry.DisplayVersion)' expected '$version'"
     Check 'install and driver paths recorded' (
-        (Get-ItemProperty 'HKLM:\Software\NovaCalibrator\Main' -ErrorAction SilentlyContinue).'(default)' -eq $installDir -and
-        (Get-ItemProperty 'HKLM:\Software\NovaCalibrator\Driver' -ErrorAction SilentlyContinue).'(default)' -eq $Runtime)
-    $link = if (Test-Path $shortcut) { (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut) } else { $null }
-    Check 'Start Menu shortcut' ($null -ne $link -and $link.TargetPath -eq (Join-Path $installDir 'NovaCalibrator.exe'))
+        (Get-ItemProperty "$($layout.Key)\Main" -ErrorAction SilentlyContinue).'(default)' -eq $layout.InstallDir -and
+        (Get-ItemProperty "$($layout.Key)\Driver" -ErrorAction SilentlyContinue).'(default)' -eq $Runtime)
+    $link = if (Test-Path $layout.Shortcut) { (New-Object -ComObject WScript.Shell).CreateShortcut($layout.Shortcut) } else { $null }
+    Check 'Start Menu shortcut' ($null -ne $link -and $link.TargetPath -eq (Join-Path $layout.InstallDir $layout.Exe))
 
     $state = Read-State
     $app = $state.apps[$appKey]
     Check 'manifest registered from the install folder' ($null -ne $app -and
-        $app.manifest -eq (Join-Path $installDir 'manifest.vrmanifest')) "registered '$($app.manifest)'"
+        $app.manifest -eq (Join-Path $layout.InstallDir 'manifest.vrmanifest')) "registered '$($app.manifest)'"
     Check 'auto-launch on' ($null -ne $app -and $app.autoLaunch)
     Check 'multiple drivers enabled' ($state.bools['steamvr/activateMultipleDrivers'] -eq $true)
 }
 
-function Assert-Removed {
-    Check 'install folder removed' (-not (Test-Path $installDir))
-    Check 'driver folder removed' (-not (Test-Path $driverDir))
-    Check 'registry keys removed' (-not (Test-Path 'HKLM:\Software\NovaCalibrator') -and -not (Test-Path $uninstallKey))
-    Check 'shortcut removed' (-not (Test-Path $shortcut))
-    Check 'manifest deregistered' (-not (Read-State).apps.ContainsKey($appKey))
+# -Replaced: the package was upgraded away from, and the app key it shares
+# with its successor stays registered.
+function Assert-Removed([string]$packageDir, [switch]$Replaced) {
+    $layout = Get-Layout $packageDir
+    Check 'install folder removed' (-not (Test-Path $layout.InstallDir))
+    Check 'driver folder removed' (-not (Test-Path $layout.DriverDir))
+    Check 'registry keys removed' (-not (Test-Path $layout.Key) -and -not (Test-Path $layout.UninstallKey))
+    Check 'shortcut removed' (-not (Test-Path $layout.Shortcut))
+    if (-not $Replaced) { Check 'manifest deregistered' (-not (Read-State).apps.ContainsKey($appKey)) }
 }
 
 function Assert-NoUnexpectedCalls {
@@ -205,8 +223,8 @@ Scenario 'fresh install, reinstall, uninstall' {
     Assert-Installed $new
     Check 'reinstall over itself exits 0' ((Install $new) -eq 0)
     Assert-Installed $new
-    Check 'uninstall exits 0' ((Uninstall) -eq 0)
-    Assert-Removed
+    Check 'uninstall exits 0' ((Uninstall $new) -eq 0)
+    Assert-Removed $new
     Check 'multiple drivers left enabled' ((Read-State).bools['steamvr/activateMultipleDrivers'] -eq $true)
 }
 
@@ -220,8 +238,8 @@ Scenario 'conflicting Space Calibrator drivers are removed' {
     Check 'conflicting drivers gone' (-not (Test-Path (Join-Path $Runtime 'drivers\01spacecalibrator')) -and
         -not (Test-Path (Join-Path $Runtime 'drivers\000spacecalibrator')))
     Assert-Installed $new
-    Check 'uninstall exits 0' ((Uninstall) -eq 0)
-    Assert-Removed
+    Check 'uninstall exits 0' ((Uninstall $new) -eq 0)
+    Assert-Removed $new
 }
 
 if ($Previous) {
@@ -230,8 +248,12 @@ if ($Previous) {
         Assert-Installed $old
         Check 'upgrade exits 0' ((Install $new) -eq 0)
         Assert-Installed $new
-        Check 'uninstall exits 0' ((Uninstall) -eq 0)
-        Assert-Removed
+        if ((Get-Layout $old).InstallDir -ne (Get-Layout $new).InstallDir) {
+            Write-Host '  the previous name is gone:'
+            Assert-Removed $old -Replaced
+        }
+        Check 'uninstall exits 0' ((Uninstall $new) -eq 0)
+        Assert-Removed $new
     }
 }
 
