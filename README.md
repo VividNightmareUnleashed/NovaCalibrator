@@ -117,7 +117,10 @@ quickest way to find a badly placed station.
 ## Other things it does
 
 - **Protected chaperone:** saves your SteamVR walls and puts them back if SteamVR or
-  the headset loses them.
+  the headset loses them, in later sessions too. With the Quest's Guardian switched
+  off in its developer settings, the headset forgets the room whenever it restarts,
+  and SteamVR reports the new start exactly like the old one, so the walls can come
+  back in the wrong place: protect them again after each restart, or leave it off.
 - **Languages:** English, Italian and Japanese, picked on the first page or in
   Settings. The default is Windows' display language. The translations may not be
   perfect, so corrections are welcome as issues.
