@@ -191,6 +191,11 @@ static void TrackerPresenceTick(CalibrationContext &ctx, double now)
 	// The log line naming the reason precedes OpenVR dropping the device by
 	// half a second and is read four times a second; it gets a moment.
 	const LighthouseVisibility::Device *seen = ctx.lighthouse.Find(ctx.continuousTrackerSerial);
+	// SteamVR switches every device off as it quits (LighthouseLog.h): the
+	// tracker going with it is the session ending, nothing to turn back on or
+	// to change a setting for.
+	if ((seen && seen->off && seen->shutdownOff) || ctx.lighthouse.Quitting(QpcNowSeconds()))
+		return;
 	const bool standby = seen && seen->off && seen->standbyOff;
 	if (!p.noticed && (standby || now - p.offSince >= 3.0))
 	{

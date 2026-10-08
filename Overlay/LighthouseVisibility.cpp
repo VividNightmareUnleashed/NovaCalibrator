@@ -48,8 +48,8 @@ std::string LighthouseVisibility::StationName(int channel) const
 
 std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 {
-	if (e.kind == Event::Kind::ServerStarted || e.kind == Event::Kind::UniverseChosen ||
-		e.kind == Event::Kind::UniverseStopped)
+	if (e.kind == Event::Kind::ServerStarted || e.kind == Event::Kind::ServerQuitting ||
+		e.kind == Event::Kind::UniverseChosen || e.kind == Event::Kind::UniverseStopped)
 	{
 		ApplyUniverse(e, ringTime);
 		return std::string();
@@ -66,13 +66,19 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 		std::string what;
 		if (e.kind == Event::Kind::PoweredOff)
 		{
+			// SteamVR writes the same standby line for every device as it quits,
+			// so a power-off after the quit line is the session ending: neither
+			// the idle timeout nor anything to count or advise against.
+			const bool quitting = Quitting(ringTime);
 			d.off = true;
-			d.standbyOff = e.standby;
-			what = e.standby ? "switched off by SteamVR after sitting still" : "switched off by SteamVR";
+			d.shutdownOff = quitting;
+			d.standbyOff = e.standby && !quitting;
+			what = quitting ? "switched off by SteamVR as it quit"
+				: e.standby ? "switched off by SteamVR after sitting still" : "switched off by SteamVR";
 			if (!e.historical)
 			{
 				d.lastPowerOff = ringTime;
-				if (e.standby)
+				if (d.standbyOff)
 					d.standbyPowerOffs++;
 			}
 		}
@@ -90,6 +96,7 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 				what = "connected again";
 			d.off = false;
 			d.standbyOff = false;
+			d.shutdownOff = false;
 		}
 		return e.historical ? std::string() : what;
 	}
@@ -97,6 +104,7 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 	// lines said before (the replay may have started between them).
 	d.off = false;
 	d.standbyOff = false;
+	d.shutdownOff = false;
 	if (universe == UniverseStage::Down && !trackedWhileDown)
 	{
 		trackedWhileDown = true;
@@ -286,7 +294,13 @@ void LighthouseVisibility::ApplyUniverse(const Event &e, double ringTime)
 		stations.clear();
 		universe = UniverseStage::Down;
 		universeId = 0;
+		quitAt = -1e9;
 		break;
+	case Event::Kind::ServerQuitting:
+		// From its stamp, replayed or live: the power-off lines behind it
+		// carry stamps of their own.
+		quitAt = ringTime;
+		return;
 	case Event::Kind::UniverseStopped:
 		universe = UniverseStage::Down;
 		break;
@@ -319,6 +333,14 @@ LighthouseVisibility::UniverseSetup LighthouseVisibility::Universe(double ringTi
 	default:
 		return UniverseSetup::Unknown;
 	}
+}
+
+bool LighthouseVisibility::Quitting(double ringTime) const
+{
+	if (quitAt <= -1e8)
+		return false;
+	const double since = ringTime - quitAt;
+	return since >= -1.0 && since <= config.quitPowerOffSeconds;
 }
 
 bool LighthouseVisibility::Disturbed(const std::string &serial, double ringTime) const
@@ -355,6 +377,7 @@ void LighthouseVisibility::Reset()
 	universe = UniverseStage::Unknown;
 	universeId = 0;
 	universeChosenAt = -1e9;
+	quitAt = -1e9;
 	trackedWhileDown = false;
 	trackedWhileDownAt = -1e9;
 }

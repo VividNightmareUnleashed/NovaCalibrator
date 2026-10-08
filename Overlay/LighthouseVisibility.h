@@ -59,6 +59,9 @@ public:
 		// (1.1 and 4.6 s after the first new solution on 2026-09-26 and
 		// -27). With none this long after, the log is not saying so.
 		double universeWaitSeconds = 60.0;
+		// A power-off this long after the quit line is the quit's (the eight
+		// of 2026-10-08 came within 13 ms of it); one later is a device's own.
+		double quitPowerOffSeconds = 30.0;
 	};
 
 	enum class UniverseSetup
@@ -113,11 +116,13 @@ public:
 
 		// The radio link (LighthouseLog.h). Off from a power-off or a dropped
 		// link until the link comes back or the device reports tracking;
-		// standbyOff says SteamVR switched it off for sitting still. Neither is
-		// a disturbance: an off device reports no pose to disturb.
+		// standbyOff says SteamVR switched it off for sitting still, shutdownOff
+		// that it switched it off because it was quitting. Neither is a
+		// disturbance: an off device reports no pose to disturb.
 		bool off = false;
 		bool standbyOff = false;
-		uint32_t standbyPowerOffs = 0;   // live lines only
+		bool shutdownOff = false;
+		uint32_t standbyPowerOffs = 0;   // live lines only; never the quit's
 		double lastPowerOff = -1e9;      // ring seconds; live lines only
 
 		// Stations in the device's solution; meaningful when visibleKnown.
@@ -162,6 +167,11 @@ public:
 	UniverseSetup Universe(double ringTime) const;
 	uint64_t UniverseId() const { return universeId; }   // 0 until a line names it
 
+	// SteamVR is quitting at ringTime: its quit line came within
+	// config.quitPowerOffSeconds before it (or up to a second after), and no
+	// server start since. Devices it switches off now are the quit's.
+	bool Quitting(double ringTime) const;
+
 	const Device *Find(const std::string &serial) const;
 	const std::map<std::string, Device> &Devices() const { return devices; }
 	std::vector<Station> Stations() const;   // most dropped first
@@ -185,6 +195,7 @@ private:
 	UniverseStage universe = UniverseStage::Unknown;
 	uint64_t universeId = 0;
 	double universeChosenAt = -1e9;        // ring seconds
+	double quitAt = -1e9;                  // ring seconds of the last quit line
 	// The first device line since the universe went down, which starts the
 	// wait for the driver to choose one.
 	bool trackedWhileDown = false;

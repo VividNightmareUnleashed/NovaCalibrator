@@ -198,6 +198,33 @@ void ParserScenarios(Check check)
 			serverOk && server.kind == Event::Kind::ServerStarted && server.serial.empty() && server.timeKnown &&
 			othersIgnored, detail);
 	}
+
+	// The quit that ends a session, as SteamVR 2.17.10 and 2.18.2 wrote it on
+	// 2026-10-08 (Steam asked once, vrmonitor the session before), and the
+	// server's own line when nothing asked. The process lines around a quit
+	// are not it.
+	{
+		Event asked, monitor, stopping, other;
+		const bool askedOk = lighthouselog::ParseLine(
+			"Thu Oct 08 2026 00:20:06.429 [Info] - Process 36524: steam has initiated a quit all", asked);
+		const bool monitorOk = lighthouselog::ParseLine(
+			"Wed Oct 07 2026 20:43:44.878 [Info] - Process 287224: vrmonitor has initiated a quit all", monitor);
+		const bool stoppingOk = lighthouselog::ParseLine(
+			"Thu Oct 08 2026 01:44:25.590 [Info] - VR server shutting down", stopping);
+		const bool othersIgnored =
+			!lighthouselog::ParseLine("Thu Oct 08 2026 01:44:20.302 [Info] - Sending Quit event to process 195772: NovaCalibrator", other) &&
+			!lighthouselog::ParseLine("Thu Oct 08 2026 01:44:20.407 [Warning] - Lost master process 249620 for an unknown reason. Quitting all immediately. ", other) &&
+			!lighthouselog::ParseLine("Thu Oct 08 2026 01:44:25.311 [Info] - Kill process 115512: Standable because it didn't quit in time", other) &&
+			!lighthouselog::ParseLine("Thu Oct 08 2026 00:20:06.445 [Info] - Processing message VRMsg_QuitProcessRequest from 36524: steam took 0.0153 seconds", other);
+		snprintf(detail, sizeof detail, "asked %d (%d, '%s', stamp %d) monitor %d (%d) stopping %d (%d) ignored %d",
+			askedOk, static_cast<int>(asked.kind), asked.serial.c_str(), asked.timeKnown,
+			monitorOk, static_cast<int>(monitor.kind), stoppingOk, static_cast<int>(stopping.kind), othersIgnored);
+		check("lighthouse log: SteamVR's quit names no device",
+			askedOk && asked.kind == Event::Kind::ServerQuitting && asked.serial.empty() && asked.timeKnown &&
+			asked.universeId == 0 && asked.channel < 0 && !asked.standby &&
+			monitorOk && monitor.kind == Event::Kind::ServerQuitting &&
+			stoppingOk && stopping.kind == Event::Kind::ServerQuitting && othersIgnored, detail);
+	}
 }
 
 void TailerScenarios(Check check)
@@ -494,6 +521,51 @@ void VisibilityScenarios(Check check)
 			off == "switched off by SteamVR after sitting still" && back == "connected again" &&
 			dropped == "disconnected from its receiver" &&
 			offState && backState && droppedState && trackingClears && replayed, detail);
+	}
+
+	// SteamVR quitting, as on 2026-10-08 00:20:06: the quit line, then a
+	// standby power-off for every device within 13 ms. Those are the session
+	// ending, not devices that sat still: no idle-timeout count, no standby
+	// state for the headset tracker's settings hint. A power-off past the
+	// window is a device's own again, and a new server start forgets the quit.
+	{
+		LighthouseVisibility quit;
+		auto line = [&](K kind, const char *serial, bool standby, double t, bool historical = false)
+		{
+			Event e = Made(kind, serial, -1, {}, historical);
+			e.standby = standby;
+			return quit.Apply(e, t);
+		};
+		quit.Apply(Made(K::StationAdded, "LHR-3E61E6B7", 9, { 5, 9 }), 10.0);
+		quit.Apply(Made(K::StationAdded, "LHR-841C98C3", 9, { 5, 9 }), 10.0);
+		const bool before = !quit.Quitting(100.0);
+		line(K::ServerQuitting, "", false, 100.0);
+		const bool during = quit.Quitting(100.013) && quit.Quitting(99.5) && !quit.Quitting(131.0);
+		const std::string firstOff = line(K::PoweredOff, "LHR-3E61E6B7", true, 100.001);
+		const std::string secondOff = line(K::PoweredOff, "LHR-841C98C3", true, 100.013);
+		const LighthouseVisibility::Device *a = quit.Find("LHR-3E61E6B7");
+		const LighthouseVisibility::Device *b = quit.Find("LHR-841C98C3");
+		const bool quitState = a && b && a->off && a->shutdownOff && !a->standbyOff && a->standbyPowerOffs == 0 &&
+			b->off && b->shutdownOff && !b->standbyOff && b->standbyPowerOffs == 0;
+
+		// The same device back and left to sit still long after the quit line:
+		// SteamVR's idle timeout again.
+		line(K::Connected, "LHR-3E61E6B7", false, 200.0);
+		const std::string later = line(K::PoweredOff, "LHR-3E61E6B7", true, 500.0);
+		const bool laterState = a->off && a->standbyOff && !a->shutdownOff && a->standbyPowerOffs == 1;
+
+		// A replayed quit followed by a new start: the start wins.
+		line(K::ServerQuitting, "", false, 600.0, /*historical=*/true);
+		const bool replayedQuit = quit.Quitting(600.5);
+		quit.Apply(Made(K::ServerStarted, "", -1, {}), 601.0);
+		const bool startClears = !quit.Quitting(601.5);
+
+		snprintf(detail, sizeof detail, "before %d during %d first '%s' second '%s' state %d later '%s' %d replayed %d start %d",
+			before, during, firstOff.c_str(), secondOff.c_str(), quitState, later.c_str(), laterState, replayedQuit, startClears);
+		check("lighthouse state: SteamVR's quit switches devices off without an idle timeout",
+			before && during && firstOff == "switched off by SteamVR as it quit" && secondOff == firstOff && quitState &&
+			later == "switched off by SteamVR after sitting still" && laterState && replayedQuit && startClears,
+			detail);
 	}
 
 	// A calibration waits for the lighthouse side to settle. The headset

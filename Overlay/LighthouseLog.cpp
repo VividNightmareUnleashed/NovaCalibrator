@@ -240,6 +240,18 @@ bool ParseLine(const std::string &line, Event &out)
 		return true;
 	}
 
+	// The session ending: a process asked for it ("Process 36524: steam has
+	// initiated a quit all"), or the server stops on its own. The standby lines
+	// that follow belong to the quit.
+	size_t process = line.find("] - Process ");
+	if ((process != std::string::npos && line.find(" has initiated a quit all", process) != std::string::npos) ||
+		line.find("] - VR server shutting down") != std::string::npos)
+	{
+		out.kind = Event::Kind::ServerQuitting;
+		out.timeKnown = ParseTimestamp(line, out.unixTime);
+		return true;
+	}
+
 	static const char marker[] = "lighthouse: LHR-";
 	size_t at = line.find(marker);
 	if (at == std::string::npos)
