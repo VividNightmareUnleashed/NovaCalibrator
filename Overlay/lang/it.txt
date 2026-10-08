@@ -759,8 +759,10 @@ en: Continuous calibration paused: tracking drifted too far to correct safely.
 it: Calibrazione continua in pausa: il tracciamento si è spostato troppo per correggerlo in sicurezza.
 en: Nova Calibrator: continuous calibration paused; readings drifted too far to correct safely. Recalibrate with the headset tracker to resume.
 it: Nova Calibrator: calibrazione continua in pausa; lo scostamento è troppo grande per correggerlo in sicurezza. Ricalibra con il tracker del visore per riprendere.
-en: Re-aligned your trackers after your headset's tracking shifted.
-it: Tracker riallineati dopo uno spostamento del tracciamento del visore.
+en: Re-aligned your trackers after their base station tracking shifted.
+it: Tracker riallineati dopo uno spostamento del tracciamento delle stazioni base.
+en: Re-aligned your trackers with your headset.
+it: Tracker riallineati al visore.
 en: Continuous calibration went back to the alignment it had before it last re-aligned your trackers.
 it: La calibrazione continua è tornata all'allineamento che aveva prima dell'ultimo riallineamento dei tracker.
 en: Tracking is noisy here; continuous calibration is waiting and resumes on its own.
