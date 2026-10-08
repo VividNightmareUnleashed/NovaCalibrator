@@ -34,6 +34,9 @@ static std::unique_ptr<lighthouselog::Tailer> LighthouseTail;
 static std::string DeviceSerials[vr::k_unMaxTrackedDeviceCount];
 // Read in the same scan; the drift feed keeps base stations out by it.
 static vr::ETrackedDeviceClass DeviceClasses[vr::k_unMaxTrackedDeviceCount] = {};
+// Also from the scan: another driver's virtual trackers
+// (IsVirtualTrackerSystem), which have no base station frame to watch.
+static bool VirtualDevices[vr::k_unMaxTrackedDeviceCount] = {};
 static double LastLighthousePoll = -1e9;
 static double LastSerialScan = -1e9;
 static uint64_t LighthouseRotationsSeen = 0;
@@ -162,8 +165,15 @@ void calibration_internal::LighthouseTick(CalibrationContext &ctx, double time)
 			if (DeviceClasses[id] == vr::TrackedDeviceClass_Invalid)
 			{
 				DeviceSerials[id].clear();
+				VirtualDevices[id] = false;
 				continue;
 			}
+			std::string trackingSystem;
+			const bool virtualDevice = ReadTrackedDeviceString(id, vr::Prop_TrackingSystemName_String, trackingSystem) &&
+				questcal::IsVirtualTrackerSystem(trackingSystem);
+			if (virtualDevice && !VirtualDevices[id])
+				FrameWatch.ForgetDevice(id);
+			VirtualDevices[id] = virtualDevice;
 			std::string serial;
 			if (ReadTrackedDeviceString(id, vr::Prop_SerialNumber_String, serial))
 			{
@@ -563,7 +573,7 @@ void calibration_internal::RuntimeMonitorTick(CalibrationContext &ctx, double no
 			if (ctx.detailedLogging)
 				StreamDigest.Note(s, QpcToSeconds);
 		}
-		else
+		else if (!VirtualDevices[s.deviceId])
 		{
 			const auto &serial = ctx.trackerFrames.Serial(s.deviceId);
 			if (FrameObservedSerials[s.deviceId] != serial)
@@ -572,7 +582,8 @@ void calibration_internal::RuntimeMonitorTick(CalibrationContext &ctx, double no
 				FrameObservedSerials[s.deviceId] = serial;
 			}
 			FrameWatch.Note(s, QpcToSeconds,
-				DeviceClasses[s.deviceId] == vr::TrackedDeviceClass_TrackingReference);
+				DeviceClasses[s.deviceId] == vr::TrackedDeviceClass_TrackingReference,
+				/*hiddenTracking=*/ctx.targetDeviceMask[s.deviceId]);
 		}
 	}
 	const bool jumped = idle && questcal::FinishUniverseObservations(ctx, now);
@@ -590,7 +601,7 @@ void calibration_internal::RuntimeMonitorTick(CalibrationContext &ctx, double no
 		if (s.deviceId >= vr::k_unMaxTrackedDeviceCount)
 			continue;
 		questcal::PoseSample sample;
-		if (!TryComposeRingSample(s, QpcToSeconds, sample))
+		if (!TryComposeRingSample(s, QpcToSeconds, sample, ctx.targetDeviceMask[s.deviceId]))
 			continue;
 		if (ctx.targetDeviceMask[s.deviceId] && !ctx.trackerFrames.Normalize(s.deviceId, sample))
 			continue;

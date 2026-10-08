@@ -978,6 +978,7 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 			const Pose local(Eigen::Quaterniond::Identity(), Eigen::Vector3d(-0.4, -1.8, 2.2));
 			std::vector<LighthouseFrameWatch::Move> moves;
 			int hiddenMoves = 0;
+			int slotMoves = 0;
 			for (int i = 0; i <= 9 * 250; ++i)
 			{
 				const double time = 1.0 + i / 250.0;
@@ -989,6 +990,11 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 					hidden.deviceIsConnected = false;
 					watch.Note(hidden, QpcSeconds, false);
 				}
+				// 14 reports the same, but outside the target system: a body
+				// estimator's unused slot (Standable's, live 2026-10-08), gone.
+				auto slot = sample(14, time, s1, local, Eigen::Vector3d::Zero());
+				slot.deviceIsConnected = false;
+				watch.Note(slot, QpcSeconds, false, /*hiddenTracking=*/false);
 				if (i % 2 == 1)
 					watch.Note(sample(12, time, s1, local, Eigen::Vector3d::Zero()), QpcSeconds, false);
 				if (i % 2 == 0)
@@ -1002,6 +1008,8 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 					moves.push_back(m);
 					if (m.id == 10 || m.id == 11)
 						++hiddenMoves;
+					if (m.id == 14)
+						++slotMoves;
 				}
 				watch.Flush();
 			}
@@ -1023,11 +1031,11 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 			watch.Note(sample(1, 20.0, stations[0], identity, Eigen::Vector3d::Zero()), QpcSeconds, true);
 			const bool stationAside = watch.TrackingSince() > 1e299;
 			char buf[160];
-			snprintf(buf, sizeof buf, "moves %zu (hidden %d), station 1's %d, station 2's %d; "
+			snprintf(buf, sizeof buf, "moves %zu (hidden %d, slot %d), station 1's %d, station 2's %d; "
 				"tracking since %.3f, reset %d, station aside %d",
-				moves.size(), hiddenMoves, stationOne, stationTwo, since, clearedByReset, stationAside);
+				moves.size(), hiddenMoves, slotMoves, stationOne, stationTwo, since, clearedByReset, stationAside);
 			check("lighthouse frame: every tracker in a re-solved station's frame is handed the move, hidden ones included",
-				moves.size() == 4 && hiddenMoves == 2 && stationOne && stationTwo &&
+				moves.size() == 4 && hiddenMoves == 2 && slotMoves == 0 && stationOne && stationTwo &&
 				std::abs(since - 1.0) < 1e-6 && clearedByReset && stationAside, buf);
 		}
 	}

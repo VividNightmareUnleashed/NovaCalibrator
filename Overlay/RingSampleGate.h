@@ -46,10 +46,18 @@ inline bool IsUsableRingSample(const protocol::DevicePoseSample &s, double qpcTo
 // claim the pose is valid AND that the device is actually tracking, and the
 // numeric fields must survive validation. Every consumer (chaperone baseline,
 // collector, runtime monitor, continuous loop) asks this one question.
+//
+// A device must also be connected, unless the caller knows it is in the
+// calibration's target tracking system (hiddenTracking): another driver can
+// hide such a device from games by reporting it not connected while it keeps
+// tracking, as Standable does to the body trackers it republishes as its own
+// (live 2026-09-26 and 2026-10-08), and its valid Running_OK pose is real. A
+// device outside the target system gets no such allowance: Standable's own
+// unused slots report not connected, valid and Running_OK at the origin.
 inline bool IsTrustedRingSample(
-	const protocol::DevicePoseSample &s, double qpcToSeconds)
+	const protocol::DevicePoseSample &s, double qpcToSeconds, bool hiddenTracking = false)
 {
-	return s.deviceIsConnected && s.poseIsValid &&
+	return (s.deviceIsConnected || hiddenTracking) && s.poseIsValid &&
 		s.trackingResult == static_cast<uint32_t>(vr::TrackingResult_Running_OK) &&
 		IsUsableRingSample(s, qpcToSeconds);
 }

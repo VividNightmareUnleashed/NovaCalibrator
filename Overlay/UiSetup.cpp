@@ -604,7 +604,9 @@ void FirstCalibrationStep(const VRState &state)
 		Go(SetupStep::Updates);
 
 	// The two to hold together: one of the headset's controllers, and a
-	// tracker of a kind the player said they use.
+	// tracker of a kind the player said they use. Never a virtual one
+	// (IsVirtualTrackerSystem): Standable's come first by device id and are
+	// generic trackers too.
 	SettlePairSystems(state);
 	std::vector<const VRDevice *> controllers, trackers;
 	for (const auto &dev : state.devices)
@@ -613,7 +615,8 @@ void FirstCalibrationStep(const VRState &state)
 			continue;
 		if (dev.trackingSystem == CalCtx.pendingReferenceTrackingSystem && dev.deviceClass != vr::TrackedDeviceClass_HMD)
 			controllers.push_back(&dev);
-		else if (dev.trackingSystem != CalCtx.pendingReferenceTrackingSystem && dev.deviceClass != vr::TrackedDeviceClass_HMD)
+		else if (dev.trackingSystem != CalCtx.pendingReferenceTrackingSystem && dev.deviceClass != vr::TrackedDeviceClass_HMD &&
+			!questcal::IsVirtualTrackerSystem(dev.trackingSystem))
 			trackers.push_back(&dev);
 	}
 	if (!s_setup.pairSeeded)

@@ -258,6 +258,8 @@ namespace
 			return "The SteamVR driver refused the calibration's values. Recalibrate.";
 		case Reason::InvalidIdentity:
 			return "The saved calibration doesn't match the connected hardware. Recalibrate.";
+		case Reason::VirtualTarget:
+			return "The saved calibration was made with a virtual tracker, which can't be calibrated. Recalibrate with a real tracker.";
 		case Reason::InvalidTransform:
 			return "The saved calibration is damaged. Recalibrate.";
 		case Reason::UniverseUnsafe:

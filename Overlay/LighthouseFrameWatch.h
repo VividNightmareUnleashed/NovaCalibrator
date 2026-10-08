@@ -67,8 +67,11 @@
 // Standable hooks the body trackers it republishes as its own and passes the
 // physical ones on as not connected while they track (live 2026-09-26: four
 // trackers at 400 Hz, every sample "not connected", all of them in the frame
-// of the station SteamVR kept moving). A pose that says it tracks counts here
-// whatever the connection flag says; only one that does not is a device gone.
+// of the station SteamVR kept moving). A target-system device whose pose says
+// it tracks counts here whatever the connection flag says; only one that does
+// not is a device gone. The caller says which devices those are: Standable's
+// own unused slots also report not connected, valid and Running_OK, at the
+// origin, and are not hidden trackers (live 2026-10-08).
 //
 // Every move is reported, the ones SteamVR makes while it sets up its
 // universe included (LighthouseVisibility.h); those place a station guessed
@@ -152,14 +155,16 @@ public:
 	// skipped; a disconnected one that does not track is gone, and keeps its
 	// last frame for a move that frame makes before it is back (OpenVR keeps a
 	// device's index for the session, so whatever comes back at that index is
-	// the same device). One reported disconnected while it tracks is hidden,
-	// not gone (see above).
-	void Note(const protocol::DevicePoseSample &s, double qpcToSeconds, bool baseStation)
+	// the same device). A target-system device (hiddenTracking) reported
+	// disconnected while it tracks is hidden, not gone (see above); any other
+	// device reported disconnected is gone.
+	void Note(const protocol::DevicePoseSample &s, double qpcToSeconds, bool baseStation,
+		bool hiddenTracking = true)
 	{
 		if (s.deviceId >= vr::k_unMaxTrackedDeviceCount)
 			return;
 		Device &d = devices[s.deviceId];
-		const bool tracking = s.poseIsValid &&
+		const bool tracking = (s.deviceIsConnected || hiddenTracking) && s.poseIsValid &&
 			s.trackingResult == static_cast<uint32_t>(vr::TrackingResult_Running_OK) &&
 			IsUsableRingSample(s, qpcToSeconds);
 		if (!tracking)

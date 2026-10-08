@@ -272,6 +272,13 @@ void SynchronizeCalibrationDriver(CalibrationContext &ctx)
 		ctx.enabled = false;
 		ctx.disableReason = CalibrationContext::DisableReason::InvalidIdentity;
 	}
+	// A profile solved against virtual trackers (an older build offered them)
+	// would transform their already calibrated poses again.
+	if (ctx.enabled && IsVirtualTrackerSystem(ctx.targetTrackingSystem))
+	{
+		ctx.enabled = false;
+		ctx.disableReason = CalibrationContext::DisableReason::VirtualTarget;
+	}
 
 	if (ctx.enabled)
 	{
