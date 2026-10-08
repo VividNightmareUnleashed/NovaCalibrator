@@ -128,6 +128,31 @@ void JumpDetector::Push(const protocol::DevicePoseSample &s)
 		return;
 	}
 
+	// A driver queue drop noted since this device's last sample (NoteStreamHole)
+	// cost it a frame only if its own interval skipped. Then it breaks as the
+	// old blanket rule broke every device: history and the exact WFD path go,
+	// and its candidates still filling a fit window die; Ready ones stay.
+	if (dev.holeNoted)
+	{
+		dev.holeNoted = false;
+		if (dev.lastValidTime >= 0.0 && (dev.usualInterval <= 0.0 ||
+			t - dev.lastValidTime > config.holeIntervalFactor * dev.usualInterval))
+		{
+			dev.wfdValid = false;
+			dev.hist.clear();
+			dev.repeatedPositions = 0;
+			for (auto &candidate : candidates)
+				if (candidate.deviceId == s.deviceId && candidate.PendingHeuristic())
+					Drop(candidate, "a driver queue drop inside its fit windows");
+		}
+	}
+	if (dev.lastValidTime >= 0.0 && t - dev.lastValidTime < config.maxFrameGap)
+	{
+		const double interval = t - dev.lastValidTime;
+		dev.usualInterval = dev.usualInterval <= 0.0 ? interval
+			: dev.usualInterval + 0.05 * (interval - dev.usualInterval);
+	}
+
 	// A hard gap in the reference stream (disconnect, standby): the universe
 	// may have moved with no observable frame pair. Never compensate across
 	// it — reset baselines and report the event for staleness scoring.
@@ -719,15 +744,10 @@ void JumpDetector::Drop(Candidate &c, const std::string &reason)
 
 void JumpDetector::NoteStreamHole()
 {
+	// Judged per device by its next sample (Push): only a device whose own
+	// stream skipped lost anything.
 	for (auto &dev : devices)
-	{
-		dev.wfdValid = false;
-		dev.hist.clear();
-		dev.repeatedPositions = 0;
-	}
-	for (auto &candidate : candidates)
-		if (candidate.PendingHeuristic())
-			Drop(candidate, "a driver queue drop inside its fit windows");
+		dev.holeNoted = true;
 }
 
 void JumpDetector::Reset()
@@ -739,6 +759,7 @@ void JumpDetector::Reset()
 		dev.streamResumeTime = -1.0;
 		dev.repeatedPositions = 0;
 		dev.hist.clear();
+		dev.holeNoted = false;
 	}
 	candidates.clear();
 	accepted.clear();
@@ -747,7 +768,6 @@ void JumpDetector::Reset()
 	details.clear();
 	lastAcceptTime = -1e9;
 	ignoredSteps = 0;
-	driftCatchUps = 0;
 	ignoredYaw = 0.0;
 	ignoredTranslation.setZero();
 }

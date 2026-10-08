@@ -497,6 +497,26 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 			aligner.ObservationCount() < 2 && !aligner.CorrectionEligible() && !aligner.PollCorrection(correction), "post-gap samples must refill a fresh window");
 	}
 	{
+		// The overlay skips a pose the pair's device reports as not tracking
+		// instead of starting over (CalibrationContinuous.cpp): a few stray
+		// frames keep the window and its estimate, and the 300 ms case above
+		// still clears it. On 2026-10-08 the headset tracker's 48,762 rejected
+		// poses had cleared the window 48,769 times.
+		auto aligner = Aligner();
+		Warm(aligner, .015);
+		const size_t before = aligner.ObservationCount();
+		const bool trackingBefore = aligner.GetState() == CA::State::Tracking && aligner.CorrectionEligible();
+		// The frames at 11.01 and 11.02 were rejected and skipped.
+		Pair(aligner, 11.03, .015);
+		Pair(aligner, 11.04, .015);
+		char detail[96];
+		snprintf(detail, sizeof detail, "observations %zu -> %zu, state %d, eligible %d", before,
+			aligner.ObservationCount(), static_cast<int>(aligner.GetState()), aligner.CorrectionEligible());
+		check("recovery: two skipped frames keep the window and its estimate",
+			trackingBefore && aligner.ObservationCount() >= before && aligner.GetState() == CA::State::Tracking &&
+			aligner.CorrectionEligible(), detail);
+	}
+	{
 		auto aligner = Aligner();
 		Warm(aligner, .15);
 		for (int i = 1101; i <= 1400; ++i)
@@ -558,6 +578,48 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 		auto hole = run(true, .08, false, 9010);
 		check("detailed log: a candidate lost to a driver queue drop says so",
 			Has(hole, "dropped: a driver queue drop"), hole.empty() ? "no lines" : hole.back().substr(0, 120).c_str());
+	}
+
+	// A driver queue drop names no device. One that took another device's
+	// pose leaves the headset's interval ordinary, so its step's fit survives;
+	// only a drop that took the headset's own frame costs it (the case above).
+	// On 2026-10-08 a twenty-device rig dropped a pose every 0.37 s, and the
+	// old rule broke every device's history for each one.
+	{
+		auto run = [](int holeAt, bool frameLost)
+		{
+			JumpDetector detector(QpcSeconds);
+			detector.SetDetailed(true);
+			std::vector<std::string> lines;
+			for (int frame = 0; frame <= 9200; ++frame)
+			{
+				if (frame == holeAt)
+				{
+					detector.NoteStreamHole();
+					if (frameLost)
+						continue;
+				}
+				double time = 1.0 + frame * 0.01;
+				auto s = Sample(0, time, frame >= 9000 ? .08 : 0.);
+				double yaw = 0.1 * time;
+				s.rotation = { std::cos(yaw / 2), 0, std::sin(yaw / 2), 0 };
+				s.position[2] = 1e-5 * std::sin(time * 700.0);
+				detector.Push(s);
+				JumpDetector::UniverseDelta delta;
+				while (detector.PollDelta(delta)) {}
+				std::string line;
+				while (detector.PollNote(line)) {}
+				while (detector.PollDetail(line))
+					lines.push_back(line);
+			}
+			return lines;
+		};
+		auto others = run(9010, false);
+		auto own = run(9010, true);
+		check("stream holes: a drop that took another device's pose leaves the headset's fit",
+			!Has(others, "dropped: a driver queue drop") && Has(others, "fitted: before (") &&
+			Has(own, "dropped: a driver queue drop"),
+			others.empty() ? "no lines" : others.back().substr(0, 120).c_str());
 	}
 
 	// The stream digest: one line per device a minute with what the

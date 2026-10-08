@@ -26,9 +26,13 @@
 class PoseStreamHub
 {
 public:
-	// Power of two. At a typical aggregate pose rate (a few hundred Hz per
-	// device, a handful of devices) this is tens of seconds of history.
-	static const uint64_t HistoryCapacity = 1 << 15;
+	// Power of two, sized for the longest UI stall seen at the busiest rate:
+	// on 2026-10-07 the UI thread stopped draining for ~11 s while SteamVR's
+	// compositor waited on Virtual Desktop, and 1 << 15 (9.6 s at that rig's
+	// 3,380 poses/s) lost 4,291 poses. This is 14.6 s at the pose ring's
+	// 9,000 Hz envelope and 30 s at the 4,270 measured on a twenty-device rig,
+	// for ~28 MB.
+	static const uint64_t HistoryCapacity = 1 << 17;
 	// Entries a drain copies per hold of the producer mutex.
 	static const uint64_t CopyChunk = 512;
 
