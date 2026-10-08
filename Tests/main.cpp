@@ -7761,6 +7761,31 @@ void RunSolverAccuracyScenarios()
 		RecordResult("scale diagnostic branches", pass);
 	}
 
+	// 7e. A scale the solve could not identify stays neutral even when the
+	// gross band looks clean (live 2026-10-07: gross 0.994, fine 0.953, one-sigma
+	// 5.9 %, and the old guard committed 0.9937 while saying 1.0). The same
+	// smoothed scene and widened clean-gross bound as the branch above, with
+	// the confidence contract refusing the scale.
+	{
+		EngineConfig sc = config;
+		sc.solveScale = true;
+		sc.maxCleanGrossDeviation = 0.10;
+		sc.minScaleCondition = 0.9;
+		SceneConfig scene;
+		scene.posNoise = 0.001;
+		scene.rotNoiseDeg = 0.1;
+		std::vector<PoseSample> ref, tgt;
+		GenerateStreams(scene, truth, 780, ref, tgt);
+		EngineResult held = CalibrationEngine::Solve(SmoothStreamZeroPhase(ref, 0.30, 0.05), tgt, sc);
+		char detail[160];
+		snprintf(detail, sizeof detail, "valid %d identifiable %d smoothing %d guard %d scale %.4f",
+			held.valid, held.scaleIdentifiable, held.motionSmoothingDetected,
+			static_cast<int>(held.scaleGuard), held.scale);
+		Check("scale guard: an unidentified scale stays neutral over a clean gross band",
+			held.valid && !held.scaleIdentifiable && held.motionSmoothingDetected &&
+			held.scaleGuard == ScaleGuard::NeutralizedForSmoothing && held.scale == 1.0, detail);
+	}
+
 	// 8. Runtime application of the solved offset: sign and asymmetric clamp.
 	// Production shape: laggy wireless reference => solved offset is negative
 	// => positive shift (delay the fresh lighthouse targets). Delaying may use

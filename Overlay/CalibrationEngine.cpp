@@ -1353,8 +1353,11 @@ EngineResult CalibrationEngine::Solve(const std::vector<PoseSample> &refStream,
 	if (result.valid && config.solveScale && config.pinScaleOnSmoothing &&
 	    (bandMismatch || scaleNotIdentifiable))
 	{
-		// Without a valid diagnostic there is no gross band to trust.
-		bool grossClean = fineAttenuated &&
+		// Without a valid diagnostic there is no gross band to trust, and a
+		// scale the solve could not identify stays neutral even when the gross
+		// band looks clean: on 2026-10-07 a solve with a one-sigma of 5.9 %
+		// took 0.9937 from a gross gain of 0.994 while its message said 1.0.
+		bool grossClean = !scaleNotIdentifiable && fineAttenuated &&
 			std::abs(gainLow - 1.0) <= config.maxCleanGrossDeviation;
 		double guardedScale = grossClean
 			? std::min(1.0 + config.scaleSearchRange,
