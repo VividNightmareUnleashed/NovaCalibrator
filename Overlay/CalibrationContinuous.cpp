@@ -492,8 +492,20 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 				ctx.continuousReanchorsAcrossSolutions++;
 			Monitors.freezeNotified = false;
 			if (!ctx.continuousNoPause)
-				ctx.Tell("Re-aligned your trackers after your headset's tracking shifted.\n",
+			{
+				// What moved, said only where the evidence shows it (see the
+				// freeze above): the headset's own tracking holds gravity, so a
+				// tilt came from the lighthouse side, as does a headset tracker
+				// restart. On 2026-10-08 three re-anchors carried 1.6 to 3.7 deg
+				// of tilt after SteamVR re-tilted its stations, and the line blamed
+				// the headset. Otherwise it says what was done.
+				const bool lighthouseSide = ev.afterTargetResolve ||
+					ev.deviation.tiltDeg >= Continuous->GetConfig().holdTiltDeg;
+				ctx.Tell(lighthouseSide
+					? "Re-aligned your trackers after their base station tracking shifted.\n"
+					: "Re-aligned your trackers with your headset.\n",
 					CalibrationContext::Tone::Good, CalibrationContext::Event::Realigned);
+			}
 			break;
 		case questcal::ContinuousAlignment::Event::ReanchorUndone:
 			if (!reanchorApplied)

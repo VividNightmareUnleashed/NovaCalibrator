@@ -753,8 +753,10 @@ en: Continuous calibration paused: tracking drifted too far to correct safely.
 ja: 連続キャリブレーションを一時停止しました：トラッキングのずれが大きすぎて、安全に補正できません。
 en: Nova Calibrator: continuous calibration paused; readings drifted too far to correct safely. Recalibrate with the headset tracker to resume.
 ja: Nova Calibrator：連続キャリブレーションを一時停止しました。ずれが大きすぎて安全に補正できません。再開するにはヘッドセットトラッカーで再キャリブレーションしてください。
-en: Re-aligned your trackers after your headset's tracking shifted.
-ja: ヘッドセットのトラッキングがずれたため、トラッカーを合わせ直しました。
+en: Re-aligned your trackers after their base station tracking shifted.
+ja: ベースステーション側のトラッキングがずれたため、トラッカーを合わせ直しました。
+en: Re-aligned your trackers with your headset.
+ja: トラッカーをヘッドセットに合わせ直しました。
 en: Continuous calibration went back to the alignment it had before it last re-aligned your trackers.
 ja: 連続キャリブレーションが、直前にトラッカーを合わせ直す前の位置合わせに戻しました。
 en: Tracking is noisy here; continuous calibration is waiting and resumes on its own.

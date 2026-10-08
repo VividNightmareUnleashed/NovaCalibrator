@@ -292,7 +292,7 @@ void SetupPreviewState()
 	if (sheet)
 		PreviewActivity("Anchor added. This spot now has its own correction.", Tone::Good, last + 21.0 * minute,
 			Event::Anchor);
-	PreviewActivity("Re-aligned your trackers after your headset's tracking shifted.", Tone::Good, last,
+	PreviewActivity("Re-aligned your trackers with your headset.", Tone::Good, last,
 		Event::Realigned);
 	if (sheet)
 	{
