@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -30,6 +31,13 @@ std::atomic<double> HostReceivedOriginX{ 0.0 };
 std::atomic<bool> ReenterOnce{ false };
 std::atomic<double> InnerOriginX{ 0.0 };
 thread_local int HostDepth = 0;
+// The driver-space position x of the last pose an outer host call received,
+// and how many calls each low device id received.
+std::atomic<double> HostReceivedPositionX{ 0.0 };
+std::atomic<int> HostCallsByDevice[8] = {};
+// Run once from inside the host's next pose update, as another thread's pose
+// can arrive while the host handles one.
+std::atomic<void (*)()> InsideHostOnce{ nullptr };
 
 using PoseUpdateFn = void (*)(void *, uint32_t, const vr::DriverPose_t &, uint32_t);
 
@@ -45,6 +53,10 @@ struct FakeHost
 		const vr::DriverPose_t &pose, uint32_t size)
 	{
 		HostPoseCalls.fetch_add(static_cast<int>(device + size) | 1);
+		if (device < 8)
+			HostCallsByDevice[device].fetch_add(1);
+		if (HostDepth == 0)
+			HostReceivedPositionX.store(pose.vecPosition[0]);
 		(HostDepth > 0 ? InnerOriginX : HostReceivedOriginX).store(pose.vecWorldFromDriverTranslation[0]);
 		if (ReenterOnce.exchange(false))
 		{
@@ -53,6 +65,8 @@ struct FakeHost
 			reinterpret_cast<PoseUpdateFn>(vtable[openvr_hook::PoseUpdateSlot])(this, device, pose, size);
 			--HostDepth;
 		}
+		if (void (*during)() = InsideHostOnce.exchange(nullptr))
+			during();
 	}
 };
 
@@ -87,9 +101,11 @@ void RequestHostInterface()
 // A tracking pose through the host's vtable slot, as a device driver sends it;
 // returns the world-from-driver origin the host received. `size` is the
 // DriverPose_t size the caller claims.
-double SendPoseThroughHost(uint32_t device = 0, uint32_t size = sizeof(vr::DriverPose_t))
+double SendPoseThroughHost(uint32_t device = 0, uint32_t size = sizeof(vr::DriverPose_t),
+	double positionX = 0.0)
 {
 	vr::DriverPose_t pose{};
+	pose.vecPosition[0] = positionX;
 	pose.poseIsValid = pose.deviceIsConnected = true;
 	pose.result = vr::TrackingResult_Running_OK;
 	pose.qRotation.w = pose.qWorldFromDriverRotation.w = pose.qDriverFromHeadRotation.w = 1;
@@ -327,6 +343,110 @@ void HookStatusScenario(Check check)
 		seen.reentrantPoseUpdates == 1 && outer != 0.0 && inner == outer && released, detail);
 }
 
+constexpr uint32_t QuietStation = 3;
+
+// The station's own next pose, from its driver's thread, arriving while the
+// host handles a re-send.
+void StationPoseFromAnotherThread()
+{
+	std::thread pose([] { SendPoseThroughHost(QuietStation, sizeof(vr::DriverPose_t), 2.5); });
+	pose.join();
+}
+
+// A base station's driver sends a pose minutes to hours apart, so RunFrame
+// sends a quiet station's last pose again, through the hook's original, once
+// the calibration has moved: marked as handled, so a host forwarding it to
+// another hooked version passes it on untouched. A tracker, and a station
+// heard from within half a second, wait for their own next pose; the
+// station's own pose arriving during a re-send has the re-send repeated from
+// that pose.
+void QuietBaseStationScenario(Check check)
+{
+	const char *name = "hooks: a quiet base station's pose follows the calibration";
+	const uint32_t tracker = QuietStation + 1;
+	auto provider = std::make_unique<ServerTrackedDeviceProvider>();
+	auto *context = reinterpret_cast<vr::IVRDriverContext *>(&Context);
+	provider->SetDeviceClassForTest(QuietStation, vr::TrackedDeviceClass_TrackingReference);
+	provider->SetDeviceClassForTest(tracker, vr::TrackedDeviceClass_GenericTracker);
+	auto calibrate = [&](double x, uint32_t generation)
+	{
+		protocol::SetRuntimeState state;
+		state.enabledMask = (uint64_t{ 1 } << QuietStation) | (uint64_t{ 1 } << tracker);
+		state.transform.translation.v[0] = x;
+		state.transform.generation = generation;
+		return provider->TrySetRuntimeState(state);
+	};
+	if (!calibrate(0.2, 1) || !InjectHooks(provider.get(), context))
+	{
+		check(name, false, "setup failed");
+		return;
+	}
+	RequestHostInterface();
+	for (auto &calls : HostCallsByDevice)
+		calls.store(0);
+	provider->SetPoseTimeForTest(10.0);
+	const double first = SendPoseThroughHost(QuietStation, sizeof(vr::DriverPose_t), 1.5);
+	SendPoseThroughHost(tracker);
+
+	// One re-send pass at `time`: the station's host calls in it, and the
+	// origin and position the last outer one carried.
+	struct Pass
+	{
+		int calls;
+		double origin;
+		double position;
+	};
+	auto pass = [&](double time)
+	{
+		const int before = HostCallsByDevice[QuietStation].load();
+		HostReceivedOriginX.store(0.0);
+		HostReceivedPositionX.store(0.0);
+		provider->SetPoseTimeForTest(time);
+		provider->ResendQuietPosesForTest();
+		return Pass{ HostCallsByDevice[QuietStation].load() - before,
+			HostReceivedOriginX.load(), HostReceivedPositionX.load() };
+	};
+	const bool moved = calibrate(0.5, 2);
+	const Pass early = pass(10.2);
+	const Pass quiet = pass(10.6);
+	const Pass settled = pass(10.8);
+
+	const uint32_t reentrantBefore = PoseHookStatus().reentrantPoseUpdates;
+	const bool movedAgain = calibrate(0.7, 3);
+	InnerOriginX.store(0.0);
+	ReenterOnce.store(true);
+	const Pass forwarded = pass(11.0);
+	const double inner = InnerOriginX.load();
+	const uint32_t reentrant = PoseHookStatus().reentrantPoseUpdates - reentrantBefore;
+
+	const bool movedThird = calibrate(0.9, 4);
+	InsideHostOnce.store(&StationPoseFromAnotherThread);
+	const Pass raced = pass(11.2);
+	const Pass repeated = pass(11.35);
+	const Pass after = pass(11.8);
+	const int trackerCalls = HostCallsByDevice[tracker].load();
+	const bool released = DisableHooks();
+	provider->SetPoseTimeForTest(-1.0);
+
+	char detail[320];
+	std::snprintf(detail, sizeof detail,
+		"first origin %.2f; early %d, quiet %d (origin %.2f, position %.2f), settled %d; "
+		"forwarded %d (origin %.2f, inner %.2f, re-entrant %u); raced %d, repeated %d "
+		"(origin %.2f, position %.2f), after %d; tracker calls %d; released %d",
+		first, early.calls, quiet.calls, quiet.origin, quiet.position, settled.calls,
+		forwarded.calls, forwarded.origin, inner, reentrant, raced.calls, repeated.calls,
+		repeated.origin, repeated.position, after.calls, trackerCalls, released ? 1 : 0);
+	auto equal = [](double a, double b) { return std::abs(a - b) < 1e-9; };
+	check(name, moved && movedAgain && movedThird && equal(first, 0.2) &&
+		early.calls == 0 &&
+		quiet.calls == 1 && equal(quiet.origin, 0.5) && equal(quiet.position, 1.5) &&
+		settled.calls == 0 &&
+		forwarded.calls == 2 && equal(forwarded.origin, 0.7) && equal(inner, 0.7) && reentrant == 1 &&
+		raced.calls == 2 &&
+		repeated.calls == 1 && equal(repeated.origin, 0.9) && equal(repeated.position, 2.5) &&
+		after.calls == 0 && trackerCalls == 1 && released, detail);
+}
+
 // A target SteamVR tracks but the hook has not seen is reported once three
 // synchronizations in a row have missed it; one the hook has seen, an
 // untracked one and one that is not a target never are.
@@ -357,5 +477,6 @@ void RunHookInjectorScenarios(Check check)
 	TeardownWaitsForDriverScenario(check);
 	CallbackWaitDeadlineScenario(check);
 	HookStatusScenario(check);
+	QuietBaseStationScenario(check);
 	HookCoverageScenario(check);
 }

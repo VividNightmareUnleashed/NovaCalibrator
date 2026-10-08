@@ -4,11 +4,53 @@
 #include "RuntimePose.h"
 #include "ProtocolValidation.h"
 
+#include <algorithm>
+#include <cmath>
 #include <utility>
 
 // Vertical displacement applied to a hidden device's forwarded pose.
 static constexpr double HiddenPoseOffsetY = 1000.0;   // meters
 static constexpr uint64_t PoseRingRetryIntervalMs = 1000;
+// How often RunFrame looks for a quiet device to re-send (ResendQuietPoses).
+static constexpr double ResendPassSeconds = 0.1;
+// A device whose own driver sent a pose this recently gets the calibration
+// with its next one.
+static constexpr double ResendQuietSeconds = 0.5;
+// Smaller differences are the slew's rounding, not a calibration change.
+static constexpr double ResendMinMoveMeters = 1e-5;
+static constexpr double ResendMinTurnRadians = 1e-5;
+static constexpr uint64_t ResendLogIntervalMs = 60000;
+
+namespace
+{
+struct WorldPose
+{
+	vr::HmdVector3d_t position;
+	vr::HmdQuaternion_t rotation;
+};
+
+// Where the runtime puts a driver pose.
+WorldPose World(const vr::DriverPose_t &pose)
+{
+	const auto rotated = questcal::driverpose::RotateVector(pose.qWorldFromDriverRotation, pose.vecPosition);
+	return { questcal::driverpose::Add(rotated.v, pose.vecWorldFromDriverTranslation),
+		questcal::driverpose::Multiply(pose.qWorldFromDriverRotation, pose.qRotation) };
+}
+
+double Distance(const vr::HmdVector3d_t &a, const vr::HmdVector3d_t &b)
+{
+	double sum = 0.0;
+	for (int i = 0; i < 3; ++i)
+		sum += (a.v[i] - b.v[i]) * (a.v[i] - b.v[i]);
+	return std::sqrt(sum);
+}
+
+double Turn(const vr::HmdQuaternion_t &a, const vr::HmdQuaternion_t &b)
+{
+	const double dot = std::abs(a.w * b.w + a.x * b.x + a.y * b.y + a.z * b.z);
+	return 2.0 * std::acos(std::min(dot, 1.0));
+}
+} // namespace
 
 vr::EVRInitError ServerTrackedDeviceProvider::Init(vr::IVRDriverContext *pDriverContext)
 {
@@ -115,6 +157,8 @@ void ServerTrackedDeviceProvider::Cleanup()
 
 void ServerTrackedDeviceProvider::RunFrame()
 {
+	ResendQuietPoses();
+
 	if (poseRingReady.load(std::memory_order_acquire))
 		return;
 
@@ -150,6 +194,124 @@ void ServerTrackedDeviceProvider::FlushFrameLog()
 			record.outputPosition.v[0], record.outputPosition.v[1], record.outputPosition.v[2],
 			record.outputRotation.w, record.outputRotation.x, record.outputRotation.y, record.outputRotation.z,
 			record.generation);
+	}
+
+	// At most a line a minute, so a long session's corrections leave the log's
+	// tail to everything else.
+	const uint64_t nowMs = GetTickCount64();
+	if (resentPoses.load(std::memory_order_acquire) != 0 &&
+		(lastResendLogMs == 0 || nowMs - lastResendLogMs >= ResendLogIntervalMs))
+	{
+		lastResendLogMs = nowMs;
+		const uint32_t resent = resentPoses.exchange(0, std::memory_order_acq_rel);
+		const uint64_t devices = resentDevices.exchange(0, std::memory_order_acq_rel);
+		const uint32_t largest = largestResendMoveMicrometers.exchange(0, std::memory_order_acq_rel);
+		if (LogFile)
+			LOG("base station poses re-sent as the calibration moved: %u (device mask %llx, largest move %.3f mm)",
+				resent, static_cast<unsigned long long>(devices), largest / 1000.0);
+	}
+}
+
+double ServerTrackedDeviceProvider::NowSeconds() const
+{
+#ifdef QUESTCAL_DRIVER_PROVIDER_TEST_SEAM
+	if (poseTimeForTest >= 0.0)
+		return poseTimeForTest;
+#endif
+	LARGE_INTEGER now;
+	QueryPerformanceCounter(&now);
+	return static_cast<double>(now.QuadPart) * qpcToSeconds;
+}
+
+vr::ETrackedDeviceClass ServerTrackedDeviceProvider::DeviceClass(uint32_t openVRID)
+{
+	if (deviceClasses[openVRID] != vr::TrackedDeviceClass_Invalid)
+		return deviceClasses[openVRID];
+#ifdef QUESTCAL_DRIVER_PROVIDER_TEST_SEAM
+	deviceClasses[openVRID] = deviceClassForTest[openVRID];
+#else
+	if (vr::CVRPropertyHelpers *properties = vr::VRProperties())
+	{
+		vr::ETrackedPropertyError error = vr::TrackedProp_Success;
+		const int32_t value = properties->GetInt32Property(
+			properties->TrackedDeviceToPropertyContainer(openVRID), vr::Prop_DeviceClass_Int32, &error);
+		if (error == vr::TrackedProp_Success)
+			deviceClasses[openVRID] = static_cast<vr::ETrackedDeviceClass>(value);
+	}
+#endif
+	return deviceClasses[openVRID];
+}
+
+void ServerTrackedDeviceProvider::ResendQuietPoses()
+{
+	const double passTime = NowSeconds();
+	if (passTime >= lastResendPass && passTime - lastResendPass < ResendPassSeconds)
+		return;
+	lastResendPass = passTime;
+
+	const uint64_t recorded = recordedDevices.load(std::memory_order_acquire);
+	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+	{
+		// Base stations alone: every other device sends poses many times a
+		// second, each taking the calibration as it stands.
+		if ((recorded & (uint64_t{ 1 } << id)) == 0 ||
+			DeviceClass(id) != vr::TrackedDeviceClass_TrackingReference)
+			continue;
+
+		vr::DriverPose_t pose{};
+		PoseHostCall host;
+		uint32_t received = 0;
+		{
+			// Never wait on a pose thread from SteamVR's frame loop: a device
+			// whose own pose is going through gets the calibration with it.
+			std::unique_lock<std::mutex> lock(poseMutexes[id], std::try_to_lock);
+			if (!lock.owns_lock())
+				continue;
+			RuntimePoseRecord &record = runtimePoses[id];
+			const double now = NowSeconds();
+			if (!record.host.host || !record.host.original ||
+				!record.raw.poseIsValid || !record.raw.deviceIsConnected ||
+				(!resendOwed[id] && now - record.receivedAt < ResendQuietSeconds))
+				continue;
+
+			// As HandleDevicePoseUpdated transforms it, from the device's own
+			// newest pose; nothing goes to the pose ring.
+			pose = record.raw;
+			DeviceTransform tf;
+			protocol::SetAlignmentField field;
+			ReadRuntimeState(id, tf, field);
+			questcal::driverpose::ApplyRuntimePose(pose, tf.calibration, tf.frame,
+				field, now, baseState[id], fieldState[id]);
+			if (tf.control.hidden)
+				pose.vecWorldFromDriverTranslation[1] += HiddenPoseOffsetY;
+
+			const WorldPose before = World(record.sent);
+			const WorldPose after = World(pose);
+			const double moved = Distance(before.position, after.position);
+			if (!resendOwed[id] && !(moved > ResendMinMoveMeters) &&
+				!(Turn(before.rotation, after.rotation) > ResendMinTurnRadians))
+				continue;
+
+			record.sent = pose;
+			host = record.host;
+			received = record.received;
+			const uint32_t micrometers = static_cast<uint32_t>(std::min(moved * 1e6, 4e9));
+			uint32_t largest = largestResendMoveMicrometers.load(std::memory_order_relaxed);
+			while (largest < micrometers &&
+				!largestResendMoveMicrometers.compare_exchange_weak(largest, micrometers,
+					std::memory_order_relaxed))
+			{
+			}
+		}
+
+		ResendPose(host, id, pose);
+		resentDevices.fetch_or(uint64_t{ 1 } << id, std::memory_order_relaxed);
+		resentPoses.fetch_add(1, std::memory_order_release);
+
+		// The device's own pose may have come through meanwhile and reached the
+		// runtime before this older one: send again, from the newest, next pass.
+		std::unique_lock<std::mutex> lock(poseMutexes[id], std::try_to_lock);
+		resendOwed[id] = !lock.owns_lock() || runtimePoses[id].received != received;
 	}
 }
 
@@ -230,7 +392,8 @@ void ServerTrackedDeviceProvider::ReadRuntimeState(uint32_t openVRID,
     field = snapshot.field;
 }
 
-void ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::DriverPose_t &pose)
+void ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::DriverPose_t &pose,
+	const PoseHostCall &host)
 {
 	if (openVRID >= vr::k_unMaxTrackedDeviceCount)
 		return;
@@ -266,6 +429,7 @@ void ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr:
 		poseRing.Publish(sample);
 	}
 
+	const vr::DriverPose_t raw = pose;
 	DeviceTransform tf;
 	protocol::SetAlignmentField field;
 	ReadRuntimeState(openVRID, tf, field);
@@ -311,4 +475,16 @@ void ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr:
 	// far above the play area, out of reach of games' tracker auto-assignment.
 	if (tf.control.hidden)
 		pose.vecWorldFromDriverTranslation[1] += HiddenPoseOffsetY;
+
+	RuntimePoseRecord &record = runtimePoses[openVRID];
+	record.raw = raw;
+	record.sent = pose;
+	record.host = host;
+	record.receivedAt = nowSeconds;
+	++record.received;
+	if (!record.seen)
+	{
+		record.seen = true;
+		recordedDevices.fetch_or(uint64_t{ 1 } << openVRID, std::memory_order_release);
+	}
 }

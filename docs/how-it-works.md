@@ -90,6 +90,16 @@ Runtime alignment maintenance uses the timestamped pose ring and calibration sol
   two stations and for ten seconds after it lost or regained one.
   Nothing changes when the log is unavailable. See
   [docs/lighthouse-visibility.md](lighthouse-visibility.md).
+- **Base stations follow the calibration:** SteamVR's lighthouse driver sends a
+  base station's pose only when it solves a new one, minutes to hours apart, so
+  SteamVR would keep each station where the calibration stood at that pose while
+  every correction since moves the trackers around it. The driver sends a quiet
+  station's last pose again, through the lighthouse driver's own host call,
+  whenever the calibration would now put it elsewhere: half a second or more
+  after the station's own last pose, at most ten times a second while the
+  calibration slews, and never into the raw pose stream. Its log counts the
+  re-sends once a minute, and the diagnostics export compares each station's
+  runtime position with where the current calibration puts its last raw pose.
 - **Field anchors (spatial correction field)** — multi-point calibration interpolated by each
   device's own position (Gaussian RBF blending in the driver), correcting SLAM map
   deformation that a single rigid transform cannot represent.
