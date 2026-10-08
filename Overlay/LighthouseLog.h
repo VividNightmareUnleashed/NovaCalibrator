@@ -31,7 +31,9 @@
 //
 // and, outside the lighthouse driver, the server's own first line
 // ("Sun Sep 27 2026 21:43:33.604 [Info] - vrserver 2.17.10 startup with
-// PID=5976, ..."). The universe lines name no device: the universe is the set
+// PID=5976, ...") and the quit that ends a session ("Process 36524: steam has
+// initiated a quit all", or "VR server shutting down" when nothing asked for
+// one). The universe lines name no device: the universe is the set
 // of base station poses every lighthouse pose is reported in, which the
 // driver chooses once the first devices have started tracking after SteamVR
 // starts, and again after it stopped tracking with one because no device
@@ -46,7 +48,10 @@
 // or tracker off once it has not moved for its "Turn off controllers after"
 // time, 5 minutes unless changed; a headset tracker sits still whenever the
 // headset is off, and stays off when it goes back on (live 2026-09-26: 305 s
-// after the headset was set down).
+// after the headset was set down). It writes the same standby line for every
+// device when it quits, right after the quit line (live 2026-10-08, twice: the
+// quit and eight power-offs within 13 ms), so a power-off that follows a quit
+// is the session ending, not a device that sat still.
 //
 // S-N is the station's channel; the hex in parentheses is the station id,
 // which equals the serial SteamVR stores for it (a leading zero is printed
@@ -75,6 +80,7 @@ struct Event
 		Connected,         // its radio link came up
 		// No device (serial empty):
 		ServerStarted,     // vrserver started: no universe yet
+		ServerQuitting,    // the session is ending: its power-offs are the quit's
 		UniverseChosen,    // the driver selected or created its universe
 		UniverseStopped,   // it stopped tracking with it
 	};

@@ -521,7 +521,7 @@ void DescribeBaseStations(std::ostream &out, const CalibrationContext &ctx, cons
 		if (d.standbyPowerOffs > 0)
 			out << ", switched off by SteamVR's idle timeout " << d.standbyPowerOffs << " times";
 		if (d.off)
-			out << (d.standbyOff ? ", off (standby)" : ", off");
+			out << (d.standbyOff ? ", off (standby)" : d.shutdownOff ? ", off (SteamVR quit)" : ", off");
 		if (!d.lastDisturbanceText.empty())
 			out << "; last: " << d.lastDisturbanceText;
 		out << "\n";

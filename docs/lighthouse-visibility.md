@@ -56,14 +56,22 @@ LHR-A3C36EA5: Connected to receiver 4BF089B604
   and add a session-log line (`LHR-A3C36EA5 switched off by SteamVR after
   sitting still`, `... connected again`); they are not disturbances, since an
   off device reports no pose to disturb.
+- SteamVR writes the same standby line for every device when it quits, right
+  after its quit line (`Process 36524: steam has initiated a quit all`, or
+  `VR server shutting down` when nothing asked; twice on 2026-10-08, eight
+  power-offs within 13 ms of the quit). A power-off up to 30 s after a quit
+  is the session ending: it reads `switched off by SteamVR as it quit`, is not
+  counted as an idle timeout, and gives the headset tracker no settings hint.
 
-Four more lines name no device:
+Six more lines name no device:
 
 ```
 Selected existing universe 1744988537 (170EE067 is primary)
 Creating new universe 1744988537 because there were no existing universes
 Stopped tracking with universe 1744988537
 vrserver 2.17.10 startup with PID=5976, ...   (the server's own first line)
+Process 36524: steam has initiated a quit all (the quit that ends it)
+VR server shutting down                       (the server stopping on its own)
 ```
 
 The universe is the set of base station poses every lighthouse pose is

@@ -278,15 +278,16 @@ inline std::string CheckLighthouseLine(const uint8_t *data, size_t size)
 		return "an event's known time is not finite";
 	if (e.historical)
 		return "the parse left an earlier event's field behind";
-	const bool noDevice = e.kind == Event::Kind::ServerStarted || e.kind == Event::Kind::UniverseChosen ||
-		e.kind == Event::Kind::UniverseStopped;
+	const bool noDevice = e.kind == Event::Kind::ServerStarted || e.kind == Event::Kind::ServerQuitting ||
+		e.kind == Event::Kind::UniverseChosen || e.kind == Event::Kind::UniverseStopped;
 	if (noDevice)
 	{
 		if (!e.serial.empty() || e.visibleKnown || e.channel >= 0 || e.stationId != 0 ||
 			!e.visibleChannels.empty() || e.standby)
 			return "a universe or server line claims a device or a station";
-		if (e.kind == Event::Kind::ServerStarted && e.universeId != 0)
-			return "a server start names a universe";
+		if ((e.kind == Event::Kind::ServerStarted || e.kind == Event::Kind::ServerQuitting) &&
+			e.universeId != 0)
+			return "a server start or quit names a universe";
 		if (e.universeCreated && e.kind != Event::Kind::UniverseChosen)
 			return "a line other than a choice creates a universe";
 		return "";
@@ -609,6 +610,8 @@ inline std::vector<std::string> LighthouseSeeds()
 		prefix + "Creating new universe 1744988537 because there were no existing universes",
 		prefix + "Stopped tracking with universe 1744988537",
 		"Sun Sep 27 2026 21:43:33.604 [Info] - vrserver 2.17.10 startup with PID=5976, arch=win64",
+		"Thu Oct 08 2026 00:20:06.429 [Info] - Process 36524: steam has initiated a quit all",
+		"Thu Oct 08 2026 01:44:25.590 [Info] - VR server shutting down",
 	};
 }
 
