@@ -450,8 +450,16 @@ void DescribeProfile(std::ostream &out, const CalibrationContext &ctx)
 			<< ctx.lastResult.translationRmsMeters * 100.0 << " cm, time offset "
 			<< ctx.lastResult.timeOffset * 1000.0 << " ms\n";
 		const auto &result = ctx.lastResult;
+		// The neutral guard has three causes; the name alone read as smoothing
+		// even with smoothing off (2026-10-07). Same order as the session log.
+		const char *guardWhy = "";
+		if (result.scaleGuard == questcal::ScaleGuard::NeutralizedForSmoothing)
+			guardWhy = !result.scaleIdentifiable ? " (scale not identifiable)"
+				: result.motionSmoothingDetected ? " (smoothing contaminated the scale)"
+				: " (motion bands inconsistent)";
 		out << "scale identifiable: " << OnOff(result.scaleIdentifiable) << ", condition " << result.scaleCondition
-			<< ", one-sigma " << result.scaleStdDev << ", guard " << EnumName(result.scaleGuard, ScaleGuardNames) << "\n";
+			<< ", one-sigma " << result.scaleStdDev << ", guard " << EnumName(result.scaleGuard, ScaleGuardNames)
+			<< guardWhy << "\n";
 		out << "motion gain valid: " << OnOff(result.motionGainValid) << ", gross " << result.motionGainLow
 			<< ", fine " << result.motionGainHigh << ", smoothing " << OnOff(result.motionSmoothingDetected)
 			<< ", inconsistent " << OnOff(result.motionGainInconsistent) << "\n";
