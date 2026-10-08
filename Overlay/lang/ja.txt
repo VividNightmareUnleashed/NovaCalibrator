@@ -189,6 +189,10 @@ en: The SteamVR driver refused the calibration's values. Recalibrate.
 ja: SteamVR ドライバーがキャリブレーションの値を拒否しました。再キャリブレーションしてください。
 en: The saved calibration doesn't match the connected hardware. Recalibrate.
 ja: 保存されたキャリブレーションが接続中の機器と一致しません。再キャリブレーションしてください。
+en: The saved calibration was made with a virtual tracker, which can't be calibrated. Recalibrate with a real tracker.
+ja: 保存されたキャリブレーションは仮想トラッカーで行われたもので、仮想トラッカーはキャリブレーションできません。実物のトラッカーで再キャリブレーションしてください。
+en: That tracker is virtual: another app makes it from your real trackers, so it can't be calibrated. Pick a real tracker.
+ja: そのトラッカーは仮想トラッカーです。別のアプリが実物のトラッカーから作っているため、キャリブレーションできません。実物のトラッカーを選んでください。
 en: The saved calibration is damaged. Recalibrate.
 ja: 保存されたキャリブレーションが破損しています。再キャリブレーションしてください。
 en: The headset re-centered while Nova Calibrator wasn't watching, so the saved alignment is off. Recalibrate.

@@ -137,10 +137,11 @@ inline bool IsUsableComposedSample(const questcal::PoseSample &s)
 // ingestion path from the shared-memory stream into solver/monitor space.
 // Returns false for anything the trust boundary rejects and leaves `out`
 // untouched: an invalid sample is tracking absence, never a defaulted pose.
+// hiddenTracking is IsTrustedRingSample's: only for a target-system device.
 inline bool TryComposeRingSample(const protocol::DevicePoseSample &s,
-	double qpcToSeconds, questcal::PoseSample &out)
+	double qpcToSeconds, questcal::PoseSample &out, bool hiddenTracking = false)
 {
-	if (!IsTrustedRingSample(s, qpcToSeconds))
+	if (!IsTrustedRingSample(s, qpcToSeconds, hiddenTracking))
 		return false;
 
 	// poseTimeOffset is the driver's own estimate of how far the pose's validity
@@ -192,17 +193,17 @@ struct RingInputDiagnostics
 	double lastCaptureTime = 0.0, lastAcceptedCaptureTime = 0.0;
 
 	bool Compose(const protocol::DevicePoseSample &s, double qpcToSeconds,
-		questcal::PoseSample &out)
+		questcal::PoseSample &out, bool hiddenTracking = false)
 	{
 		++received;
 		lastCaptureTime = RingCaptureTime(s, qpcToSeconds);
-		if (TryComposeRingSample(s, qpcToSeconds, out))
+		if (TryComposeRingSample(s, qpcToSeconds, out, hiddenTracking))
 		{
 			++accepted;
 			lastAcceptedCaptureTime = lastCaptureTime;
 			return true;
 		}
-		if (!s.deviceIsConnected || !s.poseIsValid ||
+		if (!(s.deviceIsConnected || hiddenTracking) || !s.poseIsValid ||
 			s.trackingResult != static_cast<uint32_t>(vr::TrackingResult_Running_OK))
 			++trackingRejected;
 		else

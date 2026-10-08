@@ -1079,6 +1079,8 @@ void CollectionFallback(Check check)
 	};
 	protocol::DevicePoseSample hidden = tracking(9, now - 0.1);
 	hidden.deviceIsConnected = false;   // as the channel carries a tracker another driver hides
+	protocol::DevicePoseSample hiddenReference = tracking(0, now - 0.1);
+	hiddenReference.deviceIsConnected = false;
 	protocol::DevicePoseSample lost = tracking(0, now - 0.1);
 	lost.trackingResult = vr::TrackingResult_Running_OutOfRange;
 	const Q moved(Eigen::AngleAxisd(0.05, V::UnitY()));
@@ -1089,13 +1091,17 @@ void CollectionFallback(Check check)
 		bool raw;
 		const char *reason;
 	};
-	// Another device's frame moving is none of the preflight's business.
+	// Another device's frame moving is none of the preflight's business. The
+	// target is in the target system, so it is tracking whatever its connection
+	// flag says (RingSampleGate.h); the reference is not.
 	const Case cases[] = {
 		{ "pair", { tracking(0, now - 0.1), tracking(9, now - 0.1), tracking(4, now - 0.1, moved), tracking(4, now - 0.05) },
 			true, "fresh trusted pair available" },
 		{ "no target", { tracking(0, now - 0.1) }, false, "target had no fresh trusted samples" },
 		{ "stale target", { tracking(0, now - 0.1), tracking(9, now - 0.6) }, false, "target had no fresh trusted samples" },
-		{ "hidden target", { tracking(0, now - 0.1), hidden }, false, "target had no fresh trusted samples" },
+		{ "hidden target", { tracking(0, now - 0.1), hidden }, true, "fresh trusted pair available" },
+		{ "hidden reference", { hiddenReference, tracking(9, now - 0.1) }, false,
+			"reference had no fresh trusted samples" },
 		{ "lost reference", { lost, tracking(9, now - 0.1) }, false, "reference had no fresh trusted samples" },
 		{ "nothing", {}, false, "neither selected device had fresh trusted samples" },
 		{ "target frame moved", { tracking(0, now - 0.1), tracking(9, now - 0.2), tracking(9, now - 0.1, moved) },

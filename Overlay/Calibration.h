@@ -130,6 +130,9 @@ struct CalibrationProfileState
 		FrameMovesLost,
 		DriverVersionMismatch,
 		DriverRefusedValues,
+		// The profile's target is another driver's virtual trackers
+		// (IsVirtualTrackerSystem).
+		VirtualTarget,
 	};
 	DisableReason disableReason = DisableReason::None;
 	bool validProfile = false;

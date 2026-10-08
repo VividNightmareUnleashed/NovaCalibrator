@@ -112,8 +112,12 @@ std::string FriendlySystemName(const std::string &raw)
 // The picks are candidates for the next base calibration; the active
 // profile's system names are committed only after a successful solve. The
 // reference is the headset's system (LoadVRState lists it first) unless the
-// pick is still there; the target is any other system, and one system can
-// never be both.
+// pick is still there; the target is any other system, lighthouse first when
+// it is there, and one system can never be both. Lists follow device ids, and
+// a body estimator's virtual trackers can take the low ones: on 2026-10-08
+// Standable's eight came before the lighthouse devices, so the first other
+// system would have offered them as the target. Virtual trackers are never
+// one (IsVirtualTrackerSystem).
 void SettlePairSystems(const VRState &state)
 {
 	if (state.trackingSystems.empty())
@@ -124,15 +128,19 @@ void SettlePairSystems(const VRState &state)
 	if (!present(CalCtx.pendingReferenceTrackingSystem))
 		CalCtx.pendingReferenceTrackingSystem = state.trackingSystems.front();
 	if (CalCtx.pendingTargetTrackingSystem == CalCtx.pendingReferenceTrackingSystem ||
-		!present(CalCtx.pendingTargetTrackingSystem))
+		!present(CalCtx.pendingTargetTrackingSystem) ||
+		questcal::IsVirtualTrackerSystem(CalCtx.pendingTargetTrackingSystem))
 	{
 		CalCtx.pendingTargetTrackingSystem.clear();
-		for (const auto &system : state.trackingSystems)
-			if (system != CalCtx.pendingReferenceTrackingSystem)
-			{
-				CalCtx.pendingTargetTrackingSystem = system;
-				break;
-			}
+		if (present("lighthouse") && CalCtx.pendingReferenceTrackingSystem != "lighthouse")
+			CalCtx.pendingTargetTrackingSystem = "lighthouse";
+		else
+			for (const auto &system : state.trackingSystems)
+				if (system != CalCtx.pendingReferenceTrackingSystem && !questcal::IsVirtualTrackerSystem(system))
+				{
+					CalCtx.pendingTargetTrackingSystem = system;
+					break;
+				}
 	}
 	EnsureDeviceSelection(state, CalCtx.referenceID, CalCtx.pendingReferenceTrackingSystem);
 	// Nothing to pick on the other side means nothing may stay picked: this id
@@ -309,7 +317,7 @@ void BuildPairSheet(const VRState &state)
 	if (!CalCtx.pendingReferenceTrackingSystem.empty())
 		systems.push_back(CalCtx.pendingReferenceTrackingSystem);
 	for (const auto &system : state.trackingSystems)
-		if (system != CalCtx.pendingReferenceTrackingSystem)
+		if (system != CalCtx.pendingReferenceTrackingSystem && !questcal::IsVirtualTrackerSystem(system))
 			systems.push_back(system);
 	if (systems.empty())
 	{
@@ -481,9 +489,19 @@ VRState LoadVRState()
 				if (roleError == vr::TrackedProp_Success)
 					device.controllerRole = static_cast<vr::ETrackedControllerRole>(role);
 
-				device.connected = vr::VRSystem()->IsTrackedDeviceConnected(id);
-				device.tracking = device.connected && poses[id].bPoseIsValid &&
+				// Another driver can hide a device from games by reporting it not
+				// connected while it keeps tracking (Standable does, to the body
+				// trackers it republishes as its own). A device of the target
+				// system that tracks is on, as the trust boundary takes it
+				// (RingSampleGate.h); any other device is what it says, since
+				// Standable's own unused slots also report a valid pose.
+				const bool reportsTracking = poses[id].bPoseIsValid &&
 					poses[id].eTrackingResult == vr::TrackingResult_Running_OK;
+				const bool targetSystem = !system.empty() && !questcal::IsVirtualTrackerSystem(system) &&
+					(system == CalCtx.targetTrackingSystem || system == CalCtx.pendingTargetTrackingSystem);
+				device.connected = vr::VRSystem()->IsTrackedDeviceConnected(id) ||
+					(targetSystem && reportsTracking);
+				device.tracking = device.connected && reportsTracking;
 
 				vr::ETrackedPropertyError perr = vr::TrackedProp_Success;
 				if (vr::VRSystem()->GetBoolTrackedDeviceProperty(id, vr::Prop_DeviceProvidesBatteryStatus_Bool, &perr) && perr == vr::TrackedProp_Success)

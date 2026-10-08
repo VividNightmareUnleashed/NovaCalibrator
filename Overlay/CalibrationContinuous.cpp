@@ -146,6 +146,20 @@ struct TrackerPresenceState
 };
 static TrackerPresenceState TrackerPresence;
 
+// On as the trust boundary takes it (RingSampleGate.h): the headset tracker
+// is a target-system device, so one another driver reports not connected
+// while it keeps tracking (as Standable does to the trackers it republishes)
+// is on, not a tracker to turn back on.
+static bool HeadsetTrackerOn(uint32_t id)
+{
+	if (vr::VRSystem()->IsTrackedDeviceConnected(id))
+		return true;
+	vr::TrackedDevicePose_t poses[vr::k_unMaxTrackedDeviceCount];
+	vr::VRSystem()->GetDeviceToAbsoluteTrackingPose(
+		vr::TrackingUniverseRawAndUncalibrated, 0.0f, poses, vr::k_unMaxTrackedDeviceCount);
+	return poses[id].bPoseIsValid && poses[id].eTrackingResult == vr::TrackingResult_Running_OK;
+}
+
 static void TrackerPresenceTick(CalibrationContext &ctx, double now)
 {
 	auto &p = TrackerPresence;
@@ -161,7 +175,7 @@ static void TrackerPresenceTick(CalibrationContext &ctx, double now)
 	if (now - p.lastCheck >= 0.25)
 	{
 		p.lastCheck = now;
-		p.connected = vr::VRSystem()->IsTrackedDeviceConnected(id);
+		p.connected = HeadsetTrackerOn(id);
 	}
 	ctx.continuousTrackerConnected = p.connected;
 
@@ -310,7 +324,8 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 		// dropout still clears the window while a few stray frames do not. On
 		// 2026-10-08 the headset tracker's 48,762 rejected poses cleared it
 		// 48,769 times and left the loop inactive 29 % of the session.
-		if (!diagnostics.devices[s.deviceId].Compose(s, QpcToSeconds, sample))
+		if (!diagnostics.devices[s.deviceId].Compose(s, QpcToSeconds, sample,
+			/*hiddenTracking=*/s.deviceId == ctx.continuousTrackerId))
 			continue;
 		if (s.deviceId == vr::k_unTrackedDeviceIndex_Hmd)
 			Continuous->PushReference(sample);

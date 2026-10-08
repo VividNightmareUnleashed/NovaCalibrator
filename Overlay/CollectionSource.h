@@ -35,7 +35,7 @@ inline bool PreflightPoseRing(CalibrationRun &run,
 	CalibrationRun::Universe target;
 	for (const auto &sample : samples)
 	{
-		if (!IsTrustedRingSample(sample, qpcToSeconds) ||
+		if (!IsTrustedRingSample(sample, qpcToSeconds, /*hiddenTracking=*/sample.deviceId == run.targetId) ||
 			!ringpose::IsFreshCaptureTime(
 				RingCaptureTime(sample, qpcToSeconds), qpcNow, 0.5))
 			continue;

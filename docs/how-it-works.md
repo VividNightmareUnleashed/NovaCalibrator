@@ -107,7 +107,11 @@ Runtime alignment maintenance uses the timestamped pose ring and calibration sol
   faults included, as OpenVR-SpaceCalibrator does. When SteamVR re-solves
   where a base station stands, every device reported in that station's frame
   jumps with it. Nova Calibrator cancels that exact frame motion separately for
-  each affected tracker, including trackers Standable hides. Trackers in other
+  each affected tracker, including trackers Standable hides: those are still
+  lighthouse devices and are treated as real trackers. Standable's own virtual
+  trackers repeat the calibrated ones, so they are never offered as a
+  calibration target, a profile made with one stays off, and the frame watch
+  leaves them out. Trackers in other
   frames keep their alignment. This works with either continuous method or
   with continuous calibration off. A returning tracker receives a correction
   only when its frame change can be established from observed station moves;

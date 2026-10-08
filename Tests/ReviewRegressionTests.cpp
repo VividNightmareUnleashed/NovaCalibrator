@@ -623,6 +623,25 @@ void ConnectedPoseTrustScenario(Check check)
 		valid &= IsTrustedRingSample(sample, 0.001) == (connected && tracked && poseValid);
 	}
 	check("pose trust: connection required with tracking flags", valid, "8 connected/valid/tracking combinations");
+
+	// A target-system device another driver hides (Standable reports the body
+	// trackers it republishes as not connected while they track): its valid
+	// Running_OK pose is trusted when the caller says the device is in the
+	// target system, and only then. The tracking flags still decide.
+	bool hidden = true;
+	for (bool connected : { false, true })
+	for (bool tracked : { false, true })
+	for (bool poseValid : { false, true })
+	for (bool targetSystem : { false, true })
+	{
+		sample.deviceIsConnected = connected;
+		sample.poseIsValid = poseValid;
+		sample.trackingResult = tracked ? vr::TrackingResult_Running_OK : vr::TrackingResult_Running_OutOfRange;
+		hidden &= IsTrustedRingSample(sample, 0.001, targetSystem) ==
+			((connected || targetSystem) && tracked && poseValid);
+	}
+	check("pose trust: a hidden target-system device is trusted only as one", hidden,
+		"16 connected/valid/tracking/target-system combinations");
 }
 
 void FrozenRecoveryBoundaryScenario(Check check)

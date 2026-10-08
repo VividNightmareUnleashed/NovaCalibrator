@@ -299,7 +299,7 @@ static bool CollectFromPoseRing(CalibrationContext &ctx, double now)
 		{
 			questcal::PoseSample first;
 			if (s.sampleTimeQpc > FrameObservedThrough[s.deviceId] ||
-				!TryComposeRingSample(s, QpcToSeconds, first) ||
+				!TryComposeRingSample(s, QpcToSeconds, first, /*hiddenTracking=*/true) ||
 				!ctx.trackerFrames.Normalize(s.deviceId, first))
 				continue;
 			const auto &frame = ctx.trackerFrames.Snapshot()[s.deviceId];
@@ -308,7 +308,7 @@ static bool CollectFromPoseRing(CalibrationContext &ctx, double now)
 			run.normalizationCaptured = true;
 		}
 		if ((s.deviceId == run.referenceId || s.deviceId == run.targetId) &&
-			IsTrustedRingSample(s, QpcToSeconds))
+			IsTrustedRingSample(s, QpcToSeconds, /*hiddenTracking=*/s.deviceId == run.targetId))
 		{
 			auto parts = UnpackRingSample(s);
 			// A full calibration measures the target's frame as it finds it, so
@@ -360,7 +360,9 @@ static bool CollectFromPoseRing(CalibrationContext &ctx, double now)
 		}
 		else if (s.deviceId == run.targetId)
 		{
-			if (!TryComposeRingSample(s, QpcToSeconds, sample))
+			// The target is in the target system: tracking whatever its
+			// connection flag says (RingSampleGate.h).
+			if (!TryComposeRingSample(s, QpcToSeconds, sample, /*hiddenTracking=*/true))
 				continue;
 			run.targetFrame.ToStart(sample);
 			if (run.anchor && !ctx.trackerFrames.Normalize(s.deviceId, sample))
@@ -464,6 +466,11 @@ bool StartCalibration()
 		CalCtx.pendingTargetTrackingSystem))
 	{
 		CalCtx.ReportError("Pick a reference and a target from two different tracking systems.\n");
+		return false;
+	}
+	if (questcal::IsVirtualTrackerSystem(CalCtx.pendingTargetTrackingSystem))
+	{
+		CalCtx.ReportError("That tracker is virtual: another app makes it from your real trackers, so it can't be calibrated. Pick a real tracker.\n");
 		return false;
 	}
 

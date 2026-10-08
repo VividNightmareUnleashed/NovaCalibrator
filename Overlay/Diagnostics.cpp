@@ -118,9 +118,9 @@ static_assert(std::size(CalibrationStateNames) == static_cast<size_t>(Calibratio
 	"name every calibration state");
 constexpr const char *DisableReasonNames[] = {
 	"None", "InvalidIdentity", "InvalidTransform", "HmdMismatch", "DriverUnreachable",
-	"UniverseUnsafe", "FrameMovesLost", "DriverVersionMismatch", "DriverRefusedValues" };
+	"UniverseUnsafe", "FrameMovesLost", "DriverVersionMismatch", "DriverRefusedValues", "VirtualTarget" };
 static_assert(std::size(DisableReasonNames) ==
-	static_cast<size_t>(CalibrationContext::DisableReason::DriverRefusedValues) + 1,
+	static_cast<size_t>(CalibrationContext::DisableReason::VirtualTarget) + 1,
 	"name every disable reason");
 constexpr const char *ScaleGuardNames[] = {
 	"NotApplied", "FromGrossMotion", "NeutralizedForSmoothing" };
@@ -184,8 +184,11 @@ void DescribeModule(std::ostream &out, const char *name, HMODULE module)
 	out << "\n";
 }
 
+// targetMask: the calibration's target-system devices, which the trust
+// boundary takes as tracking whatever their connection flag says
+// (RingSampleGate.h); the export reports what the monitors trusted.
 void DescribeRawPoses(std::ostream &out, const PoseStreamHub::Diagnostics &stream, double qpcNow,
-	double qpcToSeconds)
+	double qpcToSeconds, const bool (&targetMask)[vr::k_unMaxTrackedDeviceCount])
 {
 	out << "[raw driver poses at export]\n";
 	out << "channel open: " << OnOff(stream.open) << ", stream boundaries " << stream.streamBoundaries
@@ -220,7 +223,7 @@ void DescribeRawPoses(std::ostream &out, const PoseStreamHub::Diagnostics &strea
 		vector("  world-from-driver translation (m) ", s.worldFromDriverTranslation);
 		quaternion(", rotation (w x y z) ", s.worldFromDriverRotation);
 		questcal::PoseSample composed;
-		const bool trusted = TryComposeRingSample(s, qpcToSeconds, composed);
+		const bool trusted = TryComposeRingSample(s, qpcToSeconds, composed, targetMask[id]);
 		out << ", trusted " << OnOff(trusted);
 		if (trusted)
 			out << ", composed position (m) " << composed.pos.transpose();
@@ -298,7 +301,7 @@ std::string DescribeFrameFailureCapture(const CalibrationContext &ctx, vr::IVRSy
 		<< ", driver session " << ctx.frameDriverSession << ", calibration state "
 		<< EnumName(ctx.state, CalibrationStateNames)
 		<< "\nRaw and runtime samples have different capture/prediction times; they are not an exact pose pair.\n";
-	DescribeRawPoses(out, capture.poseStream, capture.sampleClock, qpcToSeconds);
+	DescribeRawPoses(out, capture.poseStream, capture.sampleClock, qpcToSeconds, ctx.targetDeviceMask);
 	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
 	{
 		if (!ctx.targetDeviceMask[id]) continue;
@@ -700,7 +703,7 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 	const double qpcNow = capture.sampleClock;
 	out << DescribeContinuousDiagnostics(ctx, qpcNow) << "\n";
 	DescribeRawPoses(out, capture.poseStream, qpcNow,
-		1.0 / static_cast<double>(frequency.QuadPart));
+		1.0 / static_cast<double>(frequency.QuadPart), ctx.targetDeviceMask);
 	out << runtimePoses.str();
 
 	DescribeRecent(out, ctx);

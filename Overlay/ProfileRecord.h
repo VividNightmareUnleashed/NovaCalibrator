@@ -45,6 +45,18 @@ inline bool IsValidTrackingSystemPair(
 	return !reference.empty() && !target.empty() && reference != target;
 }
 
+// A tracking system whose devices are another driver's outputs, made from
+// poses SteamVR already holds with the calibration applied: Standable's body
+// trackers repeat the calibrated lighthouse trackers with an identity
+// world-from-driver, and its unused slots sit at the origin reporting a valid,
+// tracking pose (live 2026-10-08). Calibrating one would transform its poses a
+// second time, so it is never a calibration target, and a physical tracker
+// Standable hides stays what it is: a lighthouse device.
+inline bool IsVirtualTrackerSystem(const std::string &system)
+{
+	return system == "standable";
+}
+
 // IsValidScale, IsValidResidual, IsValidTimeOffset and IsValidRecordUnixTime
 // are in ProfileScalarValidation.h.
 

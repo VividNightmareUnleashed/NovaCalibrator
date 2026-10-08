@@ -248,12 +248,26 @@ void RunDriverDisableReasonScenario(Check check)
 	// Safe again, but with no SteamVR there is no headset to check against.
 	questcal::SynchronizeCalibrationDriver(ctx);
 	const bool noHeadset = !ctx.enabled && ctx.disableReason == Reason::HmdMismatch;
+
+	// A profile solved against Standable's virtual trackers, which repeat the
+	// calibrated lighthouse trackers, would transform them a second time: it
+	// stays off for that reason, ahead of the headset check.
+	CalibrationContext onVirtual = SolvedProfile();
+	onVirtual.targetTrackingSystem = "standable";
+	questcal::SynchronizeCalibrationDriver(onVirtual);
+	const bool refusedVirtual = !onVirtual.enabled && onVirtual.disableReason == Reason::VirtualTarget;
+	const bool rule = questcal::IsVirtualTrackerSystem("standable") &&
+		!questcal::IsVirtualTrackerSystem("lighthouse") && !questcal::IsVirtualTrackerSystem("oculus");
 	questcal::StopCalibrationSpace();
 	char detail[128];
 	snprintf(detail, sizeof detail, "lost %d, re-centered %d, rebound %d, no headset %d",
 		lost, recentered, rebound, noHeadset);
 	check("driver sync: each disable cause keeps its own reason",
 		lost && recentered && rebound && noHeadset, detail);
+	snprintf(detail, sizeof detail, "refused %d (reason %d), rule %d",
+		refusedVirtual, static_cast<int>(onVirtual.disableReason), rule);
+	check("driver sync: a profile calibrated on virtual trackers stays off",
+		refusedVirtual && rule, detail);
 }
 }
 
