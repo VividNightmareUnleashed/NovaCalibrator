@@ -235,7 +235,32 @@ void DescribeRawPoses(std::ostream &out, const PoseStreamHub::Diagnostics &strea
 	out << "\n";
 }
 
-void DescribeRuntimePoses(std::ostream &out, const CalibrationContext &ctx, vr::IVRSystem *system)
+// Where the calibration puts a base station's latest raw pose, against where
+// the runtime has it. Its driver sends a pose minutes to hours apart, so ours
+// re-sends the last one whenever the calibration moves (ResendQuietPoses); a
+// difference of more than the slew's last centimetre means the runtime kept it
+// where an older calibration put it. The anchors' correction is not modelled.
+void DescribeStationPlacement(std::ostream &out, const CalibrationContext &ctx,
+	const DiagnosticCapture &capture, double qpcToSeconds, uint32_t id, const Eigen::Vector3d &runtime)
+{
+	if (!ctx.enabled || !ctx.targetDeviceMask[id] || id >= capture.poseStream.devices.size())
+		return;
+	const auto &device = capture.poseStream.devices[id];
+	questcal::PoseSample composed;
+	if (!device.received || !TryComposeRingSample(device.latest, qpcToSeconds, composed))
+		return;
+	const Eigen::Vector3d expected = ringpose::BaseCalibratedPosition(ctx.transform.rotation,
+		ctx.transform.translationMeters, ctx.transform.scale,
+		questcal::TrackerFrameCorrections::Apply(ctx.trackerFrames.Snapshot()[id], composed.pos));
+	out << ", calibration puts its last raw pose ("
+		<< capture.sampleClock - RingCaptureTime(device.latest, qpcToSeconds) << " s old) at "
+		<< expected.transpose() << ", " << (runtime - expected).norm() * 100.0 << " cm from the runtime's";
+	if (!ctx.ActiveFieldAnchors().empty())
+		out << " (the anchors' correction left out)";
+}
+
+void DescribeRuntimePoses(std::ostream &out, const CalibrationContext &ctx, vr::IVRSystem *system,
+	const DiagnosticCapture &capture, double qpcToSeconds)
 {
 	out << "[runtime poses at export]\n";
 	if (!system)
@@ -266,11 +291,12 @@ void DescribeRuntimePoses(std::ostream &out, const CalibrationContext &ctx, vr::
 			system->GetStringTrackedDeviceProperty(id, key, value, sizeof value, &error);
 			return error == vr::TrackedProp_Success ? std::string(value) : std::string("(unavailable)");
 		};
+		const vr::ETrackedDeviceClass deviceClass = system->GetTrackedDeviceClass(id);
 		out << "device " << id << ": serial " << property(vr::Prop_SerialNumber_String)
 			<< ", model " << property(vr::Prop_ModelNumber_String)
 			<< ", manufacturer " << property(vr::Prop_ManufacturerName_String)
 			<< ", system " << property(vr::Prop_TrackingSystemName_String)
-			<< ", class " << static_cast<int>(system->GetTrackedDeviceClass(id))
+			<< ", class " << static_cast<int>(deviceClass)
 			<< ", connected " << OnOff(pose.bDeviceIsConnected)
 			<< ", target assignment " << OnOff(ctx.targetDeviceMask[id])
 			<< ", valid " << OnOff(pose.bPoseIsValid)
@@ -282,6 +308,9 @@ void DescribeRuntimePoses(std::ostream &out, const CalibrationContext &ctx, vr::
 				<< ", standing position (m)";
 			for (const auto &row : floor.m)
 				out << " " << row[0] * m[0][3] + row[1] * m[1][3] + row[2] * m[2][3] + row[3];
+			if (deviceClass == vr::TrackedDeviceClass_TrackingReference)
+				DescribeStationPlacement(out, ctx, capture, qpcToSeconds, id,
+					Eigen::Vector3d(m[0][3], m[1][3], m[2][3]));
 		}
 		out << "\n";
 	}
@@ -310,7 +339,7 @@ std::string DescribeFrameFailureCapture(const CalibrationContext &ctx, vr::IVRSy
 			<< " q " << frame.rotation.w << " " << frame.rotation.x << " " << frame.rotation.y << " " << frame.rotation.z
 			<< " t " << frame.translation.v[0] << " " << frame.translation.v[1] << " " << frame.translation.v[2] << "\n";
 	}
-	DescribeRuntimePoses(out, ctx, system);
+	DescribeRuntimePoses(out, ctx, system, capture, qpcToSeconds);
 	return out.str();
 }
 
@@ -674,9 +703,12 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 	CreateDirectoryW(dir.c_str(), nullptr);
 
 	// Acquire runtime positions before executable hashing can delay the export.
+	LARGE_INTEGER frequency{};
+	QueryPerformanceFrequency(&frequency);
+	const double qpcToSeconds = 1.0 / static_cast<double>(frequency.QuadPart);
 	std::ostringstream runtimePoses;
 	runtimePoses << std::setprecision(10);
-	DescribeRuntimePoses(runtimePoses, ctx, system);
+	DescribeRuntimePoses(runtimePoses, ctx, system, capture, qpcToSeconds);
 	std::ostringstream out;
 	out << "Nova Calibrator " << QUESTCAL_VERSION_STRING << " diagnostics, written " << Stamp("%Y-%m-%d %H:%M:%S") << "\n";
 	out << "format: questcal-diagnostics/2\n";
@@ -698,12 +730,9 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 	DescribeDriverSync(out, ctx, capture);
 
 	DescribeContinuousCalibration(out, ctx);
-	LARGE_INTEGER frequency{};
-	QueryPerformanceFrequency(&frequency);
 	const double qpcNow = capture.sampleClock;
 	out << DescribeContinuousDiagnostics(ctx, qpcNow) << "\n";
-	DescribeRawPoses(out, capture.poseStream, qpcNow,
-		1.0 / static_cast<double>(frequency.QuadPart), ctx.targetDeviceMask);
+	DescribeRawPoses(out, capture.poseStream, qpcNow, qpcToSeconds, ctx.targetDeviceMask);
 	out << runtimePoses.str();
 
 	DescribeRecent(out, ctx);

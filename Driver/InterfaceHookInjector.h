@@ -6,6 +6,20 @@
 
 class ServerTrackedDeviceProvider;
 
+// How a device's own driver reached the pose hook: the host object it called,
+// which SteamVR attributes the pose to, and the original behind the detour it
+// came through. Kept so a pose can later be re-sent as that driver would.
+struct PoseHostCall
+{
+	void *host = nullptr;
+	void (*original)(void *, uint32_t, const vr::DriverPose_t &, uint32_t) = nullptr;
+};
+
+// Re-sends `pose` for `device` through `call`, marked as already handled for
+// this thread: a host that forwards one interface version to another hooked one
+// passes it on untouched instead of handing it back as a new raw pose.
+void ResendPose(const PoseHostCall &call, uint32_t device, const vr::DriverPose_t &pose);
+
 // Installs the driver-context hook. ServerTrackedDeviceProvider::Init invokes
 // OpenVR context initialization through it, which must in turn install at least
 // one supported pose hook before initialization is considered successful.

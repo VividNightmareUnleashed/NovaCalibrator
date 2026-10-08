@@ -125,7 +125,7 @@ void ForwardPoseUpdate(PoseUpdateHook &hook, void *_this,
 			if (InsideDriverCallbackForTest)
 				InsideDriverCallbackForTest();
 #endif
-			driver->HandleDevicePoseUpdated(unWhichDevice, pose);
+			driver->HandleDevicePoseUpdated(unWhichDevice, pose, PoseHostCall{ _this, original });
 		}
 	}
 	if (original)
@@ -235,6 +235,19 @@ void *DetourGetGenericInterface(vr::IVRDriverContext *_this,
 }
 
 } // namespace
+
+void ResendPose(const PoseHostCall &call, uint32_t device, const vr::DriverPose_t &pose)
+{
+	if (!call.host || !call.original)
+		return;
+	struct Forwarding
+	{
+		uint32_t outer;
+		~Forwarding() { ForwardingDevice = outer; }
+	} forwarding{ ForwardingDevice };
+	ForwardingDevice = device;
+	call.original(call.host, device, pose, sizeof(vr::DriverPose_t));
+}
 
 bool InjectHooks(ServerTrackedDeviceProvider *driver, vr::IVRDriverContext *pDriverContext)
 {
