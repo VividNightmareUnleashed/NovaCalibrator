@@ -49,6 +49,10 @@ public:
 		double fitPositionRms = 0.01;
 		double fitYawRmsRad = 0.5 * 3.14159265358979 / 180.0;
 		double maxFrameGap = ringpose::MaxAdjacentFrameSeconds;
+		// After a driver queue drop, a device whose next interval is this many
+		// times its usual one lost a frame of its own (one lost frame doubles
+		// it; a 45 Hz stream's jitter stays under it).
+		double holeIntervalFactor = 1.5;
 		double localContinuityPos = ringpose::MaxLocalPositionErrorMeters;
 		double localContinuityRotRad = ringpose::MaxLocalRotationErrorRadians;
 		double window = 0.2;               // seconds of history on each side of a candidate
@@ -168,11 +172,14 @@ public:
 
 	// The caller's copy of the stream is missing a few samples (the driver
 	// drops an isolated pose when two device threads contend for a queue
-	// claim). Which device lost one is unknown, so every device's continuity
-	// breaks as for an observed bad frame and a candidate whose fit window was
-	// still filling dies. The resume clock, Ready candidates and the session
-	// totals stay: such drops come every few seconds to minutes, and treating
-	// each as a Reset would keep soloSettledSeconds from ever being reached.
+	// claim). The drop names no device, so each device's next sample says
+	// whether it lost one: an interval past holeIntervalFactor times its usual
+	// one breaks that device's continuity as an observed bad frame does, and a
+	// candidate of it whose fit window was still filling dies; an ordinary
+	// interval means the lost pose was another device's, and nothing changes.
+	// Breaking every device for every drop made the detector useless where
+	// drops are frequent (2026-10-08: one every 0.37 s on a twenty-device rig).
+	// The resume clock, Ready candidates and the session totals stay either way.
 	void NoteStreamHole();
 	// Whether continuous alignment keeps the calibration on an independent
 	// reference (a mounted tracker). The
@@ -288,6 +295,11 @@ private:
 		// one bit for bit: the static prior's lock on a still controller.
 		int repeatedPositions = 0;
 		std::deque<Hist> hist;
+		// A driver queue drop was noted since this device's last sample
+		// (NoteStreamHole), and the device's usual interval between valid
+		// samples (0 until two have arrived).
+		bool holeNoted = false;
+		double usualInterval = 0.0;
 	};
 
 	// A candidate's device has always had a valid sample since the last
@@ -339,7 +351,10 @@ private:
 	// transform so the log shows whether they add up to the drift a
 	// recalibration later removes.
 	int ignoredSteps = 0;
-	int driftCatchUps = 0;
 	double ignoredYaw = 0.0;
 	Eigen::Vector3d ignoredTranslation{ 0, 0, 0 };
+	// Drift catch-ups over the whole session, as their log line counts them;
+	// Reset leaves it (a calibration or a stream break reset it mid-session,
+	// so the line read 1, 1, 2, 3 on 2026-10-07).
+	int driftCatchUps = 0;
 };

@@ -304,11 +304,14 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 			continue;
 		}
 		questcal::PoseSample sample;
+		// A pose the pair's device reports as not tracking is skipped, not a
+		// reason to start over: the engine pairs by sample time and resets on
+		// its own once accepted poses are maxStreamGapSeconds apart, so a real
+		// dropout still clears the window while a few stray frames do not. On
+		// 2026-10-08 the headset tracker's 48,762 rejected poses cleared it
+		// 48,769 times and left the loop inactive 29 % of the session.
 		if (!diagnostics.devices[s.deviceId].Compose(s, QpcToSeconds, sample))
-		{
-			ResetContinuousObservations(ctx, questcal::ContinuousAlignment::ResetReason::StreamGap);
 			continue;
-		}
 		if (s.deviceId == vr::k_unTrackedDeviceIndex_Hmd)
 			Continuous->PushReference(sample);
 		else if (ctx.trackerFrames.Normalize(s.deviceId, sample))

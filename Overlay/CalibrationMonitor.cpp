@@ -537,10 +537,12 @@ void calibration_internal::RuntimeMonitorTick(CalibrationContext &ctx, double no
 	}
 	else if (dropped > 0)
 	{
-		// The driver's isolated contended-publish drops (one or two poses,
-		// every few seconds to minutes). The drift monitor and the watermarks
-		// work on sample times and lose nothing to a hole this short; the
-		// jump detector must not fit a step across it, and keeps the rest.
+		// The driver's isolated contended-publish drops: one or two poses at a
+		// time, every few seconds to minutes on a small rig and every 0.37 s on
+		// a twenty-device one (2026-10-08). The drift monitor and the
+		// watermarks work on sample times and lose nothing to a hole this
+		// short; the jump detector drops a fit only for a device whose own
+		// stream skipped there, and keeps the rest.
 		DispatchStreamEvent(ctx, questcal::StreamEvent::MonitorDrop);
 	}
 	if (!ctx.detailedLogging)

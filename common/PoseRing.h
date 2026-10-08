@@ -53,21 +53,26 @@ namespace protocol
 	struct PoseRing
 	{
 		// Capacity is a sample count, so the history it buys depends on the
-		// aggregate publish rate. That rate is unmeasured; it is assumed here and
-		// the margin is checked against it below.
-		static const uint64_t AssumedDeviceCount = 5;
-		static const uint64_t AssumedPerDevicePoseHz = 300;
+		// aggregate publish rate. Measured on 2026-10-07/08: 3,380 poses/s from
+		// a headset, six trackers, two controllers and four stations, and 4,270
+		// from a 360 Hz headset, twenty devices in all (eight of them a body
+		// estimator's virtual trackers at 120 Hz). The envelope below covers
+		// twenty devices at the 450 Hz the busiest trackers reached, and the
+		// margin is checked against it.
+		static const uint64_t AssumedDeviceCount = 20;
+		static const uint64_t AssumedPerDevicePoseHz = 450;
 		static const uint64_t AssumedAggregatePoseHz =
 			AssumedDeviceCount * AssumedPerDevicePoseHz;
 		// What the ring exists to survive: one full idle wait of the overlay's
 		// drain loop without the readable prefix being overwritten.
 		static const uint64_t DrainStallBudgetMs = 1000;
 
-		static const uint64_t Capacity = 4096;   // power of two
+		static const uint64_t Capacity = 16384;   // power of two
 		static const uint32_t Magic = 0x51435052; // "QCPR"
 		// 4 gave pendingFailedDrops its harvest generation: same size, but a
-		// layout-3 reader would read the generation as loss.
-		static const uint32_t LayoutVersion = 4;
+		// layout-3 reader would read the generation as loss. 5 is the larger
+		// Capacity: 4096 held 0.96 s at the twenty-device rate, under the budget.
+		static const uint32_t LayoutVersion = 5;
 
 		struct Slot
 		{
@@ -109,9 +114,9 @@ namespace protocol
 	};
 
 	static_assert((PoseRing::Capacity & (PoseRing::Capacity - 1)) == 0, "capacity must be a power of two");
-	// 4096 samples is ~2.7 s at the assumed 1500 Hz but only ~0.68 s at 6 devices
-	// x 1000 Hz. A larger Capacity changes sizeof(PoseRing), so it needs a
-	// LayoutVersion bump and a new mapping name; measure the real rate first.
+	// 16384 samples is ~1.8 s at the 9,000 Hz envelope and ~3.8 s at the 4,270
+	// measured. A different Capacity changes sizeof(PoseRing), so it needs a
+	// LayoutVersion bump and a new mapping name.
 	static_assert(PoseRing::Capacity * 1000 >=
 		PoseRing::DrainStallBudgetMs * PoseRing::AssumedAggregatePoseHz,
 		"PoseRing::Capacity no longer covers DrainStallBudgetMs at the assumed aggregate pose rate");
@@ -127,8 +132,8 @@ namespace protocol
 			ring->layoutBytes == sizeof(PoseRing);
 	}
 
-	// The mapping name literal ends in ".layout4".
-	static_assert(PoseRing::LayoutVersion == 4,
+	// The mapping name literal ends in ".layout5".
+	static_assert(PoseRing::LayoutVersion == 5,
 		"PoseRing::LayoutVersion changed - QUESTCALIBRATOR_SHMEM_NAME must change with it");
 
 	// pendingFailedDrops holds (generation << 32) | count. A harvest replaces it

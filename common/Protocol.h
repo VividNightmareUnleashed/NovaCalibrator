@@ -11,7 +11,7 @@
 // Versioned by PoseRing::LayoutVersion, independently of the pipe protocol: a
 // named mapping outlives the process that made it, so an old name could strand
 // an upgraded driver behind an incompatible overlay-held mapping.
-#define QUESTCALIBRATOR_SHMEM_NAME "Local\\QuestCalibratorPoseRing.v6.layout4"
+#define QUESTCALIBRATOR_SHMEM_NAME "Local\\QuestCalibratorPoseRing.v6.layout5"
 
 namespace protocol
 {
