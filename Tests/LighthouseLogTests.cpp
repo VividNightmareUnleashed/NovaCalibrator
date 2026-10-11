@@ -358,7 +358,7 @@ void VisibilityScenarios(Check check)
 	std::string down2 = vis.Apply(Made(K::StationDropped, "LHR-1", 8, { 5 }), 200.5);
 	snprintf(detail, sizeof detail, "note '%s'", down2.c_str());
 	check("lighthouse state: a drop to a single station disturbs for as long as it lasts",
-		down1.empty() && down2.find("down to one station") == 0 &&
+		down1.empty() && down2.find("sees only ") == 0 &&
 		vis.Disturbed("LHR-1", 205.0) && vis.Disturbed("LHR-1", 229.0) &&
 		vis.Find("LHR-1")->degraded, detail);
 	std::string returned = vis.Apply(Made(K::StationAdded, "LHR-1", 8, { 5, 8 }), 230.0);
@@ -380,8 +380,8 @@ void VisibilityScenarios(Check check)
 		one->losses, one->bootstraps, one->drops, last.c_str(), booted.c_str(), rejoined.c_str(),
 		second.c_str());
 	check("lighthouse state: a full loss counts once and every recovery line disturbs",
-		last.find("lost its last station") == 0 && !none.empty() && one->losses == 1 &&
-		booted.find("started a new solution") == 0 && rejoined.find("tracking again") == 0 &&
+		last.find("sees no station after ") == 0 && !none.empty() && one->losses == 1 &&
+		booted.find("started a new solution") == 0 && rejoined.find("has tracking again") == 0 &&
 		singleAfterBoot && second.find("back to 2 stations") == 0 &&
 		one->bootstraps == 1 && one->drops == 5 && Same(one->visible, { 5, 8 }) &&
 		!one->degraded && vis.Disturbed("LHR-1", 321.0) && !vis.Disturbed("LHR-1", 323.0), detail);
@@ -473,7 +473,7 @@ void VisibilityScenarios(Check check)
 		own.visibleIds = { 0xA00Du };
 		const std::string again = rebuild.Apply(own, 200.1);
 		secondary(0xA002u, 200.2);   // after the SOB line, not news
-		const bool sobRules = again.find("tracking again") == 0 && !t->rebuilding && t->InView() == 1 &&
+		const bool sobRules = again.find("has tracking again") == 0 && !t->rebuilding && t->InView() == 1 &&
 			t->liveRestarts == 3;
 		snprintf(detail, sizeof detail, "boot '%s' one %d two %d full %d (in view %d) over %d sob %d",
 			started.c_str(), oneHolds, twoClear, full, t->InView(), over, sobRules);

@@ -694,7 +694,7 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 	std::wstring localAppData = EnvW(L"LOCALAPPDATA");
 	if (localAppData.empty())
 	{
-		error = "Couldn't find the local application data folder.";
+		error = "Nova Calibrator could not find the local application data folder.";
 		return false;
 	}
 	std::wstring appDir = localAppData + L"\\NovaCalibrator";
@@ -746,13 +746,13 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 	std::ofstream file(path.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
 	if (!file.is_open())
 	{
-		error = "Couldn't create the diagnostics file in " + PathForLog(Utf8(dir)) + ".";
+		error = "Nova Calibrator could not create the diagnostics file in " + PathForLog(Utf8(dir)) + ".";
 		return false;
 	}
 	file.write(text.data(), static_cast<std::streamsize>(text.size()));
 	if (!file.good())
 	{
-		error = "Couldn't finish writing the diagnostics file.";
+		error = "Nova Calibrator could not write all of the diagnostics file.";
 		return false;
 	}
 	file.close();

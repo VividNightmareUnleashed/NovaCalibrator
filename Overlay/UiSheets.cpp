@@ -359,7 +359,7 @@ void BuildActivitySheet()
 		fl.Compute(origin, width, YGUndefined);
 		const FlexRect r = fl.Rect(empty);
 		ui::Card(dl, r.min, r.max);
-		const char *text = Tr("Nothing yet. Calibrations and corrections will appear here.");
+		const char *text = Tr("There is no activity. Calibrations and corrections will show here.");
 		ui::DrawText(dl, ui::type::Body, ImVec2(r.min.x, r.min.y + 36.0f), r.W(), ui::col::Muted, text, ui::Align::Center);
 		ImGui::Dummy(ImVec2(width, 96.0f));
 		ImGui::EndChild();
@@ -421,9 +421,10 @@ void BuildChaperoneSheet()
 	if (armed)
 	{
 		auto copied = FormatUnixAge(CalCtx.chaperone.copyUnixTime);
-		status = copied ? Tr(FormatString("Protected %s", copied->c_str())) : std::string(Tr("Protected"));
+		status = copied ? Tr(FormatString("Saved %s", copied->c_str())) : std::string(Tr("Saved"));
 		if (CalCtx.chaperone.geometry.empty())
-			detail = Tr("Only the play area center was saved (no walls), so there's nothing to restore automatically.");
+			detail = Tr("Only the center of the play area was saved, without walls. Thus, there is nothing to put "
+				"back automatically.");
 		else
 		{
 			const size_t walls = CalCtx.chaperone.geometry.size();
@@ -433,8 +434,8 @@ void BuildChaperoneSheet()
 	}
 	else
 	{
-		status = Tr("Not protected yet");
-		detail = Tr("Protect your current walls to keep them.");
+		status = Tr("Not saved");
+		detail = Tr("To keep your walls, select \xE2\x80\x9CProtect chaperone\xE2\x80\x9D.");
 	}
 
 	// Laid out once to know the panel's height, then drawn.
@@ -444,8 +445,9 @@ void BuildChaperoneSheet()
 	YGNodeStyleSetWidth(root, contentW);
 	fl.Box(root, contentW, 44.0f);
 	YGNodeRef lead = ui::TextNode(fl, root, ui::type::Body, Tr(
-		"Nova Calibrator saves your SteamVR walls and puts them back if SteamVR or the headset ever loses them. "
-		"If you redraw your walls, protect them again."));
+		"Nova Calibrator saves your SteamVR walls. If SteamVR or the headset removes them, Nova "
+		"Calibrator puts them back. If you make new walls, select \xE2\x80\x9CProtect current "
+		"walls\xE2\x80\x9D."));
 	YGNodeStyleSetMargin(lead, YGEdgeTop, 6.0f);
 	YGNodeRef card = fl.Row(root);
 	YGNodeStyleSetMargin(card, YGEdgeTop, 20.0f);
@@ -475,7 +477,7 @@ void BuildChaperoneSheet()
 		YGNodeStyleSetFlexGrow(autoText, 1.0f);
 		YGNodeStyleSetFlexShrink(autoText, 1.0f);
 		autoTitle = ui::TextNode(fl, autoText, ui::type::RowTitle, Tr("Restore automatically"));
-		autoDesc = ui::TextNode(fl, autoText, ui::type::Footnote, Tr("Turn off to use your Quest's boundary each session instead."));
+		autoDesc = ui::TextNode(fl, autoText, ui::type::Footnote, Tr("When this is off, each session uses the boundary from your Quest."));
 		YGNodeStyleSetMargin(autoDesc, YGEdgeTop, 2.0f);
 		autoSwitch = fl.Box(autoRow, ui::kSwitchW, ui::kSwitchH);
 	}
@@ -484,7 +486,9 @@ void BuildChaperoneSheet()
 	YGNodeStyleSetGap(warning, YGGutterColumn, 10.0f);
 	YGNodeRef warningIcon = fl.Box(warning, 20.0f, 20.0f);
 	YGNodeRef warningText = ui::TextNode(fl, warning, ui::type::Footnote,
-		Tr("Keep the Quest boundary turned on too. A protected chaperone doesn't guarantee that your play area is clear."));
+		Tr("Also keep the Quest boundary on. Chaperone protection does not show if your play area is "
+			"clear or if the walls are correctly aligned. You can hit walls or objects and cause an "
+			"injury."));
 	YGNodeStyleSetFlexShrink(warningText, 1.0f);
 	YGNodeRef error = nullptr;
 	if (chaperoneError)
@@ -508,8 +512,9 @@ void BuildChaperoneSheet()
 	ImDrawList *dl = ImGui::GetWindowDrawList();
 	const FlexRect leadR = fl.Rect(lead);
 	ui::DrawText(dl, ui::type::Body, leadR.min, leadR.W(), ui::col::Prose, Tr(
-		"Nova Calibrator saves your SteamVR walls and puts them back if SteamVR or the headset ever loses them. "
-		"If you redraw your walls, protect them again."));
+		"Nova Calibrator saves your SteamVR walls. If SteamVR or the headset removes them, Nova "
+		"Calibrator puts them back. If you make new walls, select \xE2\x80\x9CProtect current "
+		"walls\xE2\x80\x9D."));
 	const FlexRect cardR = fl.Rect(card);
 	ui::Card(dl, cardR.min, cardR.max);
 	const FlexRect iconR = fl.Rect(cardIcon);
@@ -523,7 +528,7 @@ void BuildChaperoneSheet()
 		ui::Card(dl, row.min, row.max);
 		ui::DrawText(dl, ui::type::RowTitle, fl.Rect(autoTitle).min, fl.Rect(autoTitle).W(), ui::col::Text, Tr("Restore automatically"));
 		ui::DrawText(dl, ui::type::Footnote, fl.Rect(autoDesc).min, fl.Rect(autoDesc).W(), ui::col::Muted,
-			Tr("Turn off to use your Quest's boundary each session instead."));
+			Tr("When this is off, each session uses the boundary from your Quest."));
 		if (ui::ToggleSwitch("##autorestore", CalCtx.chaperone.autoApply, fl.Rect(autoSwitch).min))
 		{
 			// Disarming is fail-closed: a failed write must never roll the
@@ -539,7 +544,9 @@ void BuildChaperoneSheet()
 	ui::DrawIcon(dl, ui::Icon::Warn, fl.Rect(warningIcon).Center(), 20.0f, ui::col::Caution);
 	const FlexRect warningR = fl.Rect(warningText);
 	ui::DrawText(dl, ui::type::Footnote, warningR.min, warningR.W(), ui::col::Caution,
-		Tr("Keep the Quest boundary turned on too. A protected chaperone doesn't guarantee that your play area is clear."));
+		Tr("Also keep the Quest boundary on. Chaperone protection does not show if your play area is "
+			"clear or if the walls are correctly aligned. You can hit walls or objects and cause an "
+			"injury."));
 	if (error)
 		ui::DrawText(dl, ui::type::Footnote, fl.Rect(error).min, fl.Rect(error).W(), ui::col::Alert, Tr(CalCtx.uiError.c_str()));
 	if (restore && ui::PillButton("##restore", "Restore now", ui::Btn::Secondary, fl.Rect(restore)))
@@ -557,8 +564,9 @@ void BuildAnchorsSheet()
 	const float width = 720.0f;
 	const float contentW = width - 64.0f;
 	const auto &anchors = CalCtx.fieldAnchors;
-	const char *leadText = Tr("If your trackers are a little off in one part of the room, stand there and add an anchor. "
-		"Nova Calibrator fixes that spot and blends the correction in as you walk toward it.");
+	const char *leadText = Tr("If your trackers are not aligned in one part of the room, go to that part. Then add an "
+		"anchor. Nova Calibrator corrects that area. The correction increases gradually as you go "
+		"near the area.");
 
 	struct AnchorRow { YGNodeRef row, icon, title, detail; std::string titleText, detailText; };
 	std::vector<AnchorRow> rows;
@@ -618,7 +626,7 @@ void BuildAnchorsSheet()
 		YGNodeStyleSetFlexGrow(text, 1.0f);
 		YGNodeStyleSetFlexShrink(text, 1.0f);
 		useTitle = ui::TextNode(fl, text, ui::type::RowTitle, Tr("Use field anchors"));
-		useDesc = ui::TextNode(fl, text, ui::type::Footnote, Tr("Turn off to use the main calibration everywhere."));
+		useDesc = ui::TextNode(fl, text, ui::type::Footnote, Tr("When this is off, Nova Calibrator uses the main calibration everywhere."));
 		YGNodeStyleSetMargin(useDesc, YGEdgeTop, 2.0f);
 		useSwitch = fl.Box(useRow, ui::kSwitchW, ui::kSwitchH);
 	}
@@ -644,7 +652,7 @@ void BuildAnchorsSheet()
 	ui::Card(dl, listR.min, listR.max);
 	if (empty)
 		ui::DrawText(dl, ui::type::Body, ImVec2(listR.min.x, listR.min.y + 20.0f), listR.W(), ui::col::Muted,
-			Tr("No anchors yet."), ui::Align::Center);
+			Tr("There are no anchors."), ui::Align::Center);
 	for (size_t i = 0; i < rows.size(); ++i)
 	{
 		const AnchorRow &row = rows[i];
@@ -663,7 +671,7 @@ void BuildAnchorsSheet()
 		ui::Card(dl, r.min, r.max);
 		ui::DrawText(dl, ui::type::RowTitle, fl.Rect(useTitle).min, fl.Rect(useTitle).W(), ui::col::Text, Tr("Use field anchors"));
 		ui::DrawText(dl, ui::type::Footnote, fl.Rect(useDesc).min, fl.Rect(useDesc).W(), ui::col::Muted,
-			Tr("Turn off to use the main calibration everywhere."));
+			Tr("When this is off, Nova Calibrator uses the main calibration everywhere."));
 		// Toggled through a local: the live member changes only after the
 		// transaction has persisted the candidate that carries this value.
 		bool fieldEnabled = CalCtx.fieldEnabled;
@@ -761,8 +769,8 @@ void BuildClearCalibrationDialog()
 {
 	const int pressed = ConfirmDialog(560.0f, ui::Icon::Trash, ui::col::DangerInk, ui::col::AlertTint,
 		Tr("Clear this calibration?"),
-		{ { Tr("Your trackers won't line up until you calibrate again. "
-			"This also removes the field anchors and the headset tracker setup."), ui::col::Muted } },
+		{ { Tr("Your trackers do not align until you calibrate again. This also removes the field anchors "
+			"and the headset tracker setup."), ui::col::Muted } },
 		"Keep calibration", ui::Btn::Primary, "Clear calibration", ui::Btn::Danger, ui::Icon::Trash);
 	if (pressed == 1 || EscapePressed())
 		CloseDialog();
@@ -771,7 +779,8 @@ void BuildClearCalibrationDialog()
 		// The write can be refused; a destructive button that did nothing has
 		// to say so instead of leaving the screen unchanged.
 		if (!ClearSavedProfile(CalCtx))
-			CalCtx.ReportError("Couldn't clear the calibration, so it's still saved. Restart Nova Calibrator and try again.\n",
+			CalCtx.ReportError("Nova Calibrator could not erase the calibration. The calibration stays saved. Start Nova "
+				"Calibrator again. Then try again.\n",
 				CalibrationContext::ErrorSource::ProfilePersistence);
 		CloseDialog();
 	}
@@ -783,8 +792,8 @@ void BuildClearAnchorsDialog()
 	const std::string title = count == 1 ? std::string(Tr("Clear 1 field anchor?"))
 		: Tr(FormatString("Clear %zu field anchors?", count));
 	const int pressed = ConfirmDialog(560.0f, ui::Icon::Trash, ui::col::DangerInk, ui::col::AlertTint, title.c_str(),
-		{ { Tr(count == 1 ? "That spot goes back to the main calibration. The calibration itself is kept."
-			: "Those spots go back to the main calibration. The calibration itself is kept."), ui::col::Muted } },
+		{ { Tr(count == 1 ? "That area uses the main calibration again. The main calibration does not change."
+			: "Those areas use the main calibration again. The main calibration does not change."), ui::col::Muted } },
 		"Keep anchors", ui::Btn::Primary, "Clear anchors", ui::Btn::Danger, ui::Icon::Trash);
 	if (pressed == 1 || EscapePressed())
 		CloseDialog();
@@ -808,19 +817,21 @@ void BuildChaperoneWarningDialog()
 	if (remain > 0)
 		ui::KeepAnimating();
 	std::vector<DialogText> paragraphs = {
-		{ Tr("Nova Calibrator saves and restores your SteamVR chaperone. "
-			"Tracking drift can still shift it away from your real walls."), ui::col::Muted },
-		{ Tr("Keep the Quest boundary on too. A protected chaperone "
-			"doesn't guarantee that your play area is clear or correctly aligned."), ui::col::Muted },
-		{ Tr("Before you play, check that the walls match your room and leave "
-			"enough space to move safely, especially when dancing."), ui::col::Lavender },
+		{ Tr("Nova Calibrator saves your SteamVR chaperone and puts it back when necessary. Tracking "
+			"drift can move it away from your real walls."), ui::col::Muted },
+		{ Tr("Also keep the Quest boundary on. Chaperone protection does not show if your play area is "
+			"clear or if the walls are correctly aligned. You can hit walls or objects and cause an "
+			"injury."), ui::col::Muted },
+		{ Tr("Before you start a game, make sure that the chaperone walls align with the walls of your "
+			"room. Make sure that you have sufficient space to move safely. This is very important "
+			"when you make large movements, for example in a dance."), ui::col::Lavender },
 	};
 	if (!CalCtx.uiError.empty())
 		paragraphs.push_back({ Tr(CalCtx.uiError.c_str()), ui::col::Alert });
 	// English: the dialog's buttons translate their own labels.
 	const std::string waiting = FormatString("Protect chaperone (%d s)", std::max(remain, 0));
 	const int pressed = ConfirmDialog(600.0f, ui::Icon::Chaperone, ui::col::Caution, ui::col::CautionTint,
-		Tr("Check your room boundaries"), paragraphs, "Cancel", ui::Btn::Secondary,
+		Tr("Examine your room boundaries"), paragraphs, "Cancel", ui::Btn::Secondary,
 		remain > 0 ? waiting.c_str() : "Protect chaperone", remain > 0 ? ui::Btn::Waiting : ui::Btn::Primary, ui::Icon::None);
 	if (pressed == 1 || EscapePressed())
 		CloseDialog();

@@ -126,7 +126,7 @@ static void BuildSidebar(bool runningInOverlay)
 		g_page = Page::Calibration;
 	y += 52.0f;
 	if (ui::NavRow("##navlighthouse", NavSlot(o, y), ui::Icon::Lighthouse, "Lighthouse", g_page == Page::Lighthouse, !lighthouse,
-		nullptr, "Lighthouse module is currently not installed. Select it during installation."))
+		nullptr, "The Lighthouse module is not installed. Select it when you install Nova Calibrator."))
 		g_page = Page::Lighthouse;
 	y += 52.0f;
 	ui::NavRow("##navsmoothing", NavSlot(o, y), ui::Icon::Smoothing, "Smoothing", false, true, "Soon", "Work in progress");

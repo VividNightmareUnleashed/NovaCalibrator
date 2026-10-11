@@ -31,39 +31,40 @@ static StopReason DescribeSolveFailure(const questcal::EngineResult &result)
 	switch (result.failure)
 	{
 	case EngineFailure::NotEnoughRotation:
-		reason.body = "The devices didn't turn far enough.";
-		reason.action = "Make bigger turns, and keep them pressed together.";
+		reason.body = "The turns of the devices were too small.";
+		reason.action = "Make larger turns. Keep the devices tightly together.";
 		break;
 	case EngineFailure::SingleAxis:
 	case EngineFailure::TranslationUnobservable:
-		reason.body = "The devices only rotated in one direction.";
+		reason.body = "The devices turned in only one direction.";
 		reason.action = "Turn and tilt both devices together in different directions.";
 		break;
 	case EngineFailure::RotationResidual:
-		reason.body = "The devices' rotation readings didn't match closely enough.";
-		reason.action = "Hold them firmly together and try again.";
+		reason.body = "The rotation values from the two devices were too different.";
+		reason.action = "Try again. Hold the devices tightly together.";
 		break;
 	case EngineFailure::PositionResidual:
-		reason.body = "The devices' position readings didn't match closely enough.";
-		reason.action = "Move slowly and keep both devices in clear view, then try again.";
+		reason.body = "The position values from the two devices were too different.";
+		reason.action = "Try again. Move slowly, and keep both devices in clear view.";
 		break;
 	case EngineFailure::NotEnoughSamples:
-		reason.body = "Almost no tracking data arrived.";
-		reason.action = "Check that both devices are tracking, then try again.";
+		reason.body = "Nova Calibrator received almost no tracking data.";
+		reason.action = "Make sure that both devices have tracking. Then try again.";
 		break;
 	case EngineFailure::InvalidSamples:
-		reason.body = "Some tracking data was corrupt.";
-		reason.action = "Try again; restart SteamVR if it repeats.";
+		reason.body = "Some tracking data was not correct.";
+		reason.action = "Try again. If the problem occurs again, start SteamVR again.";
 		break;
 	case EngineFailure::ScaleNotIdentifiable:
-		reason.body = "Playspace scale couldn't be determined from this motion.";
-		reason.action = "Cover a larger area, or turn off Solve playspace scale in Settings.";
+		reason.body = "Nova Calibrator could not measure the playspace scale from this movement.";
+		reason.action = "Move across a larger area when you try again. You can also set \xE2\x80\x9CMeasure "
+			"playspace scale\xE2\x80\x9D to off in Settings.";
 		break;
 	case EngineFailure::NonFinite:
 	case EngineFailure::OutOfRange:
 	default:
-		reason.body = "The calibration result wasn't usable.";
-		reason.action = "Try again with smooth motion around the room.";
+		reason.body = "Nova Calibrator could not use the calibration result.";
+		reason.action = "Try again with smooth movement around the room.";
 		break;
 	}
 	return reason;
@@ -92,8 +93,8 @@ static void StoreFieldAnchor(CalibrationContext &ctx, const questcal::EngineResu
 			"Anchor rejected: %.1f deg / %.1f cm from the base calibration",
 			rotDeltaDeg, posDeltaM * 100.0);
 		ctx.Outcome("Anchor not added",
-			"This spot is too far off from your calibration for a small correction.",
-			"Run a full calibration instead.", buf, CalibrationContext::Tone::Warn);
+			"This area is too far from your calibration for a small correction.",
+			"Do a full calibration instead.", buf, CalibrationContext::Tone::Warn);
 		return;
 	}
 
@@ -119,7 +120,8 @@ static void StoreFieldAnchor(CalibrationContext &ctx, const questcal::EngineResu
 		// The sentence is a translation key, so it names the limit itself.
 		static_assert(protocol::SetAlignmentField::MaxAnchors == 8, "the anchor-limit message names 8");
 		ctx.Outcome("Anchor not added", "You already have 8 anchors.",
-			"Add this one within 1 m of an existing anchor to replace it, or clear the anchors in Settings.",
+			"To replace an anchor, go to a position less than 1 m from it. Then add a new anchor. You "
+				"can also select \xE2\x80\x9C" "Clear anchors\xE2\x80\x9D in the Field anchors tool.",
 			"Anchor limit reached (8)", CalibrationContext::Tone::Warn);
 		return;
 	}
@@ -133,8 +135,8 @@ static void StoreFieldAnchor(CalibrationContext &ctx, const questcal::EngineResu
 		},
 		true))
 	{
-		ctx.Outcome("Anchor not added", "It couldn't be saved.",
-			"Restart Nova Calibrator and try again.",
+		ctx.Outcome("Anchor not added", "Nova Calibrator could not save the anchor.",
+			"Start Nova Calibrator again. Then add the anchor again.",
 			"Field anchor was not applied because the updated profile could not be saved",
 			CalibrationContext::Tone::Warn);
 		return;
@@ -145,9 +147,9 @@ static void StoreFieldAnchor(CalibrationContext &ctx, const questcal::EngineResu
 		slot + 1, centroidRef.x(), centroidRef.z(), rotDeltaDeg, posDeltaM * 100.0);
 	ctx.Log(buf);
 	ctx.Outcome("Anchor added",
-		"This spot now has its own correction, blended in as you walk around.",
+		"This area now has its own correction. The correction increases gradually as you go near the area.",
 		"", "", CalibrationContext::Tone::Good, CalibrationContext::Event::Anchor,
-		"Anchor added. This spot now has its own correction.");
+		"The anchor is added. This area now has its own correction.");
 }
 
 void calibration_internal::FinishCalibration(CalibrationContext &ctx)
@@ -189,11 +191,11 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 		LighthouseRestarts(ctx, run.targetSerial) != run.targetRestartsAtStart)
 	{
 		AbortCalibration(ctx, {
-			(referenceRestarted
+			"The base station tracking of " + (referenceRestarted
 				? DeviceName(ctx, run.referenceModel, run.referenceSerial, true)
 				: DeviceName(ctx, run.targetModel, run.targetSerial, false)) +
-				"'s base station tracking restarted during the measurement.",
-			"Keep it in view of its base stations for the whole countdown.",
+				" started again during the measurement.",
+			"Keep it in view of its base stations until the countdown stops.",
 			"Lighthouse solution restarted during collection" });
 		return;
 	}
@@ -258,13 +260,14 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 				ctx.Log(buf);
 				mount.measured = true;
 				mount.note = ctx.continuousEnabled
-					? "Headset tracker set up, so continuous calibration can keep it that way."
-					: "Headset tracker set up. Turn on continuous calibration in Settings to use it.";
+					? "The headset tracker setup is completed. Continuous calibration can now keep your trackers aligned."
+					: "The headset tracker setup is completed. To use it, set \xE2\x80\x9C"
+						"Continuous calibration\xE2\x80\x9D to on in Settings.";
 			}
 			else
 			{
-				mount.note = "The headset tracker's identity couldn't be verified, so its previous setup is kept.";
-				mount.action = "Try again. If it repeats, restart SteamVR.";
+				mount.note = "Nova Calibrator could not identify the headset tracker. Nova Calibrator keeps the previous setup.";
+				mount.action = "Calibrate again with the headset tracker. If the problem occurs again, start SteamVR again.";
 			}
 		}
 		else if (ctx.continuousEnabled || run.targetSerial == ctx.continuousTrackerSerial)
@@ -276,9 +279,10 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 			mount.attempted = true;
 			mount.tooFast = true;
 			mount.note = ctx.mountExtrinsic.valid
-				? "The headset tracker's position couldn't be measured consistently, so its previous setup is kept."
-				: "The headset tracker's position couldn't be measured consistently.";
-			mount.action = "Recalibrate with the headset tracker and look around more slowly.";
+				? "The measurements of the headset tracker position were too different. Nova Calibrator "
+					"keeps the previous setup."
+				: "The measurements of the headset tracker position were too different.";
+			mount.action = "Calibrate again with the headset tracker. During the calibration, look around more slowly.";
 		}
 	}
 
@@ -287,7 +291,7 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 	{
 		const StopReason reason = DescribeSolveFailure(result);
 		ctx.lastRunPassed = false;
-		ctx.Outcome("Calibration failed", reason.body, reason.action, reason.detail,
+		ctx.Outcome("Calibration not completed", reason.body, reason.action, reason.detail,
 			CalibrationContext::Tone::Warn);
 		if (EndCalibrationRun(ctx))
 			SynchronizeCalibrationDriver(ctx);
@@ -397,16 +401,17 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 			ctx.trackerFrames.Snapshot()[run.targetId]))
 		{
 			AbortCalibration(ctx, {
-				DeviceName(ctx, run.targetModel, run.targetSerial, false) + "'s tracking reset during the measurement.",
-				"Let tracking settle for a few seconds, then start again.",
+				"The tracking of " + DeviceName(ctx, run.targetModel, run.targetSerial, false) +
+					" started again during the measurement.",
+				"Wait a few seconds until tracking is stable. Then start again.",
 				"The target's frame correction did not follow every frame move of the measurement" });
 			return;
 		}
 		if (!run.normalizationCaptured || !questcal::TrackerFrameCorrections::ExpressCalibration(run.targetNormalizationRotation,
 			run.targetNormalizationTranslation, result.rotation, result.translation, result.scale))
 		{
-			AbortCalibration(ctx, { "The calibration result wasn't usable.",
-				"Try again with smooth motion around the room.", "Normalized calibration exceeded numeric bounds" });
+			AbortCalibration(ctx, { "Nova Calibrator could not use the calibration result.",
+				"Try again with smooth movement around the room.", "Normalized calibration exceeded numeric bounds" });
 			return;
 		}
 		ctx.Log("Recalibration retained the devices' relative lighthouse frame corrections\n");
@@ -508,34 +513,35 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 		questcal::JudgeSolveQuality(result.rotationRmsDeg, result.translationRmsMeters);
 	const bool good = band == questcal::SolveQuality::Good;
 	const bool rough = band == questcal::SolveQuality::Poor;
-	const std::string quality = good ? "Check in VR that your trackers line up with your body."
-		: rough ? "The alignment is rough." : "The alignment may need another pass.";
+	const std::string quality = good ? "In VR, make sure that your trackers align with your body."
+		: rough ? "The trackers are not accurately aligned." : "Another calibration can align the trackers more accurately.";
 	const std::string action = good ? ""
-		: rough ? "Try again with slower motion, turning and tilting in different directions."
-		: "Check the tracker positions in VR. Try again if they look off.";
+		: rough ? "Calibrate again with slower movement. Turn and tilt the devices in different directions."
+		: "Examine the tracker positions in VR. If they are not correct, calibrate again.";
 	const CalibrationContext::Tone tone = rough ? CalibrationContext::Tone::Warn
 		: CalibrationContext::Tone::Good;
 	// The feed names the pair it was made with.
-	const std::string feed = run.referenceModel.empty() || run.targetModel.empty() ? "Calibration complete."
-		: "Calibrated with " + DeviceName(ctx, run.referenceModel, run.referenceSerial, true) + " and " +
+	const std::string feed = run.referenceModel.empty() || run.targetModel.empty() ? "Nova Calibrator completed the calibration."
+		: "The calibration used " + DeviceName(ctx, run.referenceModel, run.referenceSerial, true) + " and " +
 			DeviceName(ctx, run.targetModel, run.targetSerial, false) + ".";
 	const auto calibrated = CalibrationContext::Event::Calibrated;
 	if (mount.attempted)
 	{
 		// A headset-tracker run is judged on what it was for.
 		if (mount.measured)
-			ctx.Outcome("Calibration complete", quality + " " + mount.note, action, "", tone, calibrated, feed);
+			ctx.Outcome("Calibration completed", quality + " " + mount.note, action, "", tone, calibrated, feed);
 		else
 		{
 			if (mount.tooFast)
 				ctx.lastRunPassed = false;
-			ctx.Outcome("Done, but the headset tracker wasn't set up",
+			ctx.Outcome("Calibration completed, but the headset tracker setup did not change",
 				quality + " " + mount.note, mount.action, "", CalibrationContext::Tone::Warn, calibrated);
 		}
 	}
 	else
-		ctx.Outcome("Calibration complete", quality, action, "", tone, calibrated, feed);
+		ctx.Outcome("Calibration completed", quality, action, "", tone, calibrated, feed);
 	if (!saved)
-		ctx.Tell("Applied for this session, but it couldn't be saved. Recalibrate after restarting.",
+		ctx.Tell("Nova Calibrator uses the calibration for this session, but it could not save the "
+			"calibration. After you start Nova Calibrator or SteamVR again, calibrate again.",
 			CalibrationContext::Tone::Warn);
 }

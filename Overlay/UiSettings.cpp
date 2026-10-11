@@ -56,7 +56,7 @@ bool LanguagePicker(const char *id, const FlexRect &r, float lead)
 		return false;
 	if (kLanguageOrder[picked] == Language::Japanese && !c.japaneseFont)
 	{
-		CalCtx.ReportError("Japanese needs a Japanese font, and Windows doesn't have one installed. "
+		CalCtx.ReportError("A Japanese font is necessary for Japanese text, and Windows does not have one installed. "
 			"Add the Japanese Supplemental Fonts in Windows Settings > System > Optional features.\n");
 		return false;
 	}
@@ -389,19 +389,20 @@ void GeneralRows(RowPage &page)
 	page.Section("General");
 	const bool translated = questcal::i18n::CurrentLanguage() != Language::English;
 	RowPage::Row &language = page.Add(Tr("Language"),
-		translated ? std::string(Tr("This translation may not be accurate.")) : std::string(), LanguagePickerWidth(), 42.0f);
+		translated ? std::string(Tr("This translation is possibly not accurate.")) : std::string(), LanguagePickerWidth(), 42.0f);
 	language.drawControl = [](const FlexRect &r) { LanguagePicker("##language", r); };
 	// A translation says it may be imperfect and where corrections go.
 	if (translated)
 		page.Link(ui::Icon::Globe, "Report on GitHub", ui::col::Link, false,
 			[] { OpenUrl("https://github.com/VividNightmareUnleashed/NovaCalibrator/issues"); });
 
-	page.Toggle("Advanced mode", "Shows calibration measurements, drift readings and extra settings.",
+	page.Toggle("Advanced mode", "Advanced mode shows calibration measurements, drift values and more items in Settings.",
 		CalCtx.uiAdvanced, SettingSwitch(CalCtx.uiAdvanced));
 	// One switch for every alignment toast: a calibration that looks off,
 	// continuous calibration pausing, noisy tracking.
 	page.Toggle("Alignment notifications in VR",
-		"Get a SteamVR notification when the alignment looks off or continuous calibration pauses.",
+		"When this is on, you get a SteamVR notification if the trackers are possibly not aligned "
+			"or if continuous calibration stops.",
 		CalCtx.notifyPoorCalibration, SettingSwitch(CalCtx.notifyPoorCalibration));
 }
 
@@ -468,7 +469,7 @@ PickerLabel CurrentPick(const std::vector<const VRDevice *> &candidates)
 		label.serial = Tr("Off");
 		return label;
 	}
-	label.name = Tr("Pick a tracker");
+	label.name = Tr("Select a tracker");
 	label.placeholder = true;
 	return label;
 }
@@ -508,7 +509,7 @@ void TrackerPicker(const FlexRect &r, const PickerLabel &label, const std::vecto
 		const float w = ImGui::GetContentRegionAvail().x;
 		const ImVec2 a = ImGui::GetCursorScreenPos();
 		const float h = ui::DrawText(ImGui::GetWindowDrawList(), ui::type::Callout, ImVec2(a.x + 14.0f, a.y + 12.0f), w - 28.0f,
-			ui::col::Muted, Tr("No trackers found. Turn on a tracker and make sure SteamVR sees it."));
+			ui::col::Muted, Tr("Nova Calibrator found no trackers. Start a tracker. Make sure that SteamVR shows it."));
 		ImGui::Dummy(ImVec2(w, h + 24.0f));
 	}
 	for (const VRDevice *d : candidates)
@@ -543,7 +544,8 @@ void TrackerPicker(const FlexRect &r, const PickerLabel &label, const std::vecto
 void ContinuousRows(RowPage &page, const VRState &state)
 {
 	page.Section("Continuous calibration");
-	page.Toggle("Continuous calibration", "Keeps devices aligned while you play, using a tracker strapped to your headset.",
+	page.Toggle("Continuous calibration", "When this is on, Nova Calibrator keeps devices aligned during play. It uses a tracker "
+		"that is attached to your headset.",
 		CalCtx.continuousEnabled, [](bool value) {
 			SaveProfileFieldEdit(CalCtx, [&](questcal::ProfileRecord &candidate) {
 				candidate.continuousEnabled = value;
@@ -570,29 +572,32 @@ void ContinuousRows(RowPage &page, const VRState &state)
 				candidate.continuousNoPause = picked == 1;
 			});
 	};
-	method.tipEnglish = "Standard pauses when the readings move away from the calibration\n"
-		"and resumes once they come back or hold steady. Legacy never pauses:\n"
-		"like OpenVR-SpaceCalibrator, it follows every change the headset tracker\n"
-		"reports, so a bad base station fix moves your body trackers until it clears.";
+	method.tipEnglish = "Standard stops when the values move away from the calibration. It starts\nagain when the "
+		"values are near the calibration again or are stable.\nLegacy never stops. Like "
+		"OpenVR-SpaceCalibrator, it follows each change\nin the headset tracker values. If the "
+		"base stations give an incorrect\nposition, your body trackers move until the position is "
+		"correct again.";
 
 	page.Toggle("Hide the headset tracker from games", nullptr, CalCtx.hideMountedTracker, [](bool value) {
 		SaveProfileFieldEdit(CalCtx, [&](questcal::ProfileRecord &candidate) { candidate.hideMountedTracker = value; });
-	}).tipEnglish = "Moves it far out of reach in games so full-body setups never\n"
-		"mistake it for a body tracker. Calibration still sees it.";
+	}).tipEnglish = "When this is on, Nova Calibrator moves the headset tracker to a far\nposition in games. "
+		"Thus, full-body setups do not use it as a body\ntracker. Calibration can continue to use "
+		"it.";
 	page.Toggle("Re-measure tracking delay while you play", nullptr, CalCtx.continuousLatencyReestimation, [](bool value) {
 		SaveProfileFieldEdit(CalCtx, [&](questcal::ProfileRecord &candidate) { candidate.continuousLatencyReestimation = value; });
-	}).tipEnglish = "Re-measures the delay between the two systems during play, using\n"
-		"the headset tracker. Off keeps the value from calibration.";
+	}).tipEnglish = "When this is on, Nova Calibrator measures the delay between the two\nsystems again during "
+		"play. It uses the headset tracker. When this is\noff, Nova Calibrator uses the value from "
+		"calibration.";
 	page.Toggle("Ask before applying each correction", nullptr, CalCtx.continuousRequireTrigger, [](bool value) {
 		SaveProfileFieldEdit(CalCtx, [&](questcal::ProfileRecord &candidate) { candidate.continuousRequireTrigger = value; });
-	}).tipEnglish = "Each correction waits until you pull a controller trigger.\n"
-		"Recent activity on the Calibration page lists each one.";
+	}).tipEnglish = "Each correction waits until you pull a controller trigger.\n\xE2\x80\x9CRecent "
+		"activity\xE2\x80\x9D on the Calibration page shows each one.";
 
 	// What the loop needs from the player, as a button whenever the app can
 	// do it for them.
 	const ContinuousStatus continuous = ContinuousStatusNow();
 	if (continuous == ContinuousStatus::NoTracker)
-		page.Note(Tr("Strap a tracker to your headset and pick it above."), ui::col::Lavender);
+		page.Note(Tr("Attach a tracker to your headset. Then select it above."), ui::col::Lavender);
 	else if (continuous == ContinuousStatus::NeedsMount || continuous == ContinuousStatus::Frozen)
 	{
 		const std::string label = FormatString(continuous == ContinuousStatus::Frozen
@@ -609,12 +614,14 @@ void CalibrationRows(RowPage &page)
 {
 	page.Section("Calibration");
 	page.Toggle("Measure playspace scale",
-		"Checks whether your headset and SteamVR measure distances differently. Leave it off unless you need it.",
+		"When this is on, Nova Calibrator measures the scale difference between your headset and "
+			"SteamVR. Keep it off if it is not necessary.",
 		CalCtx.solveScale, SettingSwitch(CalCtx.solveScale), "Experimental");
 	// The number is for the advanced reader; the switch is the setting.
 	const std::string applied = CalCtx.uiAdvanced && CalCtx.validProfile && CalCtx.applyTimeOffset
 		? FormatString("%+.1f ms", CalCtx.appliedTimeOffset * 1000.0) : std::string();
-	page.Toggle("Correct for tracking delay", "Makes up for the lag between your headset and SteamVR, measured when you calibrate.",
+	page.Toggle("Correct for tracking delay", "When this is on, Nova Calibrator corrects the delay between your headset and SteamVR. "
+		"Calibration measures this delay.",
 		CalCtx.applyTimeOffset, SettingSwitch(CalCtx.applyTimeOffset), nullptr, applied);
 }
 
@@ -625,7 +632,7 @@ void CalibrationRows(RowPage &page)
 void UpdateRows(RowPage &page)
 {
 	page.Section("Updates");
-	page.Toggle("Automatic updates", "Downloads verified updates. Close Steam before installing them.",
+	page.Toggle("Automatic updates", "When this is on, Nova Calibrator downloads verified updates. Close Steam before you install them.",
 		CalCtx.automaticUpdates, [](bool value) {
 			const bool previous = CalCtx.automaticUpdates;
 			CalCtx.automaticUpdates = value;
@@ -643,18 +650,18 @@ void UpdateRows(RowPage &page)
 	switch (update.state)
 	{
 	case State::Checking:
-		status = "Checking for updates...";
+		status = "Nova Calibrator does an update check...";
 		break;
 	case State::Downloading:
 	{
 		const unsigned percent = update.totalBytes == 0 ? 0 :
 			static_cast<unsigned>((update.downloadedBytes * 100) / update.totalBytes);
-		status = FormatString("Downloading %s  %u%%", update.version.c_str(), percent);
+		status = FormatString("Nova Calibrator downloads version %s  %u%%", update.version.c_str(), percent);
 		ink = ui::col::Link;
 		break;
 	}
 	case State::UpToDate:
-		status = FormatString("You're up to date (%s)", update.version.c_str());
+		status = FormatString("You have the newest version (%s)", update.version.c_str());
 		ink = ui::col::Good;
 		break;
 	case State::Ready:
@@ -662,16 +669,16 @@ void UpdateRows(RowPage &page)
 		ink = ui::col::Good;
 		break;
 	case State::Failed:
-		status = update.message.empty() ? std::string("Update check failed")
-			: FormatString("Update check failed: %s", update.message.c_str());
+		status = update.message.empty() ? std::string("Update check not completed")
+			: FormatString("Update check not completed: %s", update.message.c_str());
 		ink = ui::col::Alert;
 		break;
 	case State::Prerelease:
-		status = FormatString("%s is a test build and doesn't update itself", update.version.c_str());
+		status = FormatString("%s is a test build. It does not install updates.", update.version.c_str());
 		ink = ui::col::Caution;
 		break;
 	default:
-		status = "Not checked yet";
+		status = "No update check";
 		break;
 	}
 	const bool installReady = update.state == State::Ready;
@@ -710,7 +717,8 @@ void SupportRows(RowPage &page)
 	// Extra detail in the session log while on, and one file to send,
 	// written on request with personal folders taken out.
 	page.Toggle("Detailed calibration logging",
-		"Records extra tracking and calibration details. Saved files leave out your name and folder paths.",
+		"When this is on, Nova Calibrator records more tracking and calibration data. Saved files "
+			"do not include your name or folder paths.",
 		CalCtx.detailedLogging, SettingSwitch(CalCtx.detailedLogging));
 	page.Link(ui::Icon::Doc, "Save diagnostics file", ui::col::Link, false, [] {
 		std::string path, error;
@@ -823,7 +831,7 @@ void BuildEditorSheet()
 	ImDrawList *dl = ImGui::GetWindowDrawList();
 	float y = c.min.y + 44.0f + 6.0f;
 	y += ui::DrawText(dl, ui::TextStyle{ ui::Weight::Regular, 17.0f, 24.0f }, ImVec2(c.min.x, y), std::min(c.W(), 760.0f),
-		ui::col::Prose, Tr("Fine-tune the calibration by hand. Nothing changes until you save."));
+		ui::col::Prose, Tr("Adjust the calibration manually. Nothing changes until you save."));
 	const float gap = 12.0f, cellW = (c.W() - gap * 2.0f) / 3.0f;
 	auto group = [&](const char *english) {
 		y += 20.0f;
@@ -880,7 +888,8 @@ void BuildEditorSheet()
 	// what to fix.
 	if (!draft.valid)
 		ui::DrawText(dl, ui::type::Callout, ImVec2(c.min.x, y + 16.0f), cancel.min.x - 24.0f - c.min.x, ui::col::Alert,
-			Tr("These values can't be applied. Use plain numbers within range. The saved calibration is unchanged."));
+			Tr("Nova Calibrator cannot use these values. Use only numbers in the correct range. The saved "
+				"calibration did not change."));
 	if (ui::PillButton("##saveprofile", "Save calibration", draft.valid ? ui::Btn::Primary : ui::Btn::Waiting, save, ui::Icon::Check) &&
 		draft.valid)
 		SaveProfileEditorDraft();
@@ -926,7 +935,7 @@ void BuildCreditsSheet()
 
 	// Who made it, and what it builds on.
 	y += ui::DrawText(dl, ui::type::Body, ImVec2(c.min.x, y), c.W(), ui::col::Body,
-		Tr(FormatString("Nova Calibrator is made by %s and builds on %s by %s.",
+		Tr(FormatString("Nova Calibrator is made by %s. It started from %s by %s.",
 			"VividNightmareUnleashed", "OpenVR-SpaceCalibrator", "pushrax")).c_str());
 	y += 14.0f;
 	struct LinkPill { const char *id, *english, *url; };

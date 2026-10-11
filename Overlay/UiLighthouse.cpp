@@ -29,8 +29,8 @@ bool Sees(const LighthouseVisibility::Device &seen, int channel)
 // A station's drops in words.
 std::string DropWords(unsigned drops)
 {
-	return drops == 0 ? std::string("No dropouts") : drops == 1 ? std::string("Dropped out once")
-		: drops == 2 ? std::string("Dropped out twice") : FormatString("Dropped out %u times", drops);
+	return drops == 0 ? std::string("No dropouts") : drops == 1 ? std::string("One dropout")
+		: drops == 2 ? std::string("Two dropouts") : FormatString("%u dropouts", drops);
 }
 
 const ui::TextStyle kLead{ ui::Weight::Regular, 17.0f, 24.0f };
@@ -67,7 +67,7 @@ float BuildLighthousePage(const VRState &state, ImVec2 origin, float width)
 	YGNodeStyleSetWidth(root, width);
 	YGNodeStyleSetPadding(root, YGEdgeHorizontal, 40.0f);
 	const std::string titleText = Tr("Lighthouse");
-	const std::string leadText = Tr("Which base stations each device can see, live from SteamVR's log.");
+	const std::string leadText = Tr("This page shows which base stations each device can see. It uses the SteamVR log.");
 	YGNodeRef title = ui::TextNode(fl, root, ui::type::PageTitle, titleText);
 	YGNodeRef lead = ui::TextNode(fl, root, kLead, leadText);
 	YGNodeStyleSetMargin(lead, YGEdgeTop, 6.0f);
@@ -85,13 +85,13 @@ float BuildLighthousePage(const VRState &state, ImVec2 origin, float width)
 	if (devices.empty())
 	{
 		emptyTitle = Tr("No Lighthouse devices");
-		emptyBody = Tr("Turn on a tracker or controller that uses base stations.");
+		emptyBody = Tr("Start a tracker or a controller that uses base stations.");
 	}
 	else if (!CalCtx.lighthouseLogAvailable)
 	{
 		emptyIcon = ui::Icon::Clock;
-		emptyTitle = Tr("Waiting for SteamVR's log");
-		emptyBody = Tr("Base stations appear here once SteamVR has written " +
+		emptyTitle = Tr("No SteamVR log");
+		emptyBody = Tr("Base stations show here when SteamVR writes " +
 			(CalCtx.lighthouseLogPath.empty() ? std::string("its vrserver log.") : CalCtx.lighthouseLogPath));
 	}
 	if (!emptyTitle.empty())
@@ -125,7 +125,7 @@ float BuildLighthousePage(const VRState &state, ImVec2 origin, float width)
 	YGNodeRef stationsTitle = Heading(fl, root, stationsHead);
 	YGNodeRef noStations = nullptr, grid = nullptr;
 	std::vector<YGNodeRef> stationCards;
-	const std::string noStationsText = Tr("None named yet. Each base station appears as SteamVR reports it.");
+	const std::string noStationsText = Tr("There are no base stations at this time. Each base station shows here when it is in the SteamVR log.");
 	if (stations.empty())
 	{
 		noStations = ui::TextNode(fl, root, ui::type::Body, noStationsText);
@@ -152,10 +152,11 @@ float BuildLighthousePage(const VRState &state, ImVec2 origin, float width)
 		deviceRows.push_back(fl.Box(table, contentW, 56.0f));
 	// What the log did for the drift monitor, and where it was read.
 	const std::string driftText = Tr(CalCtx.lighthouseAttributedEvents == 0
-		? std::string("Base station changes haven't affected drift checks this session.")
+		? std::string("Base station changes did not stop drift checks in this session.")
 		: CalCtx.lighthouseAttributedEvents == 1
-		? std::string("1 drift check this session was skipped because a base station had just changed.")
-		: FormatString("%u drift checks this session were skipped because a base station had just changed.",
+		? std::string("Nova Calibrator did not do 1 drift check in this session because a base station changed just before.")
+		: FormatString("Nova Calibrator did not do %u drift checks in this session because a base station changed "
+			"just before.",
 			CalCtx.lighthouseAttributedEvents));
 	YGNodeRef drift = ui::TextNode(fl, root, ui::type::Footnote, driftText);
 	YGNodeStyleSetMargin(drift, YGEdgeTop, 12.0f);
@@ -205,11 +206,11 @@ float BuildLighthousePage(const VRState &state, ImVec2 origin, float width)
 		ui::DrawIcon(dl, ui::Icon::Lighthouse, ImVec2(x + 11.0f, lineY + 14.0f), 22.0f, ui::col::Link);
 		const std::string channel = FormatString("S-%d", s.channel);
 		ui::DrawLine(dl, ui::type::CardTitle, ImVec2(x + 22.0f + 10.0f, lineY), ui::col::Text, channel.c_str());
-		const std::string id = s.id != 0 ? LighthouseVisibility::IdName(s.id) : std::string(Tr("id not logged yet"));
+		const std::string id = s.id != 0 ? LighthouseVisibility::IdName(s.id) : std::string(Tr("ID not in the log"));
 		const ui::TextStyle idStyle{ s.id != 0 ? ui::Weight::Mono : ui::Weight::Regular, 13.0f, 28.0f };
 		const float idW = ui::MeasureLine(idStyle, id.c_str()).x;
 		ui::DrawLine(dl, idStyle, ImVec2(c.max.x - 18.0f - idW, lineY), ui::Rgba(236, 238, 244, 0.50f), id.c_str());
-		const std::string seenLine = Tr(reporting == 0 ? std::string("No reports yet")
+		const std::string seenLine = Tr(reporting == 0 ? std::string("No reports")
 			: FormatString("Seen by %d of %d", seeing, reporting));
 		ui::DrawLine(dl, ui::type::BodyMedium, ImVec2(x, c.max.y - 16.0f - 20.0f - 22.0f), unseen ? ui::col::Alert : ui::col::Text,
 			seenLine.c_str());
@@ -217,7 +218,7 @@ float BuildLighthousePage(const VRState &state, ImVec2 origin, float width)
 		ui::DrawLine(dl, ui::type::Footnote, ImVec2(x, c.max.y - 16.0f - 20.0f), dropInk, Tr(DropWords(s.drops)).c_str());
 		// A loss is a drop that left a device with no station at all.
 		if (s.losses > 0 && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(c.min, c.max))
-			ui::Tip(FormatString("Dropped out %u time%s \xC2\xB7 the last one left %u time%s",
+			ui::Tip(FormatString("%u dropout%s \xC2\xB7 %u time%s as the last station in view",
 				s.drops, s.drops == 1 ? "" : "s", s.losses, s.losses == 1 ? "" : "s").c_str());
 	}
 
@@ -304,7 +305,7 @@ float BuildLighthousePage(const VRState &state, ImVec2 origin, float width)
 		if (!dev.connected)
 			figure = "Off";
 		else if (!reporting)
-			figure = "Not in the log yet";
+			figure = "Not in the log";
 		else
 		{
 			const int inView = seen->InView();
@@ -314,7 +315,7 @@ float BuildLighthousePage(const VRState &state, ImVec2 origin, float width)
 			detail = seen->drops == 0 ? std::string("No dropouts")
 				: FormatString("%u dropout%s", seen->drops, seen->drops == 1 ? "" : "s");
 			if (seen->losses > 0)
-				detail += FormatString(", %u full loss%s", seen->losses, seen->losses == 1 ? "" : "es");
+				detail += FormatString(", %u time%s with no station in view", seen->losses, seen->losses == 1 ? "" : "s");
 		}
 		figure = Tr(figure);
 		detail = Tr(detail);
@@ -339,7 +340,7 @@ float BuildLighthousePage(const VRState &state, ImVec2 origin, float width)
 			if (!seen->lastDisturbanceText.empty())
 				tip += "\nLast change: " + seen->lastDisturbanceText;
 			if (seen->bootstraps > 0)
-				tip += FormatString("\nTracking restarted %u time%s", seen->bootstraps, seen->bootstraps == 1 ? "" : "s");
+				tip += FormatString("\nTracking started again %u time%s", seen->bootstraps, seen->bootstraps == 1 ? "" : "s");
 			ShowTip(tip.c_str(), true);
 		}
 		ImGui::PopID();

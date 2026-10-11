@@ -92,9 +92,9 @@ void calibration_internal::NotifyOnce(CalibrationContext &ctx, bool &notified, c
 static void NotifyStaleAlignment(CalibrationContext &ctx)
 {
 	NotifyOnce(ctx, Monitors.staleNotified,
-		"Your calibration looks off. Recalibrate.",
+		"Your calibration is possibly not correct. Calibrate again.",
 		CalibrationContext::Tone::Warn,
-		"Nova Calibrator: your calibration looks off. Recalibrate.",
+		"Nova Calibrator: your calibration is possibly not correct. Calibrate again.",
 		ctx.notifyPoorCalibration);
 }
 
@@ -305,8 +305,8 @@ static void CompensateTrackerFrameMoves(CalibrationContext &ctx)
 		ctx.persistence.MarkProfile(ctx.timeLastTick);
 		ResetContinuousObservations(ctx, questcal::ContinuousAlignment::ResetReason::StreamGap);
 		ctx.Log("Lighthouse frame move queue overflowed; calibration disabled until a new measurement\n");
-		ctx.ReportError("SteamVR moved the base stations more often than Nova Calibrator could follow. "
-			"The calibration is off until you recalibrate.\n");
+		ctx.ReportError("SteamVR moved the base stations more often than Nova Calibrator could follow. The "
+			"calibration is off until you calibrate again.\n");
 		SynchronizeCalibrationDriver(ctx);
 		return;
 	}

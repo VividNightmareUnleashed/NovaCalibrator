@@ -286,8 +286,8 @@ static bool CollectFromPoseRing(CalibrationContext &ctx, double now)
 				: "Pose stream lost %llu samples in one gap during collection",
 			static_cast<unsigned long long>(drained.largestGap));
 		AbortCalibration(ctx, {
-			"Some tracking data was dropped: the PC couldn't keep up.",
-			"Try again; close capture or recording software if it repeats.",
+			"The PC was too slow to record all of the tracking data.",
+			"Try again. If the problem occurs again, close capture or recording software.",
 			detail });
 		return false;
 	}
@@ -338,8 +338,8 @@ static bool CollectFromPoseRing(CalibrationContext &ctx, double now)
 					reference ? run.referenceModel : run.targetModel,
 					reference ? run.referenceSerial : run.targetSerial, reference);
 				AbortCalibration(ctx, {
-					name + "'s tracking reset during the measurement.",
-					"Let tracking settle for a few seconds, then start again.",
+					"The tracking of " + name + " started again during the measurement.",
+					"Wait a few seconds until tracking is stable. Then start again.",
 					std::string(reference ? "Reference" : "Target") + " world-from-driver changed during collection" });
 				return false;
 			}
@@ -458,19 +458,21 @@ bool StartCalibration()
 		CalCtx.targetID >= vr::k_unMaxTrackedDeviceCount ||
 		CalCtx.referenceID == CalCtx.targetID)
 	{
-		CalCtx.ReportError("Finish the current calibration and pick two different available devices before starting.\n");
+		CalCtx.ReportError("You can start when no calibration is in operation and two different available devices are "
+			"selected.\n");
 		return false;
 	}
 	if (!questcal::IsValidTrackingSystemPair(
 		CalCtx.pendingReferenceTrackingSystem,
 		CalCtx.pendingTargetTrackingSystem))
 	{
-		CalCtx.ReportError("Pick a reference and a target from two different tracking systems.\n");
+		CalCtx.ReportError("Select a reference and a target from two different tracking systems.\n");
 		return false;
 	}
 	if (questcal::IsVirtualTrackerSystem(CalCtx.pendingTargetTrackingSystem))
 	{
-		CalCtx.ReportError("That tracker is virtual: another app makes it from your real trackers, so it can't be calibrated. Pick a real tracker.\n");
+		CalCtx.ReportError("That tracker is virtual: another app makes it from your real trackers. Nova Calibrator "
+			"cannot calibrate it. Select a real tracker.\n");
 		return false;
 	}
 
@@ -491,7 +493,8 @@ bool StartAnchorCalibration()
 		CalCtx.pendingReferenceTrackingSystem != CalCtx.referenceTrackingSystem ||
 		CalCtx.pendingTargetTrackingSystem != CalCtx.targetTrackingSystem)
 	{
-		CalCtx.ReportError("Anchors need the same reference and target systems as the current calibration. Pick those devices first.\n");
+		CalCtx.ReportError("Anchors must use the same reference and target systems as the calibration. Select those "
+			"devices first.\n");
 		return false;
 	}
 	if (!StartCalibration())
@@ -526,12 +529,13 @@ static void BeginCollection(CalibrationContext &ctx, double time)
 		// A head-referenced run: the tracker is strapped to the headset, so
 		// the motion is the head's.
 		ctx.Instruct("Look around slowly.");
-		ctx.Note("Look left and right, then up and down. Gently tilt your head to each side. Keep the tracker in view of the base stations.");
+		ctx.Note("Look left and right. Then look up and down. Slowly tilt your head to each side. Keep the "
+			"tracker in view of the base stations.");
 	}
 	else
 	{
-		ctx.Instruct("Keep both devices firmly together.");
-		ctx.Note("Draw slow figure eights in the air, turning and tilting your hands as you go.");
+		ctx.Instruct("Keep both devices tightly together.");
+		ctx.Note("Move both devices in slow figure eights. Turn and tilt your hands while you move them.");
 	}
 }
 
@@ -631,8 +635,8 @@ void CalibrationTick(double time)
 		if (!result->succeeded)
 		{
 			AbortCalibration(ctx, {
-				"Nova Calibrator can't talk to SteamVR.",
-				"Restart SteamVR. If it repeats, re-run the installer.",
+				"Nova Calibrator cannot connect to SteamVR.",
+				"Start SteamVR again. If the problem occurs again, install Nova Calibrator again.",
 				"Raw pose traffic is unavailable and the selected device transforms could not be neutralized" });
 			return;
 		}
@@ -673,7 +677,7 @@ void CalibrationTick(double time)
 		{
 			AbortCalibration(ctx, {
 				"No reference device is selected.",
-				"Pick a device that's switched on.",
+				"Select a device that is on.",
 				"Missing reference device" });
 			return;
 		}
@@ -681,7 +685,7 @@ void CalibrationTick(double time)
 		{
 			AbortCalibration(ctx, {
 				"No target device is selected.",
-				"Pick a device that's switched on.",
+				"Select a device that is on.",
 				"Missing target device" });
 			return;
 		}
@@ -719,15 +723,16 @@ void CalibrationTick(double time)
 						? DeviceName(ctx, run.referenceModel, run.referenceSerial, true)
 						: DeviceName(ctx, run.targetModel, run.targetSerial, false);
 					const std::string instruction = tracking
-						? "Waiting for " + name + " to settle."
-						: "Waiting for " + name + " to start tracking.";
+						? "Nova Calibrator waits until " + name + " is stable."
+						: "Nova Calibrator waits until " + name + " has tracking.";
 					if (instruction != run.waitInstruction)
 					{
 						run.waitInstruction = instruction;
 						// Only the lighthouse device has base stations to keep in view.
-						run.waitNote = !tracking ? "Calibration starts on its own once it tracks. Wake it and keep it in view."
-							: reference ? "Calibration starts on its own in a few seconds."
-							: "Calibration starts on its own in a few seconds. Keep the tracker in view of its base stations.";
+						run.waitNote = !tracking ? "Calibration starts automatically when the device has tracking. Make sure that the device "
+							"is on and in view."
+							: reference ? "Calibration starts automatically in a few seconds."
+							: "Calibration starts automatically in a few seconds. Keep the tracker in view of its base stations.";
 						ctx.Log("Calibration waiting: " + instruction + "\n");
 					}
 					return;
@@ -735,16 +740,16 @@ void CalibrationTick(double time)
 				if (!referenceTracking)
 				{
 					AbortCalibration(ctx, {
-						DeviceName(ctx, run.referenceModel, run.referenceSerial, true) + " isn't tracking.",
-						"Check it's awake and in view of its tracking cameras or base stations, then try again.",
+						DeviceName(ctx, run.referenceModel, run.referenceSerial, true) + " has no tracking.",
+						"Make sure that it is on and in view of its tracking cameras or base stations. Then try again.",
 						"Reference device is not Running_OK" });
 					return;
 				}
 				if (!targetTracking)
 				{
 					AbortCalibration(ctx, {
-						DeviceName(ctx, run.targetModel, run.targetSerial, false) + " isn't tracking.",
-						"Check it's awake and visible to its base stations, then try again.",
+						DeviceName(ctx, run.targetModel, run.targetSerial, false) + " has no tracking.",
+						"Make sure that it is on and in view of its base stations. Then try again.",
 						"Target device is not Running_OK" });
 					return;
 				}
@@ -767,8 +772,8 @@ void CalibrationTick(double time)
 			!matchesCapturedSystem(run.targetId, run.targetSystem))
 		{
 			AbortCalibration(ctx, {
-				"A device changed tracking system as the run started.",
-				"Re-pick both devices and start again.",
+				"A device changed tracking system when the calibration started.",
+				"Select both devices again. Then start the calibration.",
 				"Selected devices no longer belong to the chosen tracking systems" });
 			return;
 		}
@@ -783,8 +788,8 @@ void CalibrationTick(double time)
 				vr::Prop_SerialNumber_String, run.targetSerial))
 		{
 			AbortCalibration(ctx, {
-				"SteamVR stopped reporting one of the devices.",
-				"Wake or reconnect it, then try again.",
+				"SteamVR does not show one of the devices now.",
+				"Make sure that it is on and connected. Then try again.",
 				"Could not verify both selected device serials" });
 			return;
 		}
@@ -795,7 +800,7 @@ void CalibrationTick(double time)
 		{
 			AbortCalibration(ctx, {
 				"The reference device must be on the headset's tracking system.",
-				"Pick the headset or one of its controllers as the reference.",
+				"Select the headset or one of its controllers as the reference.",
 				"Could not verify that the current HMD owns the selected reference tracking system" });
 			return;
 		}
@@ -850,8 +855,8 @@ void CalibrationTick(double time)
 	if (run.usesPoseRing && !PoseHub.RingOpen())
 	{
 		AbortCalibration(ctx, {
-			"Lost contact with SteamVR mid-run.",
-			"Restart SteamVR and try again.",
+			"Nova Calibrator disconnected from SteamVR during the measurement.",
+			"Start SteamVR again. Then try again.",
 			"The driver pose channel closed mid-collection; the remaining samples would carry a different clock" });
 		return;
 	}
@@ -874,8 +879,8 @@ void CalibrationTick(double time)
 			std::string name = DeviceName(ctx, model, frozen, reference);
 			AbortCalibration(ctx, {
 				readable ? name + " was replaced by another device during the measurement."
-					: "Could not verify the identity of " + name + " during the measurement.",
-				"Keep both devices powered and try again.",
+					: "Nova Calibrator could not identify " + name + " during the measurement.",
+				"Try again. Keep both devices on during the measurement.",
 				std::string(reference ? "Reference" : "Target") +
 					(readable ? " serial changed mid-collection" : " serial could not be read mid-collection") });
 			return false;
@@ -898,8 +903,9 @@ void CalibrationTick(double time)
 	if (time - run.lastReferenceSample > 2.0)
 	{
 		AbortCalibration(ctx, {
-			DeviceName(ctx, run.referenceModel, run.referenceSerial, true) + " stopped tracking mid-run.",
-			"Keep it tracking for the whole countdown.",
+			"The tracking of " + DeviceName(ctx, run.referenceModel, run.referenceSerial, true) +
+				" stopped during the measurement.",
+			"Keep it in view of its tracking cameras until the countdown stops.",
 			run.usesPoseRing ? "No trusted Running_OK raw poses arrived for the reference device"
 				: "Reference device stopped reporting Running_OK runtime poses" });
 		return;
@@ -907,8 +913,9 @@ void CalibrationTick(double time)
 	if (time - run.lastTargetSample > 2.0)
 	{
 		AbortCalibration(ctx, {
-			DeviceName(ctx, run.targetModel, run.targetSerial, false) + " stopped tracking mid-run.",
-			"Keep it in view of its base stations for the whole countdown.",
+			"The tracking of " + DeviceName(ctx, run.targetModel, run.targetSerial, false) +
+				" stopped during the measurement.",
+			"Keep it in view of its base stations until the countdown stops.",
 			run.usesPoseRing ? "No trusted Running_OK raw poses arrived for the target device"
 				: "Target device stopped reporting Running_OK runtime poses" });
 		return;
@@ -929,7 +936,7 @@ void CancelCalibration()
 		ctx.state != CalibrationState::Collecting)
 		return;
 	ctx.lastRunPassed = false;
-	ctx.Outcome("Calibration cancelled", "", "", "");
+	ctx.Outcome("Calibration canceled", "", "", "");
 	if (EndCalibrationRun(ctx) && vr::VRSystem())
 		SynchronizeCalibrationDriver(ctx);
 }

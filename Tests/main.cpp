@@ -7298,7 +7298,7 @@ void RunUpdatePolicyScenarios()
 	const bool acceptedDeep = SelectReleaseCandidate(std::string(200000, '['),
 		UpdateVersion(1, 1, 0), candidate, available, error);
 	Check("updates: a deeply nested feed fails closed",
-		!acceptedDeep && !available && error == "GitHub returned an invalid release list.",
+		!acceptedDeep && !available && error == "GitHub gave a release list that is not correct.",
 		error.c_str());
 }
 

@@ -276,7 +276,7 @@ static bool DeviceTile(const VRDevice &dev, const FlexRect &r, bool selected)
 			s_renameFocus = true;
 		}
 		if (ImGui::IsItemHovered())
-			ShowTip("Rename this device");
+			ShowTip("Give this device a new name");
 		// A headset can't buzz or blink on command, so it gets rename only.
 		if (dev.deviceClass != vr::TrackedDeviceClass_HMD)
 		{
@@ -284,7 +284,7 @@ static bool DeviceTile(const VRDevice &dev, const FlexRect &r, bool selected)
 			if (ui::RoundButton("buzz", at, 28.0f, ui::Icon::Identify, 15.0f, fill, ink))
 				StartIdentifyPulse(static_cast<uint32_t>(dev.id), vr::k_unTrackedDeviceIndexInvalid);
 			if (ImGui::IsItemHovered())
-				ShowTip("Vibrate or blink this device");
+				ShowTip("Identify this device");
 		}
 	}
 	ui::FocusRing(dl, r.min, r.max, 20.0f);
@@ -296,12 +296,12 @@ void BuildPairSheet(const VRState &state)
 {
 	SettlePairSystems(state);
 	const FlexRect c = SheetPanel(960.0f, 670.0f);
-	if (SheetHeader(c, Tr("Choose the pair")))
+	if (SheetHeader(c, Tr("Select the pair")))
 		CloseSheet();
 	ImDrawList *dl = ImGui::GetWindowDrawList();
 	const ui::TextStyle leadStyle{ ui::Weight::Regular, 18.0f, 26.0f };
 	const float leadH = ui::DrawText(dl, leadStyle, ImVec2(c.min.x, c.min.y + 44.0f + 6.0f), c.W(), ui::Rgba(236, 238, 244, 0.70f),
-		Tr("Pick a Quest device and a SteamVR device to hold together while you calibrate."));
+		Tr("Select a Quest device and a SteamVR device. You hold them together while you calibrate."));
 
 	// The groups scroll on their own when more devices than fit are on.
 	const float footerH = 52.0f;
@@ -321,7 +321,7 @@ void BuildPairSheet(const VRState &state)
 			systems.push_back(system);
 	if (systems.empty())
 	{
-		const char *text = Tr("No tracked devices found");
+		const char *text = Tr("No devices with tracking");
 		ui::DrawText(gdl, ui::type::Body, ImVec2(origin.x, origin.y + 60.0f), width, ui::col::Muted, text, ui::Align::Center);
 		y = 140.0f;
 	}
@@ -378,7 +378,7 @@ void BuildPairSheet(const VRState &state)
 	{
 		y += 20.0f;
 		ui::DrawText(gdl, ui::type::Body, ImVec2(origin.x, origin.y + y), width, ui::col::Muted,
-			Tr("No trackers found. Turn on a tracker and make sure SteamVR sees it."));
+			Tr("Nova Calibrator found no trackers. Start a tracker. Make sure that SteamVR shows it."));
 		y += 24.0f;
 	}
 	ImGui::SetCursorScreenPos(origin);
@@ -409,7 +409,8 @@ void BuildPairSheet(const VRState &state)
 	if (ui::PillButton("##identifypair", "Identify", ui::Btn::Secondary, identify, ui::Icon::Identify))
 		StartIdentifyPulse(CalCtx.targetID, CalCtx.referenceID);
 	if (ImGui::IsItemHovered())
-		ShowTip("Vibrates or blinks the two selected devices so you can tell which is which.");
+		ShowTip("Each of the two selected devices gives a vibration or a light signal.\nThus, you can "
+			"identify each device.");
 	if (ui::PillButton("##donepair", "Done", ui::Btn::Primary, done))
 		CloseSheet();
 }

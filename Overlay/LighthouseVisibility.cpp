@@ -179,7 +179,7 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 		d.visibleKnown = true;
 		if (before == 0 || (before < 0 && d.visible.size() == 1))
 		{
-			what = "tracking again from " + StationName(e.channel);
+			what = "has tracking again from " + StationName(e.channel);
 			restart = true;
 		}
 		else if (before > 0 && before < config.cleanStations &&
@@ -197,11 +197,11 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 		{
 			d.losses++;
 			stations[e.channel].losses++;
-			what = "lost its last station " + StationName(e.channel);
+			what = "sees no station after " + StationName(e.channel) + " went out of view";
 		}
 		else if (static_cast<int>(d.visible.size()) < config.cleanStations)
-			what = "down to one station " + StationName(d.visible.front()) +
-				" after losing " + StationName(e.channel);
+			what = "sees only " + StationName(d.visible.front()) + " now, not " +
+				StationName(e.channel);
 		break;
 
 	case Event::Kind::NoneSeen:
@@ -234,7 +234,7 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 		break;
 
 	case Event::Kind::BootstrapFailed:
-		what = "could not start tracking from " + nameById(e.stationId);
+		what = "could not start its tracking from " + nameById(e.stationId);
 		break;
 	}
 

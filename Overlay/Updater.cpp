@@ -63,7 +63,7 @@ struct HttpRequest
 
 std::runtime_error NetworkError(const char *operation)
 {
-	return std::runtime_error(std::string(operation) + " failed (Windows error " +
+	return std::runtime_error("Nova Calibrator could not " + std::string(operation) + " (Windows error " +
 		std::to_string(GetLastError()) + ").");
 }
 
@@ -83,11 +83,11 @@ std::filesystem::path LocalUpdateRoot()
 {
 	DWORD chars = GetEnvironmentVariableW(L"LOCALAPPDATA", nullptr, 0);
 	if (chars <= 1)
-		throw std::runtime_error("Windows did not provide a local app-data folder.");
+		throw std::runtime_error("Windows did not give a local app-data folder.");
 	std::wstring value(static_cast<size_t>(chars), L'\0');
 	DWORD written = GetEnvironmentVariableW(L"LOCALAPPDATA", &value[0], chars);
 	if (written == 0 || written >= chars)
-		throw std::runtime_error("Windows did not provide a local app-data folder.");
+		throw std::runtime_error("Windows did not give a local app-data folder.");
 	value.resize(written);
 	return std::filesystem::path(value) / L"NovaCalibrator" / L"updates";
 }
@@ -97,9 +97,9 @@ InternetHandle OpenSession()
 	InternetHandle session(WinHttpOpen(L"NovaCalibrator/" QUESTCAL_VERSION_STRING,
 		WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
 		WINHTTP_NO_PROXY_BYPASS, 0));
-	if (!session) throw NetworkError("Opening the update connection");
+	if (!session) throw NetworkError("open the update connection");
 	if (!WinHttpSetTimeouts(session, 5000, 5000, 5000, 10000))
-		throw NetworkError("Setting update timeouts");
+		throw NetworkError("set the update timeouts");
 	return session;
 }
 
@@ -108,14 +108,14 @@ HttpRequest OpenGet(HINTERNET session, const wchar_t *host,
 {
 	HttpRequest result;
 	result.connection = InternetHandle(WinHttpConnect(session, host, port, 0));
-	if (!result.connection) throw NetworkError("Connecting to GitHub");
+	if (!result.connection) throw NetworkError("connect to GitHub");
 	result.request = InternetHandle(WinHttpOpenRequest(result.connection, L"GET", path, nullptr,
 		WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE));
-	if (!result.request) throw NetworkError("Creating the GitHub request");
+	if (!result.request) throw NetworkError("create the GitHub request");
 	DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_DISALLOW_HTTPS_TO_HTTP;
 	if (!WinHttpSetOption(result.request, WINHTTP_OPTION_REDIRECT_POLICY,
 		&redirectPolicy, sizeof redirectPolicy))
-		throw NetworkError("Securing GitHub redirects");
+		throw NetworkError("set the security of the GitHub redirects");
 	return result;
 }
 
@@ -124,15 +124,15 @@ void SendGet(HINTERNET request, const wchar_t *headers = WINHTTP_NO_ADDITIONAL_H
 	const DWORD headerLength = headers == WINHTTP_NO_ADDITIONAL_HEADERS ? 0 : -1L;
 	if (!WinHttpSendRequest(request, headers, headerLength,
 		WINHTTP_NO_REQUEST_DATA, 0, 0, 0) || !WinHttpReceiveResponse(request, nullptr))
-		throw NetworkError("Requesting the update");
+		throw NetworkError("get the update");
 
 	DWORD status = 0, bytes = sizeof status;
 	if (!WinHttpQueryHeaders(request,
 		WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
 		WINHTTP_HEADER_NAME_BY_INDEX, &status, &bytes, WINHTTP_NO_HEADER_INDEX))
-		throw NetworkError("Reading the update response");
+		throw NetworkError("read the update response");
 	if (status != 200)
-		throw std::runtime_error("GitHub returned HTTP " + std::to_string(status) + ".");
+		throw std::runtime_error("GitHub gave HTTP " + std::to_string(status) + ".");
 }
 
 // `tooLarge` is the error once the body passes `maxBytes`.
@@ -143,11 +143,11 @@ std::string ReadResponse(HINTERNET request, size_t maxBytes,
 	std::array<char, 16384> buffer;
 	for (;;)
 	{
-		if (cancelled()) throw std::runtime_error("Update check cancelled.");
+		if (cancelled()) throw std::runtime_error("The update check was canceled.");
 		DWORD read = 0;
 		if (!WinHttpReadData(request, buffer.data(),
 			static_cast<DWORD>(buffer.size()), &read))
-			throw NetworkError("Reading the update response");
+			throw NetworkError("read the update response");
 		if (read == 0) break;
 		if (body.size() + read > maxBytes)
 			throw std::runtime_error(tooLarge);
@@ -166,7 +166,7 @@ std::string FetchReleaseFeed(HINTERNET session,
 		L"Accept: application/vnd.github+json\r\n"
 		L"X-GitHub-Api-Version: 2022-11-28\r\n");
 	return ReadResponse(request, 1024 * 1024, cancelled,
-		"GitHub returned an unexpectedly large release list.");
+		"GitHub gave a release list that is too large.");
 }
 
 struct DownloadTarget
@@ -186,7 +186,7 @@ DownloadTarget ParseDownloadTarget(const std::string &url)
 	parts.dwExtraInfoLength = static_cast<DWORD>(-1);
 	// SelectReleaseCandidate pinned the URL to https://github.com/.
 	if (!WinHttpCrackUrl(wide.c_str(), static_cast<DWORD>(wide.size()), 0, &parts))
-		throw std::runtime_error("The release package URL is invalid.");
+		throw std::runtime_error("The release package URL is not correct.");
 
 	DownloadTarget target;
 	target.host.assign(parts.lpszHostName, parts.dwHostNameLength);
@@ -286,14 +286,14 @@ std::string VerifyPackage(const std::filesystem::path &path,
 {
 	PackageSignature signature;
 	if (!ParsePackageSignature(release.signature, signature))
-		return "The release signature is malformed.";
+		return "The release signature is not correct.";
 	FileHandle file(CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
 		OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
 	if (file == INVALID_HANDLE_VALUE)
-		return "The update package could not be opened.";
+		return "Nova Calibrator could not open the update package.";
 	LARGE_INTEGER size{};
 	if (!GetFileSizeEx(file, &size) || static_cast<uint64_t>(size.QuadPart) != release.size)
-		return "The update package is not the size GitHub reported.";
+		return "The update package is not the size that GitHub gave.";
 
 	Sha256 sha256;
 	Blake2b512 blake2b;
@@ -303,7 +303,7 @@ std::string VerifyPackage(const std::filesystem::path &path,
 	{
 		DWORD read = 0;
 		if (!ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr))
-			return "The update package could not be read.";
+			return "Nova Calibrator could not read the update package.";
 		if (read == 0) break;
 		total += read;
 		sha256.Update(buffer.data(), read);
@@ -311,11 +311,11 @@ std::string VerifyPackage(const std::filesystem::path &path,
 	}
 	std::array<unsigned char, 32> digest{};
 	if (total != release.size || !sha256.Final(digest))
-		return "The update package could not be read.";
+		return "Nova Calibrator could not read the update package.";
 	if (digest != release.digestBytes)
-		return "The downloaded package failed SHA-256 verification.";
+		return "The SHA-256 check of the downloaded package found a problem.";
 	if (!VerifyPackageSignature(key, signature, blake2b.Final(), release.packageName))
-		return "The downloaded package's signature does not verify against the release key.";
+		return "The signature of the downloaded package is not correct for the release key.";
 	return std::string();
 }
 
@@ -331,28 +331,28 @@ void DownloadPackage(HINTERNET session, const ReleaseCandidate &release,
 
 	std::ofstream output(partPath, std::ios::binary | std::ios::trunc);
 	if (!output)
-		throw std::runtime_error("The update package could not be saved.");
+		throw std::runtime_error("Nova Calibrator could not save the update package.");
 	std::array<char, 65536> buffer;
 	uint64_t total = 0;
 	for (;;)
 	{
-		if (cancelled()) throw std::runtime_error("Update download cancelled.");
+		if (cancelled()) throw std::runtime_error("The update download was canceled.");
 		DWORD read = 0;
 		if (!WinHttpReadData(request, buffer.data(),
 			static_cast<DWORD>(buffer.size()), &read))
-			throw NetworkError("Downloading the update package");
+			throw NetworkError("download the update package");
 		if (read == 0) break;
 		if (total + read > release.size)
-			throw std::runtime_error("The update package is larger than GitHub reported.");
+			throw std::runtime_error("The update package is larger than the size that GitHub gave.");
 		output.write(buffer.data(), read);
 		if (!output)
-			throw std::runtime_error("The update package could not be saved.");
+			throw std::runtime_error("Nova Calibrator could not save the update package.");
 		total += read;
 		progress(total);
 	}
 	output.close();
 	if (total != release.size)
-		throw std::runtime_error("The update package download was incomplete.");
+		throw std::runtime_error("Nova Calibrator could not download all of the update package.");
 }
 
 std::string DownloadSignature(HINTERNET session, const ReleaseCandidate &release,
@@ -363,9 +363,9 @@ std::string DownloadSignature(HINTERNET session, const ReleaseCandidate &release
 		target.port, target.path.c_str());
 	SendGet(request);
 	std::string signature = ReadResponse(request, static_cast<size_t>(release.signatureSize),
-		cancelled, "The release signature is larger than GitHub reported.");
+		cancelled, "The release signature is larger than the size that GitHub gave.");
 	if (signature.size() != release.signatureSize)
-		throw std::runtime_error("The release signature download was incomplete.");
+		throw std::runtime_error("Nova Calibrator could not download all of the release signature.");
 	return signature;
 }
 
@@ -375,7 +375,7 @@ SigningPublicKey ReleaseKey()
 {
 	SigningPublicKey key;
 	if (!ParseSigningPublicKey(ReleaseSigningPublicKey, key))
-		throw std::runtime_error("This build has no release signing key, so it cannot verify updates.");
+		throw std::runtime_error("This build has no release signing key. Thus, it cannot verify updates.");
 	return key;
 }
 
@@ -496,11 +496,11 @@ std::wstring SystemPowerShell()
 	std::vector<wchar_t> path(MAX_PATH);
 	UINT written = GetSystemDirectoryW(path.data(), static_cast<UINT>(path.size()));
 	if (written == 0 || written >= path.size())
-		throw std::runtime_error("Windows PowerShell could not be located.");
+		throw std::runtime_error("Nova Calibrator could not find Windows PowerShell.");
 	std::wstring executable(path.data(), written);
 	executable += L"\\WindowsPowerShell\\v1.0\\powershell.exe";
 	if (!std::filesystem::is_regular_file(executable))
-		throw std::runtime_error("Windows PowerShell could not be located.");
+		throw std::runtime_error("Nova Calibrator could not find Windows PowerShell.");
 	return executable;
 }
 
@@ -595,9 +595,9 @@ bool Updater::CheckNow()
 			snapshot.state = State::Prerelease;
 			snapshot.version = prereleaseBuild;
 			snapshot.message = "Nova Calibrator " + prereleaseBuild +
-				" is a prerelease. Automatic updates follow stable releases only, "
-				"so this build will not update itself. Install a stable release by "
-				"hand to rejoin them.";
+				" is a prerelease. Automatic updates use only stable releases. Thus, "
+				"this build does not install updates. To receive automatic updates again, "
+				"install a stable release manually.";
 		}
 		if (worker.joinable())
 			finished = std::move(worker);
@@ -607,7 +607,7 @@ bool Updater::CheckNow()
 			checkRevision = ++revision;
 			snapshot = Snapshot();
 			snapshot.state = State::Checking;
-			snapshot.message = "Checking GitHub for updates";
+			snapshot.message = "Nova Calibrator does an update check on GitHub";
 		}
 	}
 	if (finished.joinable())
@@ -686,7 +686,7 @@ void Updater::RunChecks(uint64_t checkRevision)
 		checkRevision = revision;
 		snapshot = Snapshot();
 		snapshot.state = State::Checking;
-		snapshot.message = "Checking GitHub for updates";
+		snapshot.message = "Nova Calibrator does an update check on GitHub";
 	}
 }
 
@@ -716,7 +716,7 @@ void Updater::RunCheck(uint64_t checkRevision)
 		{
 			const std::string version = VersionString(current);
 			if (Publish(checkRevision, State::UpToDate,
-				"Nova Calibrator is up to date", version))
+				"You have the newest version of Nova Calibrator", version))
 				Log("check completed: current " + version +
 					"; no newer stable release");
 		}
@@ -725,8 +725,8 @@ void Updater::RunCheck(uint64_t checkRevision)
 			const std::string version = VersionString(release.version);
 			const SigningPublicKey key = ReleaseKey();
 			if (!Publish(checkRevision, State::Downloading,
-				"Downloading Nova Calibrator " + version, version, 0, release.size))
-				throw std::runtime_error("Update check cancelled.");
+				"Nova Calibrator downloads version " + version, version, 0, release.size))
+				throw std::runtime_error("The update check was canceled.");
 			Log("stable release " + version + " found (" +
 				std::to_string(release.size) + " bytes)");
 
@@ -735,16 +735,16 @@ void Updater::RunCheck(uint64_t checkRevision)
 			release.signature = DownloadSignature(session, release, cancelled);
 			PackageSignature signature;
 			if (!ParsePackageSignature(release.signature, signature))
-				throw std::runtime_error("The release signature is malformed.");
+				throw std::runtime_error("The release signature is not correct.");
 			if (signature.keyId != key.keyId)
-				throw std::runtime_error("The release is signed by a key this build does not trust.");
+				throw std::runtime_error("The release signature uses a key that this build does not accept.");
 
 			const std::filesystem::path directory = LocalUpdateRoot() /
 				Utf8ToWide(version);
 			std::error_code directoryError;
 			std::filesystem::create_directories(directory, directoryError);
 			if (directoryError)
-				throw std::runtime_error("The update folder could not be created (system error " +
+				throw std::runtime_error("Nova Calibrator could not create the update folder (system error " +
 					std::to_string(directoryError.value()) + ").");
 			const std::filesystem::path package = directory /
 				Utf8ToWide(release.packageName);
@@ -759,7 +759,7 @@ void Updater::RunCheck(uint64_t checkRevision)
 				DownloadPackage(session, release, part, cancelled,
 					[&](uint64_t bytes) {
 						Publish(checkRevision, State::Downloading,
-							"Downloading Nova Calibrator " + version,
+							"Nova Calibrator downloads version " + version,
 							version, bytes, release.size);
 					});
 				const std::string failure = VerifyPackage(part, release, key);
@@ -774,7 +774,7 @@ void Updater::RunCheck(uint64_t checkRevision)
 				if (renameError)
 				{
 					std::filesystem::remove(part, ignored);
-					throw std::runtime_error("The verified update package could not be saved (system error " +
+					throw std::runtime_error("Nova Calibrator could not save the verified update package (system error " +
 						std::to_string(renameError.value()) + ").");
 				}
 				downloaded = true;
@@ -836,17 +836,17 @@ bool Updater::LaunchInstaller(std::string &error)
 		if (!failure.empty())
 		{
 			Log("installer handoff refused for " + VersionString(release.version) + ": " + failure);
-			throw std::runtime_error("The downloaded update no longer passes verification.");
+			throw std::runtime_error("The verification of the downloaded update found a problem.");
 		}
 
 		const std::filesystem::path script = package.parent_path() / L"ApplyUpdate.ps1";
 		std::ofstream output(script, std::ios::binary | std::ios::trunc);
 		if (!output)
-			throw std::runtime_error("The update helper could not be created.");
+			throw std::runtime_error("Nova Calibrator could not create the update helper.");
 		output << UpdateHelperScript();
 		output.close();
 		if (!output)
-			throw std::runtime_error("The update helper could not be created.");
+			throw std::runtime_error("Nova Calibrator could not create the update helper.");
 
 		const std::wstring powershell = SystemPowerShell();
 		const std::wstring digestHex = Utf8ToWide(release.digest.substr(7));
@@ -869,7 +869,7 @@ bool Updater::LaunchInstaller(std::string &error)
 			if (!CreateProcessW(powershell.c_str(), commandLine.data(), nullptr,
 				nullptr, FALSE, CREATE_NEW_CONSOLE, nullptr,
 				package.parent_path().c_str(), &startup, &process))
-				throw NetworkError("Starting the update helper");
+				throw NetworkError("start the update helper");
 			// A second click cannot launch the same ready handoff twice.
 			snapshot.state = State::Idle;
 			readyPackagePath.clear();
