@@ -1,9 +1,10 @@
 #pragma once
 
 // The diagnostics file a player attaches to a bug report, written on request
-// from Settings: version, settings and profile summary, recent activity and the
-// session logs, with the account name, profile directories and computer name
-// replaced. Device serials stay: they identify hardware, not people.
+// from Settings and again as Nova Calibrator exits: version, settings and
+// profile summary, recent activity and the session logs, with the account name,
+// profile directories and computer name replaced. Device serials stay: they
+// identify hardware, not people.
 
 #include <openvr.h>
 #include <array>
@@ -34,14 +35,41 @@ struct DiagnosticCapture
 		return none;
 	}();
 };
-DiagnosticCapture CaptureCalibrationDiagnostics();
+// queryRuntime false leaves out what only SteamVR can answer (its world scale
+// setting), for a SteamVR that is gone.
+DiagnosticCapture CaptureCalibrationDiagnostics(bool queryRuntime = true);
 std::string DescribeFrameFailureCapture(const CalibrationContext &ctx, vr::IVRSystem *system,
 	const DiagnosticCapture &capture, double qpcToSeconds);
+
+// Why a file is written. Every kind but a request ends its file name in its
+// own words ("-steamvr-quit"...), and each kind keeps its own newest ten, so a
+// week of sessions never pushes out a file the player saved on purpose, nor
+// routine exits a crash's.
+enum class DiagnosticsTrigger
+{
+	Request,       // Settings, "Save diagnostics file"
+	SteamVrQuit,   // SteamVR's quit event
+	SteamVrCrash,  // SteamVR's server process ended without the quit event
+	WindowClosed,  // the player closed the window
+	FatalError,    // Nova Calibrator stops on an error it shows
+};
+
+// How the file's first line and the session log say why it was written:
+// "as SteamVR quit"; empty for a request.
+const char *DiagnosticsTriggerText(DiagnosticsTrigger trigger);
 
 // Writes the file under %LOCALAPPDATA%\NovaCalibrator\diagnostics. On
 // success pathOut is the file's UTF-8 path; on failure error says why.
 bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, std::string &error,
-	vr::IVRSystem *system, const DiagnosticCapture &capture);
+	vr::IVRSystem *system, const DiagnosticCapture &capture,
+	DiagnosticsTrigger trigger = DiagnosticsTrigger::Request);
+
+// As Nova Calibrator exits, for any trigger but a request: flushes pending
+// profile and settings writes first, as SteamVR ends a process that is slow to
+// quit, then writes the file, so a player who leaves without saving one still
+// has it. system is null when SteamVR is gone. Failures, thrown ones too, go to
+// the session log only.
+void SaveDiagnosticsAtExit(DiagnosticsTrigger trigger, vr::IVRSystem *system);
 
 // Opens Explorer with the file selected, so "send this file" needs no search.
 void RevealInExplorer(const std::string &utf8Path);

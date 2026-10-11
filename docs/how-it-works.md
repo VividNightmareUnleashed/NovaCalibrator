@@ -191,7 +191,13 @@ measure the headset-to-lighthouse alignment.
 For continuous-calibration failures, turn on **Detailed logging** in Settings,
 then use **Save diagnostics file** once while alignment looks correct and again
 after the problem appears, before recalibrating or restarting. Keep the devices
-still while exporting. The report includes per-device input counts and freshness,
+still while exporting. The overlay also writes one as it exits, after it saves any
+pending profile change: on SteamVR's quit event (`...-steamvr-quit.txt`), when
+SteamVR's server process ends without that event (`-steamvr-crash`, without the
+runtime poses, as SteamVR is gone; the overlay then exits too, since that
+connection never comes back), when the window is closed (`-window-closed`) and on
+a fatal error (`-fatal-error`). Each kind keeps its own newest ten, apart from the
+ten saved by hand. The report includes per-device input counts and freshness,
 stream gaps, window resets, Quest observation gates, re-anchors, lighthouse frame
 moves, the ones the calibration followed and the ones it left alone while SteamVR
 set up its base stations, SteamVR's lighthouse universe, how often SteamVR switched each

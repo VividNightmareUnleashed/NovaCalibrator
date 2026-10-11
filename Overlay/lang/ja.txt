@@ -399,6 +399,8 @@ en: When this is on, Nova Calibrator records more tracking and calibration data.
 ja: トラッキングとキャリブレーションの詳細を記録します。保存したファイルには、名前とフォルダーのパスは含まれません。
 en: Save diagnostics file
 ja: 診断ファイルを保存
+en: Nova Calibrator also saves a diagnostics file when it closes\nor when SteamVR stops.
+ja: Nova Calibrator や SteamVR が終了したときも、\n診断ファイルを保存します。
 en: Diagnostics saved to %s
 ja: 診断ファイルを保存しました：{0}
 en: Pictures and models

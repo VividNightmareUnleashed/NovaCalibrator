@@ -142,7 +142,11 @@ If the alignment goes wrong during play, turn on **Detailed calibration logging*
 Settings. Then press **Save diagnostics file** once while things look right, and again
 after the problem shows up, before you recalibrate or restart. Say whether the problem
 shows in SteamVR itself or only in the game, and which devices look out of place.
-Diagnostics files leave out your name and folder paths.
+If you forget, the session is still there: Nova Calibrator also writes one to
+`%LOCALAPPDATA%\NovaCalibrator\diagnostics\` when SteamVR quits or crashes, when you close
+Nova Calibrator, and when it stops on an error, with a name that ends in why
+(`-steamvr-quit`, `-steamvr-crash`, `-window-closed` or `-fatal-error`). Diagnostics
+files leave out your name and folder paths.
 
 ## How it works
 

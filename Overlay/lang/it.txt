@@ -405,6 +405,8 @@ en: When this is on, Nova Calibrator records more tracking and calibration data.
 it: Registra più dettagli su tracciamento e calibrazione. I file salvati non includono il tuo nome né i percorsi delle cartelle.
 en: Save diagnostics file
 it: Salva file di diagnostica
+en: Nova Calibrator also saves a diagnostics file when it closes\nor when SteamVR stops.
+it: Nova Calibrator salva un file di diagnostica anche quando\nviene chiuso o quando SteamVR si arresta.
 en: Diagnostics saved to %s
 it: Diagnostica salvata in {0}
 en: Pictures and models

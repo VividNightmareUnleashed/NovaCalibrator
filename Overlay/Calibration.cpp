@@ -93,7 +93,7 @@ void calibration_internal::DispatchStreamEvent(CalibrationContext &ctx, questcal
 
 CalibrationContext CalCtx;
 
-DiagnosticCapture CaptureCalibrationDiagnostics()
+DiagnosticCapture CaptureCalibrationDiagnostics(bool queryRuntime)
 {
 	DiagnosticCapture capture{ PoseHub.ReadDiagnostics(), questcal::CaptureDriverSyncDiagnostics() };
 	capture.sampleClock = QpcNowSeconds();
@@ -103,7 +103,7 @@ DiagnosticCapture CaptureCalibrationDiagnostics()
 	uint32_t needed = 0;
 	if (vr::VR_GetRuntimePath(runtimePath, sizeof runtimePath, &needed))
 		capture.steamVrRuntimePath = runtimePath;
-	if (auto settings = vr::VRSettings())
+	if (auto settings = queryRuntime ? vr::VRSettings() : nullptr)
 		capture.steamVrWorldScale = settings->GetFloat(vr::k_pch_SteamVR_Section,
 			vr::k_pch_SteamVR_WorldScale_Float, &capture.worldScaleError);
 	return capture;
@@ -251,6 +251,35 @@ void ShutdownCalibrator(bool cleanExit)
 		AppendSessionLog("session ended cleanly");
 	else if (cleanExit)
 		AppendSessionLog("session ended with unsaved persistence changes");
+}
+
+void SaveDiagnosticsAtExit(DiagnosticsTrigger trigger, vr::IVRSystem *system)
+{
+	// The file reads the logs and hashes the executable, so pending profile and
+	// settings writes go first. A write that fails here stays pending for
+	// ShutdownCalibrator.
+	const std::string why = DiagnosticsTriggerText(trigger);
+	try
+	{
+		if (CalCtx.persistence.HasDirty())
+			SavePendingChanges(CalCtx);
+		std::string path, error;
+		if (WriteDiagnosticsFile(CalCtx, path, error, system, CaptureCalibrationDiagnostics(system != nullptr),
+				trigger))
+			AppendSessionLog("diagnostics saved " + why + ": " + PathForLog(path));
+		else
+			AppendSessionLog("diagnostics not saved " + why + ": " + error);
+	}
+	// Nova Calibrator is on its way out: a failure here must not become an error
+	// box or stop the shutdown.
+	catch (const std::exception &e)
+	{
+		AppendSessionLog("diagnostics not saved " + why + ": " + e.what());
+	}
+	catch (...)
+	{
+		AppendSessionLog("diagnostics not saved " + why + ": unknown error");
+	}
 }
 
 static_assert(vr::k_unTrackedDeviceIndex_Hmd == 0, "HMD index expected to be 0");
