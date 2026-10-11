@@ -442,7 +442,7 @@ void OutOfRangeNumbers(Check check)
 		threw = true;
 	}
 	check("updates: a number past double range is an invalid list",
-		!threw && !selected && !available && error == "GitHub returned an invalid release list.", error.c_str());
+		!threw && !selected && !available && error == "GitHub gave a release list that is not correct.", error.c_str());
 
 	questcal::ProfileRecord record;
 	questcal::ProfileParseResult result;

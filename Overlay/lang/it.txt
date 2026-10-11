@@ -23,14 +23,14 @@
 
 name: Italiano
 
-en: Continuous calibration paused after the headset tracker restarted. It resumes if tracking recovers; another tracker restart may be needed.
-it: Calibrazione continua in pausa dopo il riavvio del tracker del visore. Riprende se il tracciamento si ripristina; potrebbe servire un altro riavvio del tracker.
-en: Nova Calibrator: tracking has not recovered after the headset tracker restarted. Wait, or turn that tracker off and on in view of its base stations.
+en: Continuous calibration stopped after the headset tracker started again. It continues when the headset tracker values are near the calibration again. If this does not occur, stop the tracker and start it again.
+it: Calibrazione continua ferma dopo il riavvio del tracker del visore. Riprende quando le misure del tracker del visore tornano vicine alla calibrazione. Se non succede, spegni e riaccendi il tracker.
+en: Nova Calibrator: tracking is not correct after the headset tracker started again. Wait for it to become correct. If tracking does not become correct, stop the tracker and start it again in view of its base stations.
 it: Nova Calibrator: il tracciamento non si è ripristinato dopo il riavvio del tracker del visore. Attendi, oppure spegni e riaccendi il tracker in vista delle stazioni base.
-en: Restart the headset tracker in view of its base stations. If stable tracking stays misaligned, recalibrate.
+en: Stop the headset tracker and start it again in view of its base stations. If tracking is stable but the trackers are not aligned, calibrate again.
 it: Spegni e riaccendi il tracker del visore in vista delle sue stazioni base. Se il tracciamento è stabile ma resta disallineato, ricalibra.
-en: Continuous calibration is paused after a tracker restart. Recovery may need another tracker restart.
-it: Calibrazione continua in pausa dopo un riavvio del tracker. Potrebbe servire un altro riavvio del tracker.
+en: Continuous calibration is stopped because the tracker started again. To continue, it is possibly necessary to stop the tracker and start it again.
+it: Calibrazione continua ferma dopo un riavvio del tracker. Per riprendere potrebbe servire un altro riavvio del tracker.
 
 # ---- Window, tabs, footer ----
 en: Calibration
@@ -39,7 +39,7 @@ en: Lighthouse
 it: Lighthouse
 en: Smoothing
 it: Fluidità
-en: Lighthouse module is currently not installed. Select it during installation.
+en: The Lighthouse module is not installed. Select it when you install Nova Calibrator.
 it: Il modulo Lighthouse non è installato. Selezionalo durante l'installazione.
 en: Work in progress
 it: In lavorazione
@@ -63,7 +63,7 @@ en: Credits
 it: Crediti
 en: More actions
 it: Altre azioni
-en: Pick a tracker
+en: Select a tracker
 it: Scegli un tracker
 en: Soon
 it: In arrivo
@@ -73,34 +73,30 @@ it: Versione {0}
 # ---- Continuous calibration state ----
 en: Off
 it: Spento
-en: Waiting
-it: In attesa
-en: Active
-it: Attiva
-en: Paused
-it: In pausa
+en: Stopped
+it: Ferma
 en: Continuous calibration is off.
 it: La calibrazione continua è disattivata.
-en: Continuous calibration needs a headset tracker. Pick one in Settings.
+en: A headset tracker is necessary for continuous calibration. Select one in Settings.
 it: La calibrazione continua richiede un tracker del visore. Sceglilo nelle Impostazioni.
-en: Continuous calibration needs the headset tracker set up. Do it in Settings.
-it: La calibrazione continua richiede di configurare il tracker del visore. Fallo nelle Impostazioni.
-en: Continuous calibration is waiting. It resumes when tracking is available.
+en: Continuous calibration cannot operate until the headset tracker setup is completed. Select “Set up headset tracker” in Settings.
+it: La calibrazione continua non può funzionare finché il tracker del visore non è configurato. Seleziona “Configura il tracker del visore” nelle Impostazioni.
+en: Continuous calibration waits until tracking is available.
 it: La calibrazione continua è in attesa. Riprende quando il tracciamento è disponibile.
 en: Continuous calibration is active.
 it: La calibrazione continua è attiva.
-en: Continuous calibration is waiting. The headset tracker isn't being seen.
+en: Continuous calibration waits because the headset tracker has no tracking.
 it: La calibrazione continua è in attesa. Il tracker del visore non viene rilevato.
-en: Continuous calibration is waiting. The headset isn't tracking.
+en: Continuous calibration waits because the headset has no tracking.
 it: La calibrazione continua è in attesa. Il visore non è tracciato.
-en: Continuous calibration is waiting because the headset tracker is off. Turn it back on to resume.
+en: Continuous calibration waits because the headset tracker is off. Start the tracker to continue.
 it: La calibrazione continua è in attesa perché il tracker del visore è spento. Riaccendilo per riprendere.
-en: Continuous calibration is paused. Readings drifted too far to correct.
-it: La calibrazione continua è in pausa. Lo scostamento è troppo grande da correggere.
-en: Continuous calibration is waiting. It resumes when tracking settles.
+en: Continuous calibration is stopped. The values moved too far to correct.
+it: La calibrazione continua è ferma. Lo scostamento è troppo grande da correggere.
+en: Continuous calibration waits until tracking is stable.
 it: La calibrazione continua è in attesa. Riprende quando il tracciamento si stabilizza.
-en: Continuous calibration is warming up.
-it: La calibrazione continua si sta avviando.
+en: Continuous calibration collects new values.
+it: La calibrazione continua sta raccogliendo nuove misure.
 
 # ---- Status band ----
 en: Alignment
@@ -115,9 +111,9 @@ en: Not measured
 it: Non misurato
 en: Not calibrated
 it: Non calibrato
-en: Your trackers are noticeably off. Recalibrate to fix them.
+en: Your trackers are not aligned. Calibrate again to align them.
 it: I tracker sono visibilmente disallineati. Ricalibra per sistemarli.
-en: Recalibrate to tighten the alignment.
+en: Calibrate again to align the trackers more accurately.
 it: Ricalibra per migliorare l'allineamento.
 en: time is in the future
 it: l'orario è nel futuro
@@ -135,15 +131,13 @@ en: Calibrated %s.
 it: Calibrata {0}.
 en: Last adjusted %s.
 it: Ultima regolazione: {0}.
-en: Continuous calibration paused
-it: Calibrazione continua in pausa
-en: Tracking has drifted away from your calibration. Recalibrate to bring your trackers back in line.
+en: Tracking moved away from your calibration. Calibrate again to align your trackers.
 it: Il tracciamento si è allontanato dalla calibrazione. Ricalibra per riallineare i tracker.
 en: Recalibrate
 it: Ricalibra
 en: Turn off continuous calibration
 it: Disattiva la calibrazione continua
-en: Your trackers won't line up with your headset until you calibrate. It takes %.0f seconds.
+en: Your trackers do not align with your headset until you calibrate. Calibration takes %.0f seconds.
 it: I tracker non saranno allineati al visore finché non calibri. Ci vogliono {0} secondi.
 
 # Advanced-mode numbers under the verdict.
@@ -159,23 +153,23 @@ en: identifiable
 it: identificabile
 en: insufficient
 it: insufficiente
-en: Jumps: %u compensated%s
+en: Jumps: %u corrected%s
 it: Salti compensati: {0}{1}
-en:  (tracking gaps seen; recalibrate if alignment looks off)
+en:  (tracking stopped for short times: if the trackers are not aligned, calibrate again)
 it:  (interruzioni del tracciamento rilevate; ricalibra se l'allineamento sembra errato)
 en: stale
 it: da rifare
-en: aging
+en: old
 it: datato
 en: fresh
 it: recente
 en: Drift: %s
 it: Deriva: {0}
-en: Drift: %s; %u slip%s up to %.1f cm while standing still
+en: Drift: %s; %u position change%s of up to %.1f cm when the device did not move
 it: Deriva: {0}; scivolamenti da fermo: {1} (fino a {3} cm)
 en: Drift: %s; %u tracking dropout%s with a position change
 it: Deriva: {0}; perdite di tracciamento con spostamento: {1}
-en: Drift: %s; %u slip%s up to %.1f cm while standing still; %u tracking dropout%s with a position change
+en: Drift: %s; %u position change%s of up to %.1f cm when the device did not move; %u tracking dropout%s with a position change
 it: Deriva: {0}; scivolamenti da fermo: {1} (fino a {3} cm); perdite di tracciamento con spostamento: {4}
 en: Upkeep: scatter %.2f deg / %.1f cm, deviation %.2f deg / %.1f cm, %u corrections
 it: Mantenimento: dispersione {0}° / {1} cm, scostamento {2}° / {3} cm, correzioni: {4}
@@ -183,43 +177,43 @@ en: Upkeep: %u corrections
 it: Mantenimento: correzioni: {0}
 
 # Warnings above the buttons.
-en: Your %s headset isn't connected, so calibration is off until it's back.
+en: Your %s headset is not connected. Calibration is off until you connect it again.
 it: Il tuo visore {0} non è collegato, quindi la calibrazione resta disattivata finché non torna.
-en: SteamVR isn't accepting the calibration. Restart SteamVR.
+en: SteamVR does not accept the calibration. Start SteamVR again.
 it: SteamVR non accetta la calibrazione. Riavvia SteamVR.
-en: The app and its SteamVR driver are from different releases. Reinstall Nova Calibrator, then restart SteamVR.
+en: Nova Calibrator and its SteamVR driver are from different releases. Install Nova Calibrator again. Then start SteamVR again.
 it: L'app e il suo driver SteamVR sono di versioni diverse. Reinstalla Nova Calibrator, poi riavvia SteamVR.
-en: The SteamVR driver refused the calibration's values. Recalibrate.
+en: The SteamVR driver did not accept the calibration values. Calibrate again.
 it: Il driver SteamVR ha rifiutato i valori della calibrazione. Ricalibra.
-en: The saved calibration doesn't match the connected hardware. Recalibrate.
+en: The saved calibration is not for the connected hardware. Calibrate again.
 it: La calibrazione salvata non corrisponde all'hardware collegato. Ricalibra.
-en: The saved calibration was made with a virtual tracker, which can't be calibrated. Recalibrate with a real tracker.
+en: The saved calibration uses a virtual tracker. Nova Calibrator cannot calibrate a virtual tracker. Calibrate again with a real tracker.
 it: La calibrazione salvata è stata fatta con un tracker virtuale, che non si può calibrare. Ricalibra con un tracker reale.
-en: That tracker is virtual: another app makes it from your real trackers, so it can't be calibrated. Pick a real tracker.
+en: That tracker is virtual: another app makes it from your real trackers. Nova Calibrator cannot calibrate it. Select a real tracker.
 it: Quel tracker è virtuale: un'altra app lo ricava dai tuoi tracker reali, quindi non si può calibrare. Scegli un tracker reale.
-en: The saved calibration is damaged. Recalibrate.
+en: The saved calibration is damaged. Calibrate again.
 it: La calibrazione salvata è danneggiata. Ricalibra.
-en: The headset re-centered while Nova Calibrator wasn't watching, so the saved alignment is off. Recalibrate.
+en: A headset re-center occurred when Nova Calibrator could not follow it. The saved calibration does not align your trackers correctly now. Calibrate again.
 it: Il visore si è ricentrato mentre Nova Calibrator non lo seguiva, quindi l'allineamento salvato è errato. Ricalibra.
-en: SteamVR moved the base stations more often than Nova Calibrator could follow, so the saved alignment may be off. Recalibrate.
+en: SteamVR moved the base stations more often than Nova Calibrator could follow. The saved calibration possibly does not align your trackers correctly. Calibrate again.
 it: SteamVR ha spostato le stazioni base più spesso di quanto Nova Calibrator potesse seguire, quindi l'allineamento salvato potrebbe essere errato. Ricalibra.
-en: Calibration disabled. Restart SteamVR or recalibrate.
+en: The calibration is off. Start SteamVR again or calibrate again.
 it: Calibrazione disattivata. Riavvia SteamVR o ricalibra.
-en: Nova Calibrator isn't getting tracking data from SteamVR, so it can't watch for drift. Restart SteamVR.
+en: Nova Calibrator does not receive tracking data from SteamVR. Thus, it cannot monitor drift. Start SteamVR again.
 it: Nova Calibrator non riceve dati di tracciamento da SteamVR, quindi non può controllare la deriva. Riavvia SteamVR.
 en: (host hooks: 005 %s, 006 %s)
 it: (hook dell'host: 005 {0}, 006 {1})
 en: active
 it: attivo
-en: missing
+en: not found
 it: assente
-en: Calibration can't move some target devices, because their tracking doesn't pass through Nova Calibrator's SteamVR driver.
+en: Calibration cannot move some target devices because their tracking does not go through the Nova Calibrator SteamVR driver.
 it: La calibrazione non può spostare alcuni dispositivi di destinazione, perché il loro tracciamento non passa dal driver SteamVR di Nova Calibrator.
 en: (OpenVR devices %s)
 it: (dispositivi OpenVR {0})
 en: Nova Calibrator %s is ready
 it: Nova Calibrator {0} è pronto
-en: Downloaded and verified. Close Steam before you install it.
+en: The update is downloaded and verified. Close Steam before you install it.
 it: Scaricato e verificato. Chiudi Steam prima di installarlo.
 en: Install
 it: Installa
@@ -227,23 +221,23 @@ it: Installa
 # ---- Main screen buttons ----
 en: Calibrate
 it: Calibra
-en: Choose the pair to calibrate
+en: Select the pair to calibrate
 it: Scegli la coppia da calibrare
-en: Finish the current calibration and pick two different available devices before starting.
+en: You can start when no calibration is in operation and two different available devices are selected.
 it: Termina la calibrazione in corso e scegli due dispositivi diversi disponibili prima di iniziare.
 en: %d s
 it: {0} s
-en: How long calibration collects tracking data. Longer can be more accurate.\nMove gently at every setting.
+en: Select the time that calibration collects tracking data.\nA longer time can make the calibration more accurate.\nAlways move slowly.
 it: Per quanto tempo la calibrazione raccoglie dati. Più a lungo può essere più precisa.\nMuoviti con delicatezza con qualsiasi durata.
 en: Clear calibration
 it: Cancella calibrazione
 en: Clear this calibration?
 it: Cancellare questa calibrazione?
-en: Your trackers won't line up until you calibrate again. This also removes the field anchors and the headset tracker setup.
+en: Your trackers do not align until you calibrate again. This also removes the field anchors and the headset tracker setup.
 it: I tracker non saranno allineati finché non calibri di nuovo. Vengono rimosse anche le ancore di campo e la configurazione del tracker del visore.
 en: Keep calibration
 it: Mantieni calibrazione
-en: Vibrates or blinks the two selected devices so you can tell which is which.
+en: Each of the two selected devices gives a vibration or a light signal.\nThus, you can identify each device.
 it: Fa vibrare o lampeggiare i due dispositivi selezionati, così capisci quale è quale.
 en: Protect chaperone
 it: Proteggi il chaperone
@@ -253,7 +247,7 @@ en: Recent activity
 it: Attività recente
 en: Show all
 it: Mostra tutto
-en: Nothing yet. Calibrations and corrections will appear here.
+en: There is no activity. Calibrations and corrections will show here.
 it: Ancora niente. Qui compariranno calibrazioni e correzioni.
 en: Activity
 it: Attività
@@ -263,39 +257,39 @@ en: Yesterday
 it: Ieri
 en: Tools
 it: Strumenti
-en: The Quest device and the SteamVR device you hold together to calibrate.
+en: You hold these two devices together when you calibrate:\none Quest device and one SteamVR device.
 it: Il dispositivo Quest e il dispositivo SteamVR da tenere insieme durante la calibrazione.
-en: Not chosen yet
+en: Not selected
 it: Non ancora scelta
 en: Chaperone
 it: Chaperone
-en: Protected %s
-it: Protetto {0}
-en: Protected
-it: Protetto
-en: Not protected yet
-it: Non ancora protetto
+en: Saved %s
+it: Salvato {0}
+en: Saved
+it: Salvato
+en: Not saved
+it: Non salvato
 en: Calibrate first
 it: Calibra prima
-en: No anchors yet
+en: No anchors
 it: Nessuna ancora salvata
 
 # ---- Device panes ----
-en: Rename this device
+en: Give this device a new name
 it: Rinomina questo dispositivo
-en: Vibrate or blink this device
+en: Identify this device
 it: Fai vibrare o lampeggiare questo dispositivo
 en: Hip, Left foot, Chest...
 it: Anca, Piede sinistro, Petto...
 en: No devices connected
 it: Nessun dispositivo collegato
-en: No tracked devices found
+en: No devices with tracking
 it: Nessun dispositivo tracciato
-en: No trackers found. Turn on a tracker and make sure SteamVR sees it.
+en: Nova Calibrator found no trackers. Start a tracker. Make sure that SteamVR shows it.
 it: Nessun tracker trovato. Accendi un tracker e verifica che SteamVR lo veda.
-en: Choose the pair
+en: Select the pair
 it: Scegli la coppia
-en: Pick a Quest device and a SteamVR device to hold together while you calibrate.
+en: Select a Quest device and a SteamVR device. You hold them together while you calibrate.
 it: Scegli un dispositivo Quest e un dispositivo SteamVR da tenere uniti durante la calibrazione.
 en: Headset
 it: Visore
@@ -309,20 +303,20 @@ en: English
 it: English
 en: Japanese
 it: Japanese
-en: This translation may not be accurate.
+en: This translation is possibly not accurate.
 it: Questa traduzione potrebbe non essere precisa.
-en: Japanese needs a Japanese font, and Windows doesn't have one installed. Add the Japanese Supplemental Fonts in Windows Settings > System > Optional features.
+en: A Japanese font is necessary for Japanese text, and Windows does not have one installed. Add the Japanese Supplemental Fonts in Windows Settings > System > Optional features.
 it: Il giapponese richiede un font giapponese, ma Windows non ne ha uno installato. Aggiungi i Font supplementari giapponesi in Impostazioni di Windows > Sistema > Funzionalità facoltative.
 en: Report on GitHub
 it: Segnala su GitHub
 en: Advanced mode
 it: Modalità avanzata
-en: Shows calibration measurements, drift readings and extra settings.
+en: Advanced mode shows calibration measurements, drift values and more items in Settings.
 it: Mostra le misure della calibrazione, i valori di deriva e impostazioni aggiuntive.
 en: Alignment notifications in VR
 it: Notifiche di allineamento in VR
-en: Get a SteamVR notification when the alignment looks off or continuous calibration pauses.
-it: Ricevi una notifica di SteamVR quando l'allineamento sembra errato o la calibrazione continua va in pausa.
+en: When this is on, you get a SteamVR notification if the trackers are possibly not aligned or if continuous calibration stops.
+it: Ricevi una notifica di SteamVR quando l'allineamento sembra errato o la calibrazione continua si ferma.
 en: Field anchors
 it: Ancore di campo
 en: Clear anchors
@@ -333,23 +327,23 @@ en: Clear 1 field anchor?
 it: Cancellare 1 ancora di campo?
 en: Clear %zu field anchors?
 it: Cancellare {0} ancore di campo?
-en: That spot goes back to the main calibration. The calibration itself is kept.
+en: That area uses the main calibration again. The main calibration does not change.
 it: Quel punto torna alla calibrazione principale. La calibrazione resta.
-en: Those spots go back to the main calibration. The calibration itself is kept.
+en: Those areas use the main calibration again. The main calibration does not change.
 it: Quei punti tornano alla calibrazione principale. La calibrazione resta.
 en: %zu anchor%s saved
 it: Ancore salvate: {0}
 en: Measure playspace scale
 it: Misura la scala dello spazio di gioco
-en: Checks whether your headset and SteamVR measure distances differently. Leave it off unless you need it.
+en: When this is on, Nova Calibrator measures the scale difference between your headset and SteamVR. Keep it off if it is not necessary.
 it: Controlla se il visore e SteamVR misurano le distanze in modo diverso. Lascialo spento se non ti serve.
 en: Correct for tracking delay
 it: Compensa il ritardo di tracciamento
-en: Makes up for the lag between your headset and SteamVR, measured when you calibrate.
+en: When this is on, Nova Calibrator corrects the delay between your headset and SteamVR. Calibration measures this delay.
 it: Compensa il ritardo tra il visore e SteamVR, misurato durante la calibrazione.
 en: Continuous calibration
 it: Calibrazione continua
-en: Keeps devices aligned while you play, using a tracker strapped to your headset.
+en: When this is on, Nova Calibrator keeps devices aligned during play. It uses a tracker that is attached to your headset.
 it: Mantiene allineati i dispositivi mentre giochi, usando un tracker fissato al visore.
 en: Headset tracker
 it: Tracker del visore
@@ -359,47 +353,47 @@ en: Standard
 it: Standard
 en: Legacy
 it: Legacy
-en: Standard pauses when the readings move away from the calibration\nand resumes once they come back or hold steady. Legacy never pauses:\nlike OpenVR-SpaceCalibrator, it follows every change the headset tracker\nreports, so a bad base station fix moves your body trackers until it clears.
-it: Standard va in pausa quando le misure si allontanano dalla calibrazione\ne riprende quando tornano o restano stabili. Legacy non va mai in pausa:\ncome OpenVR-SpaceCalibrator, segue ogni cambiamento segnalato dal tracker del visore,\nquindi se perde il posizionamento dalle base station, i tracker del corpo si spostano finché non si riprende.
+en: Standard stops when the values move away from the calibration. It starts\nagain when the values are near the calibration again or are stable.\nLegacy never stops. Like OpenVR-SpaceCalibrator, it follows each change\nin the headset tracker values. If the base stations give an incorrect\nposition, your body trackers move until the position is correct again.
+it: Standard si ferma quando le misure si allontanano dalla calibrazione\ne riprende quando tornano vicine o restano stabili. Legacy non si ferma mai:\ncome OpenVR-SpaceCalibrator, segue ogni cambiamento delle misure\ndel tracker del visore, quindi se le stazioni base danno una posizione\nerrata, i tracker del corpo si spostano finché non torna corretta.
 en: Hide the headset tracker from games
 it: Nascondi il tracker del visore ai giochi
-en: Moves it far out of reach in games so full-body setups never\nmistake it for a body tracker. Calibration still sees it.
+en: When this is on, Nova Calibrator moves the headset tracker to a far\nposition in games. Thus, full-body setups do not use it as a body\ntracker. Calibration can continue to use it.
 it: Nei giochi lo sposta lontano, così le configurazioni full-body\nnon lo scambiano per un tracker del corpo. La calibrazione lo vede comunque.
 en: Re-measure tracking delay while you play
 it: Rimisura il ritardo di tracciamento mentre giochi
-en: Re-measures the delay between the two systems during play, using\nthe headset tracker. Off keeps the value from calibration.
+en: When this is on, Nova Calibrator measures the delay between the two\nsystems again during play. It uses the headset tracker. When this is\noff, Nova Calibrator uses the value from calibration.
 it: Rimisura durante il gioco il ritardo tra i due sistemi, usando\nil tracker del visore. Se spento, usa il valore della calibrazione.
 en: Ask before applying each correction
 it: Chiedi prima di applicare ogni correzione
-en: Each correction waits until you pull a controller trigger.\nRecent activity on the Calibration page lists each one.
-it: Ogni correzione attende che tu prema un grilletto del controller.\nL'attività recente nella pagina Calibrazione le elenca.
-en: Strap a tracker to your headset and pick it above.
+en: Each correction waits until you pull a controller trigger.\n“Recent activity” on the Calibration page shows each one.
+it: Ogni correzione attende che tu prema un grilletto del controller.\n“Attività recente” nella pagina Calibrazione le elenca.
+en: Attach a tracker to your headset. Then select it above.
 it: Fissa un tracker al visore e sceglilo qui sopra.
 en: Recalibrate with the headset tracker (%.0f s)
 it: Ricalibra con il tracker del visore ({0} s)
 en: Set up headset tracker (%.0f s)
 it: Configura il tracker del visore ({0} s)
-en: Only the play area center was saved (no walls), so there's nothing to restore automatically.
+en: Only the center of the play area was saved, without walls. Thus, there is nothing to put back automatically.
 it: È stato salvato solo il centro dell'area di gioco (senza pareti), quindi non c'è nulla da ripristinare automaticamente.
 en: Automatic updates
 it: Aggiornamenti automatici
-en: Downloads verified updates. Close Steam before installing them.
+en: When this is on, Nova Calibrator downloads verified updates. Close Steam before you install them.
 it: Scarica gli aggiornamenti verificati. Chiudi Steam prima di installarli.
-en: Checking for updates...
+en: Nova Calibrator does an update check...
 it: Ricerca aggiornamenti...
-en: Downloading %s  %u%%
+en: Nova Calibrator downloads version %s  %u%%
 it: Download di {0}  {1}%
-en: You're up to date (%s)
+en: You have the newest version (%s)
 it: Sei aggiornato ({0})
 en: Version %s is ready to install
 it: La versione {0} è pronta da installare
-en: Update check failed
+en: Update check not completed
 it: Controllo aggiornamenti non riuscito
-en: Update check failed: %s
+en: Update check not completed: %s
 it: Controllo aggiornamenti non riuscito: {0}
-en: %s is a test build and doesn't update itself
+en: %s is a test build. It does not install updates.
 it: {0} è una build di prova e non si aggiorna da sola
-en: Not checked yet
+en: No update check
 it: Non ancora controllato
 en: Install %s
 it: Installa {0}
@@ -407,7 +401,7 @@ en: Check again
 it: Controlla di nuovo
 en: Detailed calibration logging
 it: Registro dettagliato della calibrazione
-en: Records extra tracking and calibration details. Saved files leave out your name and folder paths.
+en: When this is on, Nova Calibrator records more tracking and calibration data. Saved files do not include your name or folder paths.
 it: Registra più dettagli su tracciamento e calibrazione. I file salvati non includono il tuo nome né i percorsi delle cartelle.
 en: Save diagnostics file
 it: Salva file di diagnostica
@@ -415,7 +409,7 @@ en: Diagnostics saved to %s
 it: Diagnostica salvata in {0}
 en: Pictures and models
 it: Immagini e modelli
-en: Nova Calibrator is made by %s and builds on %s by %s.
+en: Nova Calibrator is made by %s. It started from %s by %s.
 it: Nova Calibrator è realizzato da {0} e si basa su {1} di {2}.
 en: GitHub
 it: GitHub
@@ -437,11 +431,11 @@ en: Translation, centimeters
 it: Traslazione, centimetri
 en: Scale
 it: Scala
-en: Fine-tune the calibration by hand. Nothing changes until you save.
+en: Adjust the calibration manually. Nothing changes until you save.
 it: Regola a mano la calibrazione. Non cambia nulla finché non salvi.
 en: Playspace scale
 it: Scala dello spazio di gioco
-en: These values can't be applied. Use plain numbers within range. The saved calibration is unchanged.
+en: Nova Calibrator cannot use these values. Use only numbers in the correct range. The saved calibration did not change.
 it: Questi valori non si possono applicare. Usa numeri semplici entro i limiti. La calibrazione salvata non è cambiata.
 en: Save calibration
 it: Salva calibrazione
@@ -449,19 +443,19 @@ en: Close
 it: Chiudi
 
 # ---- Guided calibration ----
-en: Stand where the trackers look misaligned
+en: Go to an area where the trackers are not aligned
 it: Mettiti dove i tracker sembrano disallineati
 en: Hold the controller against the visor
 it: Tieni il controller appoggiato alla visiera
-en: Keep the tracker fixed to your headset
+en: Keep the tracker attached to your headset
 it: Tieni il tracker fissato al visore
 en: Hold the controller against the wrist tracker
 it: Tieni il controller appoggiato al tracker del polso
-en: Hold the controller upright, with the trigger side against the front of your headset. Keep it in place as you turn and tilt your head for %.0f seconds.
+en: Hold the controller vertically, with the trigger side against the front of your headset. Keep it in position while you turn and tilt your head for %.0f seconds.
 it: Tieni il controller dritto, con il lato del grilletto contro la parte anteriore del visore. Tienilo fermo mentre giri e inclini la testa per {0} secondi.
-en: Move your head gently for %.0f seconds, keeping your body relaxed. Keep the tracker sensors uncovered.
+en: Move your head slowly for %.0f seconds. Keep your body relaxed. Do not cover the tracker sensors.
 it: Muovi la testa con delicatezza per {0} secondi, con il corpo rilassato. Non coprire i sensori del tracker.
-en: When you start, move both in slow figure eights for %.0f seconds, turning and tilting your hands as you go.
+en: When you start, move both devices in slow figure eights for %.0f seconds. Turn and tilt your hands while you move them.
 it: Quando inizi, muovili insieme disegnando lentamente degli otto per {0} secondi, girando e inclinando le mani.
 en: Look left and right
 it: Guarda a destra e a sinistra
@@ -469,29 +463,29 @@ en: Look up and down
 it: Guarda in alto e in basso
 en: Tilt side to side
 it: Inclina da un lato all'altro
-en: Bring the controller to the wrist tracker
+en: Move the controller to the wrist tracker
 it: Avvicina il controller al tracker del polso
 en: Turn and tilt as you move in a figure eight
 it: Gira e inclina mentre disegni un otto
-en: Rest the controller against the visor
+en: Put the controller against the visor
 it: Appoggia il controller alla visiera
-en: Motion demos couldn't load. Reinstall Nova Calibrator to restore them.
+en: Nova Calibrator could not load the movement demos. To repair this, install Nova Calibrator again.
 it: Impossibile caricare le animazioni. Reinstalla Nova Calibrator per ripristinarle.
 en: Reference device
 it: Dispositivo di riferimento
 en: Target device
 it: Dispositivo di destinazione
-en: %s is tracking
+en: %s has tracking
 it: {0}: tracciato
-en: %s is settling
+en: %s is not stable
 it: {0}: in stabilizzazione
-en: %s isn't tracking
+en: %s has no tracking
 it: {0}: non tracciato
-en: Replay the demo
+en: Start the demo again
 it: Rivedi la demo
-en: Pause the demo
+en: Stop the demo
 it: Metti in pausa la demo
-en: Play the demo
+en: Start the demo
 it: Riproduci la demo
 en: Start
 it: Avvia
@@ -499,15 +493,15 @@ en: Start anyway
 it: Avvia comunque
 en: Cancel
 it: Annulla
-en: Starting in %d...
+en: Starts in %d...
 it: Inizio tra {0}...
 en: Look around slowly.
 it: Guardati intorno lentamente.
-en: Look left and right, then up and down. Gently tilt your head to each side. Keep the tracker in view of the base stations.
+en: Look left and right. Then look up and down. Slowly tilt your head to each side. Keep the tracker in view of the base stations.
 it: Guarda a destra e a sinistra, poi in alto e in basso. Inclina delicatamente la testa da entrambi i lati. Tieni il tracker in vista delle stazioni base.
-en: Keep both devices firmly together.
+en: Keep both devices tightly together.
 it: Tieni i due dispositivi ben uniti.
-en: Draw slow figure eights in the air, turning and tilting your hands as you go.
+en: Move both devices in slow figure eights. Turn and tilt your hands while you move them.
 it: Disegna lentamente degli otto nell'aria, girando e inclinando le mani.
 en: Range of motion
 it: Ampiezza del movimento
@@ -517,31 +511,31 @@ en: Tracker stability
 it: Stabilità del tracker
 en: Grip
 it: Presa
-en: Measuring...
+en: More data is necessary
 it: Misurazione...
-en: Enough variety
+en: Sufficient movement
 it: Varietà sufficiente
-en: Keep turning and tilting
+en: Turn and tilt more
 it: Continua a girare e inclinare
 en: Good pace
 it: Ritmo giusto
 en: Move more slowly
 it: Muoviti più lentamente
-en: Moving together
+en: The devices move together
 it: Si muovono insieme
-en: Tracker is shifting on the headset
+en: The tracker moves on the headset
 it: Il tracker si sposta sul visore
-en: Hold them tighter together
+en: Hold them more tightly together
 it: Tienili più uniti
 en: seconds left
 it: secondi rimasti
-en: Settling...
+en: Not stable
 it: Stabilizzazione...
-en: Waiting for tracking
+en: No tracking
 it: In attesa del tracciamento
-en: Keep holding until the timer ends.
+en: Continue until the timer stops.
 it: Continua a tenerli fino alla fine del timer.
-en: Calibrating...
+en: Nova Calibrator calibrates...
 it: Calibrazione in corso...
 en: Hide details
 it: Nascondi dettagli
@@ -553,551 +547,547 @@ en: Done
 it: Fatto
 
 # ---- Run outcomes ----
-en: Calibration complete
+en: Calibration completed
 it: Calibrazione completata
-en: Calibration complete.
+en: Nova Calibrator completed the calibration.
 it: Calibrazione completata.
-en: Calibrated with %s and %s.
+en: The calibration used %s and %s.
 it: Calibrato con {0} e {1}.
-en: Calibration failed
+en: Calibration not completed
 it: Calibrazione non riuscita
 en: Calibration stopped
 it: Calibrazione interrotta
-en: Calibration cancelled
+en: Calibration canceled
 it: Calibrazione annullata
-en: Done, but the headset tracker wasn't set up
-it: Fatto, ma il tracker del visore non è stato configurato
-en: Check in VR that your trackers line up with your body.
+en: Calibration completed, but the headset tracker setup did not change
+it: Calibrazione completata, ma la configurazione del tracker del visore non è cambiata
+en: In VR, make sure that your trackers align with your body.
 it: Controlla in VR che i tracker siano allineati al tuo corpo.
-en: The alignment is rough.
+en: The trackers are not accurately aligned.
 it: L'allineamento è impreciso.
-en: The alignment may need another pass.
+en: Another calibration can align the trackers more accurately.
 it: L'allineamento potrebbe richiedere un altro passaggio.
-en: Try again with slower motion, turning and tilting in different directions.
-it: Riprova muovendoti più lentamente, girando e inclinando in direzioni diverse.
-en: Check the tracker positions in VR. Try again if they look off.
-it: Controlla le posizioni dei tracker in VR. Riprova se sembrano sfasate.
-en: Applied for this session, but it couldn't be saved. Recalibrate after restarting.
-it: Applicata per questa sessione, ma non è stato possibile salvarla. Ricalibra dopo il riavvio.
-en: Headset tracker set up, so continuous calibration can keep it that way.
+en: Calibrate again with slower movement. Turn and tilt the devices in different directions.
+it: Ricalibra con movimenti più lenti, girando e inclinando i dispositivi in direzioni diverse.
+en: Examine the tracker positions in VR. If they are not correct, calibrate again.
+it: Controlla le posizioni dei tracker in VR. Se sono sfasate, ricalibra.
+en: Nova Calibrator uses the calibration for this session, but it could not save the calibration. After you start Nova Calibrator or SteamVR again, calibrate again.
+it: Applicata per questa sessione, ma non è stato possibile salvarla. Dopo aver riavviato Nova Calibrator o SteamVR, ricalibra.
+en: The headset tracker setup is completed. Continuous calibration can now keep your trackers aligned.
 it: Tracker del visore configurato: la calibrazione continua può mantenere l'allineamento.
-en: Headset tracker set up.
+en: The headset tracker setup is completed.
 it: Tracker del visore configurato.
-en: Turn on continuous calibration in Settings to use it.
-it: Per usarlo, attiva la calibrazione continua nelle Impostazioni.
-en: The headset tracker's identity couldn't be verified, so its previous setup is kept.
+en: To use it, set “Continuous calibration” to on in Settings.
+it: Per usarlo, attiva “Calibrazione continua” nelle Impostazioni.
+en: Nova Calibrator could not identify the headset tracker. Nova Calibrator keeps the previous setup.
 it: Non è stato possibile verificare l'identità del tracker del visore, quindi resta la configurazione precedente.
-en: Try again. If it repeats, restart SteamVR.
-it: Riprova. Se si ripete, riavvia SteamVR.
-en: The headset tracker's position couldn't be measured consistently, so its previous setup is kept.
+en: Calibrate again with the headset tracker. If the problem occurs again, start SteamVR again.
+it: Ricalibra con il tracker del visore. Se si ripete, riavvia SteamVR.
+en: The measurements of the headset tracker position were too different. Nova Calibrator keeps the previous setup.
 it: Non è stato possibile misurare in modo coerente la posizione del tracker del visore, quindi resta la configurazione precedente.
-en: The headset tracker's position couldn't be measured consistently.
+en: The measurements of the headset tracker position were too different.
 it: Non è stato possibile misurare in modo coerente la posizione del tracker del visore.
-en: Recalibrate with the headset tracker and look around more slowly.
+en: Calibrate again with the headset tracker. During the calibration, look around more slowly.
 it: Ricalibra con il tracker del visore e guardati intorno più lentamente.
 
 # Why a solve was refused.
-en: The devices didn't turn far enough.
+en: The turns of the devices were too small.
 it: I dispositivi non hanno girato abbastanza.
-en: Make bigger turns, and keep them pressed together.
+en: Make larger turns. Keep the devices tightly together.
 it: Fai rotazioni più ampie e tienili premuti l'uno contro l'altro.
-en: The devices only rotated in one direction.
+en: The devices turned in only one direction.
 it: I dispositivi hanno ruotato in una sola direzione.
 en: Turn and tilt both devices together in different directions.
 it: Gira e inclina insieme i due dispositivi in direzioni diverse.
-en: The devices' rotation readings didn't match closely enough.
+en: The rotation values from the two devices were too different.
 it: Le misure di rotazione dei dispositivi non coincidevano abbastanza.
-en: Hold them firmly together and try again.
+en: Try again. Hold the devices tightly together.
 it: Tienili ben uniti e riprova.
-en: The devices' position readings didn't match closely enough.
+en: The position values from the two devices were too different.
 it: Le misure di posizione dei dispositivi non coincidevano abbastanza.
-en: Move slowly and keep both devices in clear view, then try again.
+en: Try again. Move slowly, and keep both devices in clear view.
 it: Muoviti lentamente e tieni entrambi i dispositivi ben in vista, poi riprova.
-en: Almost no tracking data arrived.
+en: Nova Calibrator received almost no tracking data.
 it: Non sono arrivati quasi dati di tracciamento.
-en: Check that both devices are tracking, then try again.
+en: Make sure that both devices have tracking. Then try again.
 it: Verifica che entrambi i dispositivi siano tracciati, poi riprova.
-en: Some tracking data was corrupt.
+en: Some tracking data was not correct.
 it: Alcuni dati di tracciamento erano danneggiati.
-en: Try again; restart SteamVR if it repeats.
+en: Try again. If the problem occurs again, start SteamVR again.
 it: Riprova; se si ripete, riavvia SteamVR.
-en: Playspace scale couldn't be determined from this motion.
+en: Nova Calibrator could not measure the playspace scale from this movement.
 it: Da questo movimento non è stato possibile determinare la scala dello spazio di gioco.
-en: Cover a larger area, or turn off Solve playspace scale in Settings.
-it: Copri un'area più ampia, oppure disattiva Stima la scala dello spazio di gioco nelle Impostazioni.
-en: The calibration result wasn't usable.
+en: Move across a larger area when you try again. You can also set “Measure playspace scale” to off in Settings.
+it: Quando riprovi, muoviti su un'area più ampia. Puoi anche disattivare “Misura la scala dello spazio di gioco” nelle Impostazioni.
+en: Nova Calibrator could not use the calibration result.
 it: Il risultato della calibrazione non era utilizzabile.
-en: Try again with smooth motion around the room.
+en: Try again with smooth movement around the room.
 it: Riprova con movimenti fluidi nella stanza.
 
 # Why a run stopped.
-en: Some tracking data was dropped: the PC couldn't keep up.
+en: The PC was too slow to record all of the tracking data.
 it: Alcuni dati di tracciamento sono andati persi: il PC non riusciva a stare al passo.
-en: Try again; close capture or recording software if it repeats.
+en: Try again. If the problem occurs again, close capture or recording software.
 it: Riprova; se si ripete, chiudi i programmi di acquisizione o registrazione.
-en: %s's tracking reset during the measurement.
+en: The tracking of %s started again during the measurement.
 it: Il tracciamento di {0} si è reimpostato durante la misura.
-en: Waiting for %s to settle.
+en: Nova Calibrator waits until %s is stable.
 it: In attesa che {0} si stabilizzi.
-en: Waiting for %s to start tracking.
+en: Nova Calibrator waits until %s has tracking.
 it: In attesa che {0} venga tracciato.
-en: Calibration starts on its own in a few seconds. Keep the tracker in view of its base stations.
+en: Calibration starts automatically in a few seconds. Keep the tracker in view of its base stations.
 it: La calibrazione parte da sola tra qualche secondo. Tieni il tracker in vista delle sue stazioni base.
-en: Calibration starts on its own in a few seconds.
+en: Calibration starts automatically in a few seconds.
 it: La calibrazione parte da sola tra qualche secondo.
-en: Calibration starts on its own once it tracks. Wake it and keep it in view.
+en: Calibration starts automatically when the device has tracking. Make sure that the device is on and in view.
 it: La calibrazione parte da sola appena viene tracciato. Riattivalo e tienilo in vista.
-en: %s's base station tracking restarted during the measurement.
+en: The base station tracking of %s started again during the measurement.
 it: Il tracciamento di {0} con le stazioni base è ripartito durante la misura.
-en: Let tracking settle for a few seconds, then start again.
+en: Wait a few seconds until tracking is stable. Then start again.
 it: Lascia stabilizzare il tracciamento per qualche secondo, poi ricomincia.
 en: The reference device
 it: Il dispositivo di riferimento
 en: The target device
 it: Il dispositivo di destinazione
-en: Nova Calibrator can't talk to SteamVR.
+en: Nova Calibrator cannot connect to SteamVR.
 it: Nova Calibrator non riesce a comunicare con SteamVR.
-en: Restart SteamVR. If it repeats, re-run the installer.
+en: Start SteamVR again. If the problem occurs again, install Nova Calibrator again.
 it: Riavvia SteamVR. Se si ripete, esegui di nuovo il programma di installazione.
 en: No reference device is selected.
 it: Nessun dispositivo di riferimento selezionato.
 en: No target device is selected.
 it: Nessun dispositivo di destinazione selezionato.
-en: Pick a device that's switched on.
+en: Select a device that is on.
 it: Scegli un dispositivo acceso.
-en: %s isn't tracking.
+en: %s has no tracking.
 it: {0} non è tracciato.
-en: Check it's awake and in view of its tracking cameras or base stations, then try again.
+en: Make sure that it is on and in view of its tracking cameras or base stations. Then try again.
 it: Verifica che sia attivo e in vista delle telecamere di tracciamento o delle stazioni base, poi riprova.
-en: Check it's awake and visible to its base stations, then try again.
+en: Make sure that it is on and in view of its base stations. Then try again.
 it: Verifica che sia attivo e visibile alle stazioni base, poi riprova.
-en: A device changed tracking system as the run started.
+en: A device changed tracking system when the calibration started.
 it: Un dispositivo ha cambiato sistema di tracciamento all'avvio.
-en: Re-pick both devices and start again.
+en: Select both devices again. Then start the calibration.
 it: Scegli di nuovo entrambi i dispositivi e ricomincia.
-en: SteamVR stopped reporting one of the devices.
+en: SteamVR does not show one of the devices now.
 it: SteamVR ha smesso di segnalare uno dei dispositivi.
-en: Wake or reconnect it, then try again.
+en: Make sure that it is on and connected. Then try again.
 it: Riattivalo o ricollegalo, poi riprova.
 en: The reference device must be on the headset's tracking system.
 it: Il dispositivo di riferimento deve appartenere al sistema di tracciamento del visore.
-en: Pick the headset or one of its controllers as the reference.
+en: Select the headset or one of its controllers as the reference.
 it: Scegli come riferimento il visore o uno dei suoi controller.
-en: Lost contact with SteamVR mid-run.
+en: Nova Calibrator disconnected from SteamVR during the measurement.
 it: Contatto con SteamVR perso durante la misura.
-en: Restart SteamVR and try again.
+en: Start SteamVR again. Then try again.
 it: Riavvia SteamVR e riprova.
 en: %s was replaced by another device during the measurement.
 it: {0} è stato sostituito da un altro dispositivo durante la misura.
-en: Could not verify the identity of %s during the measurement.
+en: Nova Calibrator could not identify %s during the measurement.
 it: Impossibile verificare l'identità di {0} durante la misura.
-en: Keep both devices powered and try again.
+en: Try again. Keep both devices on during the measurement.
 it: Tieni accesi entrambi i dispositivi e riprova.
-en: %s stopped tracking mid-run.
+en: The tracking of %s stopped during the measurement.
 it: {0} ha smesso di essere tracciato durante la misura.
-en: Keep it tracking for the whole countdown.
-it: Mantienilo tracciato per tutto il conto alla rovescia.
-en: Keep it in view of its base stations for the whole countdown.
+en: Keep it in view of its tracking cameras until the countdown stops.
+it: Tienilo in vista delle telecamere di tracciamento per tutto il conto alla rovescia.
+en: Keep it in view of its base stations until the countdown stops.
 it: Tienilo in vista delle stazioni base per tutto il conto alla rovescia.
-en: Pick a reference and a target from two different tracking systems.
+en: Select a reference and a target from two different tracking systems.
 it: Scegli riferimento e destinazione da due sistemi di tracciamento diversi.
-en: Anchors need the same reference and target systems as the current calibration. Pick those devices first.
+en: Anchors must use the same reference and target systems as the calibration. Select those devices first.
 it: Le ancore richiedono gli stessi sistemi di riferimento e destinazione della calibrazione attuale. Scegli prima quei dispositivi.
-en: The headset isn't showing up in SteamVR, so the tracker position can't be measured yet.
+en: Nova Calibrator cannot measure the tracker position at this time because SteamVR does not show the headset.
 it: Il visore non compare in SteamVR, quindi non è ancora possibile misurare la posizione del tracker.
-en: The headset tracker isn't connected. Switch it on, then try again.
-it: Il tracker del visore non è collegato. Accendilo e riprova.
+en: The headset tracker is not connected. Start it. Then select “Set up headset tracker” again.
+it: Il tracker del visore non è collegato. Accendilo, poi seleziona di nuovo “Configura il tracker del visore”.
 
 # Field anchors.
 en: Anchor not added
 it: Ancora non aggiunta
 en: Anchor added
 it: Ancora aggiunta
-en: This spot is too far off from your calibration for a small correction.
+en: This area is too far from your calibration for a small correction.
 it: Questo punto è troppo lontano dalla calibrazione per una piccola correzione.
-en: Run a full calibration instead.
+en: Do a full calibration instead.
 it: Esegui invece una calibrazione completa.
 en: You already have 8 anchors.
 it: Hai già 8 ancore.
-en: Add this one within 1 m of an existing anchor to replace it, or clear the anchors in Settings.
-it: Aggiungila entro 1 m da un'ancora esistente per sostituirla, oppure cancella le ancore nelle Impostazioni.
-en: It couldn't be saved.
+en: To replace an anchor, go to a position less than 1 m from it. Then add a new anchor. You can also select “Clear anchors” in the Field anchors tool.
+it: Per sostituire un'ancora, mettiti a meno di 1 m da essa, poi aggiungi una nuova ancora. Puoi anche selezionare “Cancella ancore” nello strumento Ancore di campo.
+en: Nova Calibrator could not save the anchor.
 it: Non è stato possibile salvarla.
-en: Restart Nova Calibrator and try again.
-it: Riavvia Nova Calibrator e riprova.
-en: This spot now has its own correction, blended in as you walk around.
+en: Start Nova Calibrator again. Then add the anchor again.
+it: Riavvia Nova Calibrator, poi aggiungi di nuovo l'ancora.
+en: This area now has its own correction. The correction increases gradually as you go near the area.
 it: Questo punto ora ha la sua correzione, raccordata mentre ti muovi.
-en: Anchor added. This spot now has its own correction.
+en: The anchor is added. This area now has its own correction.
 it: Ancora aggiunta. Questo punto ora ha la sua correzione.
-en: If your trackers are a little off in one part of the room, stand there and add an anchor. Nova Calibrator fixes that spot and blends the correction in as you walk toward it.
+en: If your trackers are not aligned in one part of the room, go to that part. Then add an anchor. Nova Calibrator corrects that area. The correction increases gradually as you go near the area.
 it: Se in una parte della stanza i tracker sono un po' sfasati, mettiti lì e aggiungi un'ancora. Nova Calibrator corregge quel punto e applica la correzione gradualmente mentre ti avvicini.
 en: Anchor %zu
 it: Ancora {0}
 en: %.1f m from the center · corrects %.1f cm and %.2f°
 it: A {0} m dal centro · corregge {1} cm e {2}°
-en: No anchors yet.
+en: There are no anchors.
 it: Nessuna ancora salvata.
 en: Use field anchors
 it: Usa le ancore di campo
-en: Turn off to use the main calibration everywhere.
+en: When this is off, Nova Calibrator uses the main calibration everywhere.
 it: Disattivalo per usare la calibrazione principale ovunque.
 en: You can save up to 8. A new anchor within 1 m of another one replaces it.
 it: Puoi salvarne fino a 8. Una nuova ancora entro 1 m da un'altra la sostituisce.
 
 # ---- Runtime monitors (activity feed and VR notifications) ----
-en: Your calibration looks off. Recalibrate.
+en: Your calibration is possibly not correct. Calibrate again.
 it: La calibrazione sembra errata. Ricalibra.
-en: Nova Calibrator: your calibration looks off. Recalibrate.
+en: Nova Calibrator: your calibration is possibly not correct. Calibrate again.
 it: Nova Calibrator: la calibrazione sembra errata. Ricalibra.
-en: A correction was too large to be safe and was skipped. If this keeps happening, recalibrate.
+en: A correction was too large to be safe. Nova Calibrator did not use it. If this occurs again, calibrate again.
 it: Una correzione era troppo grande per essere sicura ed è stata saltata. Se continua a succedere, ricalibra.
-en: Correction ready. Pull a trigger to apply it.
+en: A correction is ready. Pull a trigger to use it.
 it: Correzione pronta. Premi un grilletto per applicarla.
-en: Trigger pulled; applying the correction.
+en: You pulled the trigger. Nova Calibrator makes the correction.
 it: Grilletto premuto; applico la correzione.
-en: Continuous calibration paused: readings moved too far from the calibration. It re-aligns on its own if they hold steady.
-it: Calibrazione continua in pausa: le misure si sono allontanate troppo dalla calibrazione. Si riallinea da sola se restano stabili.
-en: Nova Calibrator: continuous calibration paused; readings moved too far from the calibration. It re-aligns on its own if they hold steady, or recalibrate with the headset tracker.
-it: Nova Calibrator: calibrazione continua in pausa; le misure si sono allontanate troppo dalla calibrazione. Si riallinea da sola se restano stabili, oppure ricalibra con il tracker del visore.
-en: Continuous calibration paused: tracking drifted too far to correct safely.
-it: Calibrazione continua in pausa: il tracciamento si è spostato troppo per correggerlo in sicurezza.
-en: Nova Calibrator: continuous calibration paused; readings drifted too far to correct safely. Recalibrate with the headset tracker to resume.
-it: Nova Calibrator: calibrazione continua in pausa; lo scostamento è troppo grande per correggerlo in sicurezza. Ricalibra con il tracker del visore per riprendere.
-en: Re-aligned your trackers after their base station tracking shifted.
+en: Continuous calibration stopped because the values moved too far from the calibration. If the values are stable, it aligns your trackers again automatically.
+it: Calibrazione continua ferma: le misure si sono allontanate troppo dalla calibrazione. Si riallinea da sola se restano stabili.
+en: Nova Calibrator: continuous calibration stopped because the values moved too far from the calibration. If the values are stable, it aligns your trackers again automatically. You can also calibrate again with the headset tracker.
+it: Nova Calibrator: calibrazione continua ferma; le misure si sono allontanate troppo dalla calibrazione. Si riallinea da sola se restano stabili, oppure ricalibra con il tracker del visore.
+en: Continuous calibration stopped because tracking moved too far to correct safely.
+it: Calibrazione continua ferma: il tracciamento si è spostato troppo per correggerlo in sicurezza.
+en: Nova Calibrator: continuous calibration stopped because the values moved too far to correct safely. To continue, calibrate again with the headset tracker.
+it: Nova Calibrator: calibrazione continua ferma; lo scostamento è troppo grande per correggerlo in sicurezza. Ricalibra con il tracker del visore per riprendere.
+en: Continuous calibration aligned your trackers again after their base station tracking moved.
 it: Tracker riallineati dopo uno spostamento del tracciamento delle stazioni base.
-en: Re-aligned your trackers with your headset.
+en: Continuous calibration aligned your trackers with your headset again.
 it: Tracker riallineati al visore.
-en: Continuous calibration went back to the alignment it had before it last re-aligned your trackers.
+en: Continuous calibration now aligns your trackers as it did before it last aligned them again.
 it: La calibrazione continua è tornata all'allineamento che aveva prima dell'ultimo riallineamento dei tracker.
-en: Tracking is noisy here; continuous calibration is waiting and resumes on its own.
+en: Tracking is not stable here. Continuous calibration waits, then continues automatically.
 it: Qui il tracciamento è instabile; la calibrazione continua è in attesa e riprenderà da sola.
-en: Nova Calibrator: tracking is noisy here. Continuous calibration is waiting and resumes on its own.
+en: Nova Calibrator: tracking is not stable here. Continuous calibration waits, then continues automatically.
 it: Nova Calibrator: qui il tracciamento è instabile. La calibrazione continua è in attesa e riprenderà da sola.
-en: Continuous calibration resumed.
+en: Continuous calibration continues.
 it: Calibrazione continua ripresa.
-en: Headset tracker not tracking; continuous calibration waiting.
+en: The headset tracker has no tracking. Continuous calibration waits until it has tracking again.
 it: Tracker del visore non tracciato; calibrazione continua in attesa.
-en: Headset tracker back; continuous calibration warming up.
-it: Tracker del visore di nuovo visibile; calibrazione continua in avvio.
-en: Headset not tracking; continuous calibration waiting.
+en: The headset tracker has tracking again. Continuous calibration collects new values.
+it: Tracker del visore di nuovo visibile; la calibrazione continua raccoglie nuove misure.
+en: The headset has no tracking. Continuous calibration waits until it has tracking again.
 it: Visore non tracciato; calibrazione continua in attesa.
-en: Headset back; continuous calibration warming up.
-it: Visore di nuovo tracciato; calibrazione continua in avvio.
-en: Headset and headset tracker not tracking; continuous calibration waiting.
+en: The headset has tracking again. Continuous calibration collects new values.
+it: Visore di nuovo tracciato; la calibrazione continua raccoglie nuove misure.
+en: The headset and the headset tracker have no tracking. Continuous calibration waits until they have tracking again.
 it: Visore e tracker del visore non tracciati; calibrazione continua in attesa.
-en: Headset and headset tracker back; continuous calibration warming up.
-it: Visore e tracker del visore di nuovo tracciati; calibrazione continua in avvio.
-en: No usable readings from the headset and its tracker; continuous calibration waiting.
+en: The headset and the headset tracker have tracking again. Continuous calibration collects new values.
+it: Visore e tracker del visore di nuovo tracciati; la calibrazione continua raccoglie nuove misure.
+en: The headset and its tracker give no values that Nova Calibrator can use. Continuous calibration waits until it gets values again.
 it: Nessuna misura utilizzabile dal visore e dal suo tracker; calibrazione continua in attesa.
-en: Readings back; continuous calibration warming up.
-it: Misure di nuovo disponibili; calibrazione continua in avvio.
-en: SteamVR switched the headset tracker off after it sat still for %d minutes.
+en: Values are available again. Continuous calibration collects new values.
+it: Misure di nuovo disponibili; la calibrazione continua raccoglie nuove misure.
+en: SteamVR stopped the headset tracker because it did not move for %d minutes.
 it: SteamVR ha spento il tracker del visore perché è rimasto fermo per {0} minuti.
-en: SteamVR switched the headset tracker off after it sat still.
+en: SteamVR stopped the headset tracker because it did not move.
 it: SteamVR ha spento il tracker del visore perché è rimasto fermo.
-en: The headset tracker switched off or lost its connection.
+en: The headset tracker stopped or disconnected.
 it: Il tracker del visore si è spento o ha perso la connessione.
-en: To keep this from happening, set “Turn off controllers after” to Never in SteamVR's Startup / Shutdown settings.
-it: Per evitare che succeda, imposta “Spegni i controller dopo” su Mai nelle impostazioni Avvio / Arresto di SteamVR.
-en: Nova Calibrator: the headset tracker is off. Turn it back on to resume continuous calibration.
+en: To prevent this, set “Turn off controllers after” to “Never” in the SteamVR Startup / Shutdown settings.
+it: Per evitare che succeda, imposta “Spegni i controller dopo” su “Mai” nelle impostazioni Avvio / Arresto di SteamVR.
+en: Nova Calibrator: the headset tracker is off. Start the tracker. Then continuous calibration starts again.
 it: Nova Calibrator: il tracker del visore è spento. Riaccendilo per riprendere la calibrazione continua.
 
 # ---- Chaperone ----
-en: Check your room boundaries
+en: Examine your room boundaries
 it: Controlla i confini della stanza
-en: Nova Calibrator saves and restores your SteamVR chaperone. Tracking drift can still shift it away from your real walls.
+en: Nova Calibrator saves your SteamVR chaperone and puts it back when necessary. Tracking drift can move it away from your real walls.
 it: Nova Calibrator salva e ripristina il chaperone di SteamVR. La deriva del tracciamento può comunque spostarlo rispetto alle pareti reali.
-en: Keep the Quest boundary on too. A protected chaperone doesn't guarantee that your play area is clear or correctly aligned.
-it: Tieni attivo anche il confine del Quest. Un chaperone protetto non garantisce che l'area di gioco sia libera o allineata correttamente.
-en: Before you play, check that the walls match your room and leave enough space to move safely, especially when dancing.
-it: Prima di giocare, controlla che le pareti corrispondano alla stanza e lascino spazio per muoverti in sicurezza, soprattutto se balli.
+en: Also keep the Quest boundary on. Chaperone protection does not show if your play area is clear or if the walls are correctly aligned. You can hit walls or objects and cause an injury.
+it: Tieni attivo anche il confine del Quest. Un chaperone protetto non garantisce che l'area di gioco sia libera o che le pareti siano allineate correttamente. Potresti urtare pareti o oggetti e farti male.
+en: Before you start a game, make sure that the chaperone walls align with the walls of your room. Make sure that you have sufficient space to move safely. This is very important when you make large movements, for example in a dance.
+it: Prima di giocare, controlla che le pareti del chaperone corrispondano a quelle della stanza e che ci sia spazio per muoverti in sicurezza, soprattutto se fai movimenti ampi, per esempio quando balli.
 en: Protect chaperone (%d s)
 it: Proteggi il chaperone ({0} s)
-en: Nova Calibrator saves your SteamVR walls and puts them back if SteamVR or the headset ever loses them. If you redraw your walls, protect them again.
-it: Nova Calibrator salva le pareti di SteamVR e le ripristina se SteamVR o il visore le perdono. Se ridisegni le pareti, proteggile di nuovo.
-en: Protect your current walls to keep them.
-it: Proteggi le pareti attuali per conservarle.
+en: Nova Calibrator saves your SteamVR walls. If SteamVR or the headset removes them, Nova Calibrator puts them back. If you make new walls, select “Protect current walls”.
+it: Nova Calibrator salva le pareti di SteamVR e le ripristina se SteamVR o il visore le rimuovono. Se crei nuove pareti, seleziona “Proteggi le pareti attuali”.
+en: To keep your walls, select “Protect chaperone”.
+it: Per conservare le pareti, seleziona “Proteggi il chaperone”.
 en: %zu wall%s · %.1f × %.1f m
 it: Pareti: {0} · {2} × {3} m
 en: Restore automatically
 it: Ripristina automaticamente
-en: Turn off to use your Quest's boundary each session instead.
+en: When this is off, each session uses the boundary from your Quest.
 it: Disattivalo per usare invece il confine del Quest a ogni sessione.
-en: Keep the Quest boundary turned on too. A protected chaperone doesn't guarantee that your play area is clear.
-it: Tieni attivo anche il confine del Quest. Un chaperone protetto non garantisce che l'area di gioco sia libera.
 en: Restore now
 it: Ripristina ora
 en: Protect current walls
 it: Proteggi le pareti attuali
-en: Chaperone saved without walls, so auto-restore stays off until Room Setup adds some.
-it: Chaperone salvato senza pareti: il ripristino automatico resta spento finché Configurazione stanza non ne aggiunge.
-en: Chaperone saved: %u wall%s, %.1f x %.1f m.
+en: The chaperone was saved without walls. Thus, there is nothing to put back automatically. Add walls in SteamVR Room Setup. Then select “Protect current walls”.
+it: Chaperone salvato senza pareti, quindi non c'è nulla da ripristinare automaticamente. Aggiungi le pareti in Configurazione stanza di SteamVR, poi seleziona “Proteggi le pareti attuali”.
+en: The chaperone is saved: %u wall%s, %.1f × %.1f m.
 it: Chaperone salvato: pareti: {0}, {2} × {3} m.
-en: Chaperone restored.
+en: Nova Calibrator put the chaperone back.
 it: Chaperone ripristinato.
-en: Couldn't check the protected chaperone: SteamVR's chaperone setup isn't available right now.
-it: Impossibile controllare il chaperone protetto: la configurazione del chaperone di SteamVR non è disponibile al momento.
-en: Couldn't read your chaperone from SteamVR, so your protected walls weren't changed.
-it: Impossibile leggere il chaperone da SteamVR, quindi le pareti protette non sono state modificate.
-en: The protected chaperone was saved for a different headset, so it was switched off. Protect it again from the Chaperone tool.
-it: Il chaperone protetto era stato salvato per un altro visore, quindi è stato disattivato. Proteggilo di nuovo dallo strumento Chaperone.
-en: The headset re-centered, so the protected chaperone no longer lines up and was turned off. Protect it again from the Chaperone tool.
-it: Il visore si è ricentrato e il chaperone protetto non è più allineato, quindi è stato disattivato. Proteggilo di nuovo dallo strumento Chaperone.
-en: The headset re-centered while Nova Calibrator couldn't follow it, so the protected chaperone was switched off. Protect it again from the Chaperone tool.
-it: Il visore si è ricentrato mentre Nova Calibrator non poteva seguirlo, quindi il chaperone protetto è stato disattivato. Proteggilo di nuovo dallo strumento Chaperone.
-en: The protected chaperone belonged to the previous calibration and was turned off. Protect it again from the Chaperone tool.
-it: Il chaperone protetto apparteneva alla calibrazione precedente ed è stato disattivato. Proteggilo di nuovo dallo strumento Chaperone.
-en: A headset re-center was too large to compensate safely. Recalibrate before continuing.
+en: Nova Calibrator could not examine the saved chaperone because the SteamVR chaperone setup is not available now.
+it: Impossibile controllare il chaperone salvato: la configurazione del chaperone di SteamVR non è disponibile al momento.
+en: Nova Calibrator could not read your chaperone from SteamVR. Your saved walls did not change.
+it: Impossibile leggere il chaperone da SteamVR, quindi le pareti salvate non sono state modificate.
+en: Your chaperone was saved for a different headset. Thus, chaperone protection is off now. Select “Protect chaperone” in the Chaperone tool.
+it: Il chaperone era stato salvato per un altro visore, quindi la protezione del chaperone ora è disattivata. Seleziona “Proteggi il chaperone” nello strumento Chaperone.
+en: Because a headset re-center occurred, the saved walls are not aligned now. “Restore automatically” is off. Select “Protect current walls” in the Chaperone tool.
+it: Il visore si è ricentrato, quindi le pareti salvate non sono più allineate. “Ripristina automaticamente” è disattivato. Seleziona “Proteggi le pareti attuali” nello strumento Chaperone.
+en: A headset re-center occurred when Nova Calibrator could not follow it. Thus, chaperone protection is off now. Select “Protect chaperone” in the Chaperone tool.
+it: Il visore si è ricentrato mentre Nova Calibrator non poteva seguirlo, quindi la protezione del chaperone ora è disattivata. Seleziona “Proteggi il chaperone” nello strumento Chaperone.
+en: Your chaperone was saved with the previous calibration. Thus, chaperone protection is off now. Select “Protect chaperone” in the Chaperone tool.
+it: Il chaperone era stato salvato con la calibrazione precedente, quindi la protezione del chaperone ora è disattivata. Seleziona “Proteggi il chaperone” nello strumento Chaperone.
+en: A headset re-center was too large to correct safely. Calibrate again before you continue.
 it: Un ricentramento del visore era troppo grande per compensarlo in sicurezza. Ricalibra prima di continuare.
-en: The headset re-centered while Nova Calibrator couldn't follow it. The calibration and the protected chaperone are off until you recalibrate.
-it: Il visore si è ricentrato mentre Nova Calibrator non poteva seguirlo. Calibrazione e chaperone protetto restano disattivati finché non ricalibri.
-en: The headset re-centered while Nova Calibrator couldn't follow it. The calibration is off until you recalibrate.
+en: A headset re-center occurred when Nova Calibrator could not follow it. The calibration and “Restore automatically” are off. Calibrate again. Then select “Protect chaperone” in the Chaperone tool.
+it: Il visore si è ricentrato mentre Nova Calibrator non poteva seguirlo. La calibrazione e “Ripristina automaticamente” sono disattivati. Ricalibra, poi seleziona “Proteggi il chaperone” nello strumento Chaperone.
+en: A headset re-center occurred when Nova Calibrator could not follow it. The calibration is off until you calibrate again.
 it: Il visore si è ricentrato mentre Nova Calibrator non poteva seguirlo. La calibrazione resta disattivata finché non ricalibri.
-en: SteamVR moved the base stations more often than Nova Calibrator could follow. The calibration is off until you recalibrate.
+en: SteamVR moved the base stations more often than Nova Calibrator could follow. The calibration is off until you calibrate again.
 it: SteamVR ha spostato le stazioni base più spesso di quanto Nova Calibrator potesse seguire. La calibrazione resta disattivata finché non ricalibri.
-en: Couldn't protect the chaperone. The headset re-centered since the last calibration. Recalibrate first.
+en: Nova Calibrator could not start chaperone protection because a headset re-center occurred after the last calibration. Calibrate again first.
 it: Impossibile proteggere il chaperone. Il visore si è ricentrato dopo l'ultima calibrazione. Ricalibra prima.
-en: Couldn't protect the chaperone because SteamVR's chaperone isn't available. Restart SteamVR and try again.
+en: Nova Calibrator could not start chaperone protection because the SteamVR chaperone is not available. Start SteamVR again. Then try again.
 it: Impossibile proteggere il chaperone perché quello di SteamVR non è disponibile. Riavvia SteamVR e riprova.
-en: Couldn't protect the chaperone because the headset isn't showing up in SteamVR. Try again once it's connected.
+en: Nova Calibrator could not start chaperone protection because SteamVR does not show the headset. Connect the headset. Then try again.
 it: Impossibile proteggere il chaperone perché il visore non compare in SteamVR. Riprova quando è collegato.
-en: Couldn't protect the chaperone. The calibration was made with a different headset system. Recalibrate first.
+en: Nova Calibrator could not start chaperone protection because the calibration is for a different headset system. Calibrate again first.
 it: Impossibile proteggere il chaperone. La calibrazione è stata fatta con un altro sistema di visore. Ricalibra prima.
-en: Couldn't protect the chaperone because the headset isn't tracking yet. Put it on and try again.
+en: Nova Calibrator could not start chaperone protection because the headset has no tracking at this time. Put on the headset. Then try again.
 it: Impossibile proteggere il chaperone perché il visore non è ancora tracciato. Indossalo e riprova.
-en: Couldn't read the chaperone walls from SteamVR. Try again.
+en: Nova Calibrator could not read the chaperone walls from SteamVR. Try again.
 it: Impossibile leggere le pareti del chaperone da SteamVR. Riprova.
-en: The chaperone changed while it was being saved. Try again.
+en: The chaperone changed while Nova Calibrator saved it. Try again.
 it: Il chaperone è cambiato durante il salvataggio. Riprova.
-en: Couldn't protect the chaperone because SteamVR has no usable play area. Set up your room in SteamVR, then try again.
+en: Nova Calibrator could not start chaperone protection because SteamVR has no play area that it can use. Do Room Setup in SteamVR. Then try again.
 it: Impossibile proteggere il chaperone perché SteamVR non ha un'area di gioco utilizzabile. Configura la stanza in SteamVR, poi riprova.
-en: Couldn't protect the chaperone because the PC clock looks wrong. Check the date and time, then try again.
+en: Nova Calibrator could not start chaperone protection because the PC clock is possibly not correct. Examine the date and time. Then try again.
 it: Impossibile proteggere il chaperone perché l'orologio del PC sembra errato. Controlla data e ora, poi riprova.
-en: Couldn't protect the chaperone because the previous one couldn't be switched off first, so nothing was changed.
+en: Nova Calibrator could not start chaperone protection because it could not stop the previous protection. Nothing changed.
 it: Impossibile proteggere il chaperone perché non è stato possibile disattivare prima quello precedente, quindi non è cambiato nulla.
-en: Couldn't restore the chaperone: the protected chaperone is damaged. Protect it again.
-it: Impossibile ripristinare il chaperone: quello protetto è danneggiato. Proteggilo di nuovo.
-en: Couldn't restore the chaperone: the headset isn't reporting to SteamVR yet.
+en: Nova Calibrator could not put the chaperone back because the saved chaperone is damaged. Select “Protect chaperone” in the Chaperone tool.
+it: Impossibile ripristinare il chaperone: quello salvato è danneggiato. Seleziona “Proteggi il chaperone” nello strumento Chaperone.
+en: Nova Calibrator could not put the chaperone back because SteamVR does not show the headset at this time.
 it: Impossibile ripristinare il chaperone: il visore non comunica ancora con SteamVR.
-en: Couldn't restore the chaperone yet: the headset hasn't been tracked this session. Put it on and try again.
-it: Non è ancora possibile ripristinare il chaperone: il visore non è stato tracciato in questa sessione. Indossalo e riprova.
-en: Couldn't restore the chaperone: SteamVR's chaperone setup isn't available right now.
+en: Nova Calibrator cannot put the chaperone back at this time because the headset had no tracking in this session. Put on the headset. Then select “Restore now”.
+it: Non è ancora possibile ripristinare il chaperone: il visore non è stato tracciato in questa sessione. Indossalo, poi seleziona “Ripristina ora”.
+en: Nova Calibrator could not put the chaperone back because the SteamVR chaperone setup is not available now.
 it: Impossibile ripristinare il chaperone: la configurazione del chaperone di SteamVR non è disponibile al momento.
-en: Couldn't restore the chaperone: SteamVR rejected the update.
+en: Nova Calibrator could not put the chaperone back because SteamVR did not accept the change.
 it: Impossibile ripristinare il chaperone: SteamVR ha rifiutato l'aggiornamento.
-en: Couldn't verify the restored chaperone. Check it in SteamVR Room Setup before relying on it.
+en: Nova Calibrator put the chaperone back, but it could not make sure that the chaperone is correct. Before you use it, examine it in SteamVR Room Setup.
 it: Impossibile verificare il chaperone ripristinato. Controllalo in Configurazione stanza di SteamVR prima di farci affidamento.
-en: The calibration profile and protected chaperone were saved at different revisions. Chaperone auto-restore is disabled until you capture it again.
-it: Il profilo di calibrazione e il chaperone protetto sono stati salvati in momenti diversi. Il ripristino automatico del chaperone è disattivato finché non lo proteggi di nuovo.
-en: The protected chaperone has no complete headset/universe baseline. It has been disarmed; capture it again before enabling auto-restore.
-it: Il chaperone protetto non ha un riferimento completo del visore. È stato disattivato; proteggilo di nuovo prima di attivare il ripristino automatico.
-en: The protected chaperone belongs to a different reference tracking system. It has been disarmed; capture it again for this profile.
-it: Il chaperone protetto appartiene a un altro sistema di tracciamento di riferimento. È stato disattivato; proteggilo di nuovo per questo profilo.
+en: The saved chaperone is not for the saved calibration. Thus, chaperone protection is off now. Select “Protect chaperone” in the Chaperone tool.
+it: Il chaperone salvato non corrisponde alla calibrazione salvata, quindi la protezione del chaperone ora è disattivata. Seleziona “Proteggi il chaperone” nello strumento Chaperone.
+en: The saved chaperone does not have all of its data. Thus, chaperone protection is off now. Select “Protect chaperone” in the Chaperone tool.
+it: Il chaperone salvato non ha tutti i dati necessari, quindi la protezione del chaperone ora è disattivata. Seleziona “Proteggi il chaperone” nello strumento Chaperone.
+en: The saved chaperone is for a different reference tracking system. Thus, chaperone protection is off now. Select “Protect chaperone” in the Chaperone tool.
+it: Il chaperone salvato appartiene a un altro sistema di tracciamento di riferimento, quindi la protezione del chaperone ora è disattivata. Seleziona “Proteggi il chaperone” nello strumento Chaperone.
 
 # ---- Saving and loading ----
-en: Couldn't clear the calibration, so it's still saved. Restart Nova Calibrator and try again.
+en: Nova Calibrator could not erase the calibration. The calibration stays saved. Start Nova Calibrator again. Then try again.
 it: Impossibile cancellare la calibrazione, che resta salvata. Riavvia Nova Calibrator e riprova.
-en: Couldn't read the saved calibration, so it was left as it is. Restart Nova Calibrator. If this repeats, save a diagnostics file in Settings and report it.
-it: Impossibile leggere la calibrazione salvata, che è stata lasciata com'era. Riavvia Nova Calibrator. Se si ripete, salva un file di diagnostica nelle Impostazioni e segnalalo.
-en: Couldn't read Nova Calibrator's settings, so they were left as they are. Restart Nova Calibrator. If this repeats, save a diagnostics file in Settings and report it.
-it: Impossibile leggere le impostazioni di Nova Calibrator, che sono state lasciate com'erano. Riavvia Nova Calibrator. Se si ripete, salva un file di diagnostica nelle Impostazioni e segnalalo.
-en: Couldn't save the calibration because the saved one couldn't be read. It was left untouched so it can be recovered.
+en: Nova Calibrator could not read the saved calibration. It did not change the calibration. Start Nova Calibrator again. If the problem occurs again, save a diagnostics file in Settings. Then select “Report on GitHub”. Attach the file to your report.
+it: Impossibile leggere la calibrazione salvata, che è stata lasciata com'era. Riavvia Nova Calibrator. Se si ripete, salva un file di diagnostica nelle Impostazioni, poi seleziona “Segnala su GitHub” e allega il file alla segnalazione.
+en: Nova Calibrator could not read its settings. It did not change them. Start Nova Calibrator again. If the problem occurs again, save a diagnostics file in Settings. Then select “Report on GitHub”. Attach the file to your report.
+it: Impossibile leggere le impostazioni di Nova Calibrator, che sono state lasciate com'erano. Riavvia Nova Calibrator. Se si ripete, salva un file di diagnostica nelle Impostazioni, poi seleziona “Segnala su GitHub” e allega il file alla segnalazione.
+en: Nova Calibrator could not save the calibration because it could not read the saved calibration. It kept the saved calibration as it was.
 it: Impossibile salvare la calibrazione perché quella salvata non è leggibile. È stata lasciata intatta per poterla recuperare.
-en: Couldn't save the calibration because Nova Calibrator's settings couldn't be read. They were left untouched so they can be recovered.
+en: Nova Calibrator could not save the calibration because it could not read its settings. It kept the settings as they were.
 it: Impossibile salvare la calibrazione perché le impostazioni di Nova Calibrator non sono leggibili. Sono state lasciate intatte per poterle recuperare.
-en: Couldn't save the calibration because settings from an older version haven't been moved over safely yet. Restart Nova Calibrator and try again.
-it: Impossibile salvare la calibrazione perché le impostazioni di una versione precedente non sono ancora state trasferite in sicurezza. Riavvia Nova Calibrator e riprova.
-en: Couldn't save the calibration because it failed a safety check. Recalibrate.
+en: Nova Calibrator could not save the calibration because it must first move the settings from an older version. Start Nova Calibrator again. Then make the change again.
+it: Impossibile salvare la calibrazione perché le impostazioni di una versione precedente non sono ancora state trasferite in sicurezza. Riavvia Nova Calibrator, poi ripeti la modifica.
+en: Nova Calibrator could not save the calibration because a safety check found a problem with the calibration. Calibrate again.
 it: Impossibile salvare la calibrazione perché non ha superato un controllo di sicurezza. Ricalibra.
-en: Couldn't save the calibration. It will be lost when Nova Calibrator closes.
+en: Nova Calibrator could not save the calibration. When Nova Calibrator closes, the calibration is not kept.
 it: Impossibile salvare la calibrazione. Andrà persa alla chiusura di Nova Calibrator.
-en: Couldn't save Nova Calibrator's settings because the saved calibration couldn't be read. Nothing was changed, so both can still be recovered.
+en: Nova Calibrator could not save its settings because it could not read the saved calibration. Nothing changed, and Nova Calibrator kept both as they were.
 it: Impossibile salvare le impostazioni perché la calibrazione salvata non è leggibile. Non è cambiato nulla, quindi entrambe sono recuperabili.
-en: Couldn't save Nova Calibrator's settings because the saved ones couldn't be read. They were left untouched so they can be recovered.
+en: Nova Calibrator could not save its settings because it could not read the saved settings. It kept them as they were.
 it: Impossibile salvare le impostazioni perché quelle salvate non sono leggibili. Sono state lasciate intatte per poterle recuperare.
-en: Couldn't save Nova Calibrator's settings because the protected chaperone failed a safety check. Protect it again.
-it: Impossibile salvare le impostazioni perché il chaperone protetto non ha superato un controllo di sicurezza. Proteggilo di nuovo.
-en: Couldn't save Nova Calibrator's settings. Changes will be lost when it closes.
+en: Nova Calibrator could not save its settings because a safety check found a problem with the saved chaperone. Select “Protect chaperone” in the Chaperone tool.
+it: Impossibile salvare le impostazioni perché il chaperone salvato non ha superato un controllo di sicurezza. Seleziona “Proteggi il chaperone” nello strumento Chaperone.
+en: Nova Calibrator could not save its settings. When Nova Calibrator closes, your changes are not kept.
 it: Impossibile salvare le impostazioni. Le modifiche andranno perse alla chiusura.
-en: Error loading calibration profile: %s
+en: Nova Calibrator could not load the calibration profile: %s
 it: Errore nel caricamento del profilo di calibrazione: {0}
-en: Error loading application settings: %s
+en: Nova Calibrator could not load its settings: %s
 it: Errore nel caricamento delle impostazioni: {0}
-en: The profile is preserved, not overwritten.
+en: Nova Calibrator kept the profile as it was.
 it: Il profilo è conservato, non sovrascritto.
-en: Settings changes will not save until this is fixed.
+en: Nova Calibrator does not save changes to settings until this problem is corrected.
 it: Le modifiche alle impostazioni non verranno salvate finché il problema non è risolto.
-en: To start over, delete the Config value under %s
+en: To start with a new calibration profile, delete the Config value under %s
 it: Per ricominciare da zero, elimina il valore Config in {0}
-en: To start over, delete the Settings value under %s
+en: To start with new settings, delete the Settings value under %s
 it: Per ricominciare da zero, elimina il valore Settings in {0}
-en: The live profile has invalid tracking-system identities and was disabled before sending it to the driver
+en: The profile for the driver has incorrect tracking-system IDs. Nova Calibrator set it to off before the driver received it.
 it: Il profilo attivo ha identità di sistema di tracciamento non valide ed è stato disattivato prima di inviarlo al driver
-en: The live calibration contains invalid numeric values and was disabled before sending it to the driver
+en: The calibration for the driver has numbers that are not correct. Nova Calibrator set it to off before the driver received it.
 it: La calibrazione attiva contiene valori numerici non validi ed è stata disattivata prima di inviarla al driver
-en: Couldn't find the local application data folder.
+en: Nova Calibrator could not find the local application data folder.
 it: Impossibile trovare la cartella dei dati locali delle applicazioni.
-en: Couldn't create the diagnostics file in %s.
+en: Nova Calibrator could not create the diagnostics file in %s.
 it: Impossibile creare il file di diagnostica in {0}.
-en: Couldn't finish writing the diagnostics file.
+en: Nova Calibrator could not write all of the diagnostics file.
 it: Impossibile completare la scrittura del file di diagnostica.
 
 # ---- Updates ----
-en: Nova Calibrator %s is a prerelease. Automatic updates follow stable releases only, so this build will not update itself. Install a stable release by hand to rejoin them.
+en: Nova Calibrator %s is a prerelease. Automatic updates use only stable releases. Thus, this build does not install updates. To receive automatic updates again, install a stable release manually.
 it: Nova Calibrator {0} è una versione preliminare. Gli aggiornamenti automatici seguono solo le versioni stabili, quindi questa build non si aggiornerà da sola. Installa a mano una versione stabile per riceverli di nuovo.
-en: Checking GitHub for updates
+en: Nova Calibrator does an update check on GitHub
 it: Ricerca aggiornamenti su GitHub
-en: Nova Calibrator is up to date
+en: You have the newest version of Nova Calibrator
 it: Nova Calibrator è aggiornato
-en: Downloading Nova Calibrator %s
+en: Nova Calibrator downloads version %s
 it: Download di Nova Calibrator {0}
 en: Nova Calibrator %s is ready to install
 it: Nova Calibrator {0} è pronto per l'installazione
 en: The update check could not start.
 it: Impossibile avviare il controllo degli aggiornamenti.
-en: Update check cancelled.
+en: The update check was canceled.
 it: Controllo aggiornamenti annullato.
-en: Update download cancelled.
+en: The update download was canceled.
 it: Download dell'aggiornamento annullato.
-en: %s failed (Windows error %s).
-it: {0}: operazione non riuscita (errore di Windows {1}).
-en: Opening the update connection
-it: Apertura della connessione di aggiornamento
-en: Setting update timeouts
-it: Impostazione dei timeout
-en: Connecting to GitHub
-it: Connessione a GitHub
-en: Creating the GitHub request
-it: Creazione della richiesta a GitHub
-en: Securing GitHub redirects
-it: Protezione dei reindirizzamenti di GitHub
-en: Requesting the update
-it: Richiesta dell'aggiornamento
-en: Reading the update response
-it: Lettura della risposta
-en: Downloading the update package
-it: Download del pacchetto
-en: Starting the update helper
-it: Avvio dell'assistente di aggiornamento
-en: GitHub returned HTTP %d.
+en: Nova Calibrator could not %s (Windows error %s).
+it: Impossibile {0} (errore di Windows {1}).
+en: open the update connection
+it: aprire la connessione di aggiornamento
+en: set the update timeouts
+it: impostare i timeout dell'aggiornamento
+en: connect to GitHub
+it: connettersi a GitHub
+en: create the GitHub request
+it: creare la richiesta a GitHub
+en: set the security of the GitHub redirects
+it: impostare la sicurezza dei reindirizzamenti di GitHub
+en: get the update
+it: ottenere l'aggiornamento
+en: read the update response
+it: leggere la risposta dell'aggiornamento
+en: download the update package
+it: scaricare il pacchetto di aggiornamento
+en: start the update helper
+it: avviare l'assistente di aggiornamento
+en: GitHub gave HTTP %d.
 it: GitHub ha risposto HTTP {0}.
-en: GitHub returned an invalid release list.
+en: GitHub gave a release list that is not correct.
 it: GitHub ha restituito un elenco di versioni non valido.
-en: GitHub returned an unexpectedly large release list.
+en: GitHub gave a release list that is too large.
 it: GitHub ha restituito un elenco di versioni troppo grande.
-en: Windows did not provide a local app-data folder.
+en: Windows did not give a local app-data folder.
 it: Windows non ha fornito una cartella dei dati locali delle app.
-en: Windows PowerShell could not be located.
+en: Nova Calibrator could not find Windows PowerShell.
 it: Impossibile trovare Windows PowerShell.
-en: The release package URL is invalid.
+en: The release package URL is not correct.
 it: L'URL del pacchetto non è valido.
-en: The update package could not be saved.
+en: Nova Calibrator could not save the update package.
 it: Impossibile salvare il pacchetto di aggiornamento.
-en: The update package is larger than GitHub reported.
+en: The update package is larger than the size that GitHub gave.
 it: Il pacchetto di aggiornamento è più grande di quanto indicato da GitHub.
-en: The update package download was incomplete.
+en: Nova Calibrator could not download all of the update package.
 it: Il download del pacchetto di aggiornamento è incompleto.
-en: The update folder could not be created (system error %d).
+en: Nova Calibrator could not create the update folder (system error %d).
 it: Impossibile creare la cartella dell'aggiornamento (errore di sistema {0}).
-en: The downloaded package failed SHA-256 verification.
+en: The SHA-256 check of the downloaded package found a problem.
 it: Il pacchetto scaricato non ha superato la verifica SHA-256.
-en: This build has no release signing key, so it cannot verify updates.
+en: This build has no release signing key. Thus, it cannot verify updates.
 it: Questa build non ha una chiave di firma delle versioni, quindi non può verificare gli aggiornamenti.
-en: The release signature is larger than GitHub reported.
+en: The release signature is larger than the size that GitHub gave.
 it: La firma della versione è più grande di quanto indicato da GitHub.
-en: The release signature download was incomplete.
+en: Nova Calibrator could not download all of the release signature.
 it: Il download della firma della versione è incompleto.
-en: The release signature is malformed.
+en: The release signature is not correct.
 it: La firma della versione ha un formato non valido.
-en: The release is signed by a key this build does not trust.
+en: The release signature uses a key that this build does not accept.
 it: La versione è firmata con una chiave di cui questa build non si fida.
-en: The update package could not be opened.
+en: Nova Calibrator could not open the update package.
 it: Impossibile aprire il pacchetto di aggiornamento.
-en: The update package is not the size GitHub reported.
+en: The update package is not the size that GitHub gave.
 it: Il pacchetto di aggiornamento non ha la dimensione indicata da GitHub.
-en: The update package could not be read.
+en: Nova Calibrator could not read the update package.
 it: Impossibile leggere il pacchetto di aggiornamento.
-en: The downloaded package's signature does not verify against the release key.
+en: The signature of the downloaded package is not correct for the release key.
 it: La firma del pacchetto scaricato non risulta valida con la chiave delle versioni.
-en: The verified update package could not be saved (system error %d).
+en: Nova Calibrator could not save the verified update package (system error %d).
 it: Impossibile salvare il pacchetto verificato (errore di sistema {0}).
 en: No verified update is ready to install.
 it: Nessun aggiornamento verificato pronto da installare.
-en: The downloaded update no longer passes verification.
+en: The verification of the downloaded update found a problem.
 it: L'aggiornamento scaricato non supera più la verifica.
-en: The update helper could not be created.
+en: Nova Calibrator could not create the update helper.
 it: Impossibile creare l'assistente di aggiornamento.
-en: The newest release has no trusted release page.
+en: The newest release has no release page that Nova Calibrator accepts.
 it: La versione più recente non ha una pagina di rilascio attendibile.
-en: The newest release points outside the Nova Calibrator repository.
+en: The newest release has a link outside the Nova Calibrator repository.
 it: La versione più recente punta fuori dal repository di Nova Calibrator.
 en: The newest release has no install package.
 it: La versione più recente non ha un pacchetto di installazione.
-en: The newest release contains duplicate install packages.
+en: The newest release has more than one install package.
 it: La versione più recente contiene pacchetti di installazione duplicati.
-en: The newest release does not contain %s.
+en: The newest release does not include %s.
 it: La versione più recente non contiene {0}.
-en: The newest release package has invalid metadata.
+en: The newest release package has incorrect metadata.
 it: Il pacchetto della versione più recente ha metadati non validi.
-en: The newest release package has no valid SHA-256 digest.
+en: The newest release package has no correct SHA-256 digest.
 it: Il pacchetto della versione più recente non ha un'impronta SHA-256 valida.
-en: The newest release package points outside the Nova Calibrator repository.
+en: The newest release package has a link outside the Nova Calibrator repository.
 it: Il pacchetto della versione più recente punta fuori dal repository di Nova Calibrator.
-en: The newest release contains duplicate signatures.
+en: The newest release has more than one signature.
 it: La versione più recente contiene firme duplicate.
-en: The newest release is not signed.
+en: The newest release has no signature.
 it: La versione più recente non è firmata.
-en: The newest release signature has invalid metadata.
+en: The newest release signature has incorrect metadata.
 it: La firma della versione più recente ha metadati non validi.
-en: The newest release signature points outside the Nova Calibrator repository.
+en: The newest release signature has a link outside the Nova Calibrator repository.
 it: La firma della versione più recente punta fuori dal repository di Nova Calibrator.
 
 # ---- Lighthouse tab ----
 en: No Lighthouse devices
 it: Nessun dispositivo Lighthouse
-en: Turn on a tracker or controller that uses base stations.
+en: Start a tracker or a controller that uses base stations.
 it: Accendi un tracker o un controller che usa le stazioni base.
-en: Waiting for SteamVR's log
+en: No SteamVR log
 it: In attesa del registro di SteamVR
-en: Base stations appear here once SteamVR has written %s
+en: Base stations show here when SteamVR writes %s
 it: Le stazioni base compaiono qui dopo che SteamVR ha scritto {0}
 en: its vrserver log.
 it: il suo registro vrserver.
 en: Base stations
 it: Stazioni base
-en: Which base stations each device can see, live from SteamVR's log.
+en: This page shows which base stations each device can see. It uses the SteamVR log.
 it: Quali stazioni base vede ogni dispositivo, in tempo reale dal registro di SteamVR.
 en: Device
 it: Dispositivo
-en: Dropped out once
+en: One dropout
 it: Interrotta una volta
-en: Dropped out twice
+en: Two dropouts
 it: Interrotta due volte
-en: Dropped out %u times
+en: %u dropouts
 it: Interrotta {0} volte
-en: None named yet. Each base station appears as SteamVR reports it.
+en: There are no base stations at this time. Each base station shows here when it is in the SteamVR log.
 it: Ancora nessuna. Ogni stazione base compare quando SteamVR la segnala.
-en: id not logged yet
-it: id non ancora registrato
-en: No reports yet
+en: ID not in the log
+it: ID non ancora registrato
+en: No reports
 it: Nessuna segnalazione
 en: Seen by %d of %d
 it: Vista da {0} su {1}
 en: No dropouts
 it: Nessuna interruzione
-en: Dropped out %u time%s
-it: Interruzioni: {0}
-en: Dropped out %u time%s · the last one left %u time%s
+en: %u dropout%s · %u time%s as the last station in view
 it: Interruzioni: {0} · ultima rimasta: {2}
 en: What each device sees
 it: Cosa vede ogni dispositivo
-en: Not in the log yet
+en: Not in the log
 it: Non ancora nel registro
 en: %d of %d in view
 it: {0} su {1} in vista
 en: %u dropout%s
 it: interruzioni: {0}
-en: %u dropout%s, %u full loss%s
+en: %u dropout%s, %u time%s with no station in view
 it: interruzioni: {0}, perdite totali: {2}
 en: In view: no base station
 it: In vista: nessuna stazione base
@@ -1105,29 +1095,29 @@ en: In view: %s
 it: In vista: {0}
 en: Last change: %s
 it: Ultima variazione: {0}
-en: Tracking restarted %u time%s
+en: Tracking started again %u time%s
 it: Riavvii del tracciamento: {0}
 
 # What last happened to a device, from LighthouseVisibility.
-en: tracking again from %s
+en: has tracking again from %s
 it: di nuovo tracciato da {0}
 en: back to %d stations with %s
 it: di nuovo {0} stazioni con {1}
-en: lost its last station %s
+en: sees no station after %s went out of view
 it: ha perso l'ultima stazione {0}
-en: down to one station %s after losing %s
+en: sees only %s now, not %s
 it: solo la stazione {0} dopo aver perso {1}
 en: sees no base station
 it: non vede nessuna stazione base
 en: started a new solution from %s
 it: nuovo tracciamento avviato da {0}
-en: could not start tracking from %s
+en: could not start its tracking from %s
 it: impossibile avviare il tracciamento da {0}
-en: 1 drift check this session was skipped because a base station had just changed.
+en: Nova Calibrator did not do 1 drift check in this session because a base station changed just before.
 it: In questa sessione 1 controllo della deriva è stato saltato perché una stazione base era appena cambiata.
-en: %u drift checks this session were skipped because a base station had just changed.
+en: Nova Calibrator did not do %u drift checks in this session because a base station changed just before.
 it: Controlli della deriva saltati in questa sessione perché una stazione base era appena cambiata: {0}.
-en: Base station changes haven't affected drift checks this session.
+en: Base station changes did not stop drift checks in this session.
 it: In questa sessione i cambi delle stazioni base non hanno influito sui controlli della deriva.
 en: Read from %s
 it: Letto da {0}
@@ -1141,7 +1131,7 @@ en: OpenVR-SpaceCalibrator
 it: OpenVR-SpaceCalibrator
 
 # The calibration steps, as the sheet's stepper names them.
-en: Get set
+en: Prepare
 it: Preparazione
 en: Move
 it: Movimento
@@ -1155,30 +1145,30 @@ en: Continue
 it: Continua
 en: Welcome to Nova Calibrator
 it: Benvenuto in Nova Calibrator
-en: Play with your headset and SteamVR trackers in one playspace. Nova Calibrator lines them up, so your trackers sit where your body is.
+en: Use your headset and your SteamVR trackers in one playspace. Nova Calibrator aligns them. Thus, your trackers are where your body is.
 it: Gioca con il visore e i tracker SteamVR in un unico spazio di gioco. Nova Calibrator li allinea, così i tracker stanno dove si trova il tuo corpo.
 en: Calibrate in seconds
 it: Calibra in pochi secondi
-en: Hold a controller to a tracker and move both for 10 seconds.
+en: Hold a controller against a tracker. Move both for 10 seconds.
 it: Tieni un controller contro un tracker e muovili insieme per 10 secondi.
-en: Stays aligned while you play
+en: Stays aligned during play
 it: Resta allineato mentre giochi
-en: When your headset re-centers or corrects itself, your trackers follow.
+en: When a headset re-center or a headset correction occurs, your trackers follow.
 it: Quando il visore si ricentra o si corregge da solo, i tracker lo seguono.
-en: Warns you about drift
+en: Tells you about drift
 it: Ti avvisa della deriva
-en: You'll get a notification in VR if the alignment starts to slip.
+en: You get a notification in VR if your trackers do not stay aligned.
 it: Ricevi una notifica in VR se l'allineamento inizia a scivolare.
 en: Which headset do you use?
 it: Quale visore usi?
-en: Your headset sets the playspace. Nova Calibrator lines your trackers up with it.
+en: Your headset sets the playspace. Nova Calibrator aligns your trackers with it.
 it: Il visore definisce lo spazio di gioco. Nova Calibrator allinea i tracker al visore.
 en: Quest 2, Quest 3, Quest 3S and Quest Pro
 it: Quest 2, Quest 3, Quest 3S e Quest Pro
 en: Connected
 it: Collegato
-en: Coming later
-it: Prossimamente
+en: Not available
+it: Non disponibile
 en: Which trackers do you use?
 it: Quali tracker usi?
 en: Select every kind you use.
@@ -1195,27 +1185,27 @@ en: %d connected
 it: {0} {0|collegato|collegati}
 en: Not connected
 it: Non collegato
-en: Untested
+en: Not tested
 it: Non testato
-en: Greyed out? Turn that tracker on first.
-it: È in grigio? Accendi prima quel tracker.
-en: Keep Nova Calibrator up to date
+en: Is a row gray? Start a tracker of that type first.
+it: Una riga è in grigio? Accendi prima un tracker di quel tipo.
+en: Get new versions of Nova Calibrator
 it: Mantieni Nova Calibrator aggiornato
-en: New versions download in the background. You decide when to install them.
+en: New versions download in the background. You select when to install them.
 it: Le nuove versioni si scaricano in background. Decidi tu quando installarle.
-en: Checked before it's offered
+en: Each release gets a check first
 it: Verificato prima di essere proposto
-en: Every release is signed, and you're only offered ones that pass the check.
-it: Ogni versione è firmata e ti vengono proposte solo quelle che superano la verifica.
-en: Installs when you say so
+en: Every release has a signature. Nova Calibrator installs only releases with a correct signature.
+it: Ogni versione è firmata e Nova Calibrator installa solo quelle con una firma valida.
+en: Installs only when you select it
 it: Si installa quando lo decidi tu
-en: Steam has to be closed to install, so updates always wait for you.
+en: You must close Steam before an update can install. Thus, updates always wait for you.
 it: Per installare bisogna chiudere Steam, quindi gli aggiornamenti aspettano sempre te.
-en: Talks only to GitHub
+en: Connects only to GitHub
 it: Comunica solo con GitHub
-en: It only ever checks Nova Calibrator's releases on GitHub.
+en: It examines only the Nova Calibrator releases on GitHub.
 it: Controlla soltanto le versioni di Nova Calibrator su GitHub.
-en: You can change this anytime in Settings.
+en: You can change this in Settings at any time.
 it: Puoi cambiarlo quando vuoi nelle Impostazioni.
 en: Turn on automatic updates
 it: Attiva gli aggiornamenti automatici
@@ -1223,7 +1213,7 @@ en: Not now
 it: Non ora
 en: Your first calibration
 it: La tua prima calibrazione
-en: Hold one of your Quest controllers against a tracker. You'll move them together for %.0f seconds.
+en: Hold one of your Quest controllers against a tracker. You will move them together for %.0f seconds.
 it: Tieni uno dei controller del Quest contro un tracker. Li muoverai insieme per {0} secondi.
 en: Hold this
 it: Tieni questo

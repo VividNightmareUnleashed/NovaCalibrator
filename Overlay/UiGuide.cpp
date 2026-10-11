@@ -46,12 +46,14 @@ void StartMountSetup(const VRState &state)
 	}
 	if (!hmd)
 	{
-		CalCtx.ReportError("The headset isn't showing up in SteamVR, so the tracker position can't be measured yet.\n");
+		CalCtx.ReportError("Nova Calibrator cannot measure the tracker position at this time because SteamVR does not "
+			"show the headset.\n");
 		return;
 	}
 	if (!tracker || !tracker->connected)
 	{
-		CalCtx.ReportError("The headset tracker isn't connected. Switch it on, then try again.\n");
+		CalCtx.ReportError("The headset tracker is not connected. Start it. Then select \xE2\x80\x9CSet up headset "
+			"tracker\xE2\x80\x9D again.\n");
 		return;
 	}
 	CalCtx.pendingReferenceTrackingSystem = hmd->trackingSystem;
@@ -75,12 +77,13 @@ bool BeginGuidedRun()
 		if (s_guide.demo != GuideDemo::Wrist)
 		{
 			CalCtx.Instruct("Look around slowly.");
-			CalCtx.Note("Look left and right, then up and down. Gently tilt your head to each side. Keep the tracker in view of the base stations.");
+			CalCtx.Note("Look left and right. Then look up and down. Slowly tilt your head to each side. Keep the "
+				"tracker in view of the base stations.");
 		}
 		else
 		{
-			CalCtx.Instruct("Keep both devices firmly together.");
-			CalCtx.Note("Draw slow figure eights in the air, turning and tilting your hands as you go.");
+			CalCtx.Instruct("Keep both devices tightly together.");
+			CalCtx.Note("Move both devices in slow figure eights. Turn and tilt your hands while you move them.");
 		}
 		CalCtx.Progress(0, static_cast<int>(CalCtx.CollectionSeconds() * 100.0));
 		s_guide.metrics.valid = true;
@@ -131,7 +134,7 @@ void DrawGuideAnimation(ImDrawList *dl, const FlexRect &box, double t, GuideDemo
 	if (!s_guideTexture)
 	{
 		ui::DrawText(dl, ui::type::Body, ImVec2(box.min.x + 24.0f, box.min.y + 24.0f), box.W() - 48.0f, ui::col::Caution,
-			Tr("Motion demos couldn't load. Reinstall Nova Calibrator to restore them."));
+			Tr("Nova Calibrator could not load the movement demos. To repair this, install Nova Calibrator again."));
 		return;
 	}
 	const bool wrist = demo == GuideDemo::Wrist;
@@ -169,7 +172,7 @@ void DrawGuideAnimation(ImDrawList *dl, const FlexRect &box, double t, GuideDemo
 		drawFrame(frame, a, ImVec2(a.x + imageW, a.y + imageH), static_cast<float>(std::clamp(t / 0.2, 0.0, 1.0)));
 		if (caption)
 		{
-			const char *label = Tr(t < 2.0 ? "Bring the controller to the wrist tracker" : "Turn and tilt as you move in a figure eight");
+			const char *label = Tr(t < 2.0 ? "Move the controller to the wrist tracker" : "Turn and tilt as you move in a figure eight");
 			ui::DrawText(dl, captionStyle, ImVec2(box.min.x, box.max.y - captionH - 4.0f), box.W(), captionInk, label, ui::Align::Center);
 		}
 		return;
@@ -188,7 +191,7 @@ void DrawGuideAnimation(ImDrawList *dl, const FlexRect &box, double t, GuideDemo
 		drawFrame(std::min(119, static_cast<int>(t * 60.0)), a, ImVec2(a.x + imageW, a.y + imageH), opacity);
 		if (caption)
 		{
-			const char *label = Tr(demo == GuideDemo::HeadsetContact ? "Rest the controller against the visor" : "Bring the controller to the wrist tracker");
+			const char *label = Tr(demo == GuideDemo::HeadsetContact ? "Put the controller against the visor" : "Move the controller to the wrist tracker");
 			ui::DrawText(dl, captionStyle, ImVec2(box.min.x, box.max.y - captionH - 4.0f), box.W(), ui::Fade(captionInk, opacity),
 				label, ui::Align::Center);
 		}
@@ -268,11 +271,11 @@ static void DemoWell(ImDrawList *dl, const FlexRect &area, bool controls)
 		s_guide.animate = true;
 	}
 	if (ImGui::IsItemHovered())
-		ShowTip("Replay the demo");
+		ShowTip("Start the demo again");
 	if (ui::RoundButton("##pausedemo", pause, 40.0f, s_guide.animate ? ui::Icon::Pause : ui::Icon::Play, 16.0f, fill, ink))
 		s_guide.animate = !s_guide.animate;
 	if (ImGui::IsItemHovered())
-		ShowTip(s_guide.animate ? "Pause the demo" : "Play the demo");
+		ShowTip(s_guide.animate ? "Stop the demo" : "Start the demo");
 }
 
 // A sheet stage's frame: header, title, lead, the flexible area and the
@@ -340,7 +343,7 @@ static void PairChips(ImDrawList *dl, ImVec2 at, float maxWidth, const VRDevice 
 		chip.name = chip.shown = PickName(picks[i], i == 0);
 		const bool tracking = picks[i] && picks[i]->tracking;
 		const bool settling = i == 1 && targetSettling && tracking;
-		chip.pattern = settling ? "%s is settling" : tracking ? "%s is tracking" : "%s isn't tracking";
+		chip.pattern = settling ? "%s is not stable" : tracking ? "%s has tracking" : "%s has no tracking";
 		chip.dot = tracking && !settling ? ui::col::Good : ui::col::Caution;
 		chip.text = Tr(FormatString(chip.pattern, chip.shown.c_str()));
 	}
@@ -378,15 +381,17 @@ static void GetSetStage(const VRState &state, const FlexRect &c, double now)
 	}
 	const bool contact = s_guide.demo == GuideDemo::HeadsetContact;
 	const bool mounted = s_guide.demo == GuideDemo::Mounted;
-	const std::string title = Tr(s_guide.anchor ? "Stand where the trackers look misaligned"
+	const std::string title = Tr(s_guide.anchor ? "Go to an area where the trackers are not aligned"
 		: contact ? "Hold the controller against the visor"
-		: mounted ? "Keep the tracker fixed to your headset"
+		: mounted ? "Keep the tracker attached to your headset"
 		: "Hold the controller against the wrist tracker");
 	const std::string lead = Tr(contact
-		? FormatString("Hold the controller upright, with the trigger side against the front of your headset. Keep it in place as you turn and tilt your head for %.0f seconds.", CalCtx.CollectionSeconds())
+		? FormatString("Hold the controller vertically, with the trigger side against the front of your headset. "
+			"Keep it in position while you turn and tilt your head for %.0f seconds.", CalCtx.CollectionSeconds())
 		: mounted
-		? FormatString("Move your head gently for %.0f seconds, keeping your body relaxed. Keep the tracker sensors uncovered.", CalCtx.CollectionSeconds())
-		: FormatString("When you start, move both in slow figure eights for %.0f seconds, turning and tilting your hands as you go.", CalCtx.CollectionSeconds()));
+		? FormatString("Move your head slowly for %.0f seconds. Keep your body relaxed. Do not cover the tracker sensors.", CalCtx.CollectionSeconds())
+		: FormatString("When you start, move both devices in slow figure eights for %.0f seconds. Turn and tilt "
+			"your hands while you move them.", CalCtx.CollectionSeconds()));
 	StageLayout s;
 	LayOutStage(s, c, title, lead, 200.0f, 0.0f);
 	DrawStageTexts(s, title, lead);
@@ -405,7 +410,7 @@ static void GetSetStage(const VRState &state, const FlexRect &c, double now)
 	// English here; the button translates its own.
 	const bool counting = s_guide.stage == GuideStage::Countdown;
 	const int remain = static_cast<int>(std::ceil(kCountdownSeconds - (now - s_guide.countdownStart)));
-	const std::string label = counting ? FormatString("Starting in %d...", std::max(remain, 1))
+	const std::string label = counting ? FormatString("Starts in %d...", std::max(remain, 1))
 		: std::string(ready ? "Start" : "Start anyway");
 	const ui::Icon icon = counting ? ui::Icon::None : ui::Icon::Play;
 	const float w = std::max(210.0f, ui::PillWidth(label.c_str(), 19.0f, icon));
@@ -527,7 +532,7 @@ static void RunningStage(const VRState &state, const FlexRect &c, double now)
 		DemoWell(dl, area, false);
 		const ImVec2 centre(area.Center().x, area.min.y + area.H() * 0.5f - 22.0f);
 		WaitingRing(dl, centre, target, now);
-		const char *caption = Tr(target && target->tracking ? "Settling..." : "Waiting for tracking");
+		const char *caption = Tr(target && target->tracking ? "Not stable" : "No tracking");
 		ui::DrawText(dl, ui::type::Label, ImVec2(area.min.x, centre.y + 96.0f), area.W(), ui::col::Text, caption, ui::Align::Center);
 		PairChips(dl, ImVec2(footer.min.x, footer.min.y + (footer.H() - ui::kChipH) * 0.5f), cancelR.min.x - footer.min.x - 16.0f,
 			reference, target, true);
@@ -566,10 +571,10 @@ static void RunningStage(const VRState &state, const FlexRect &c, double now)
 	const float meterW = (extra.W() - 24.0f) / 3.0f;
 	const char *names[3] = { Tr("Range of motion"), Tr("Movement speed"), Tr(s_guide.mountRun ? "Tracker stability" : "Grip") };
 	const char *states[3] = {
-		!m.valid ? "Measuring..." : m.coverage >= 0.99 ? "Enough variety" : "Keep turning and tilting",
-		!m.valid ? "Measuring..." : m.gatedFraction < 0.15 ? "Good pace" : "Move more slowly",
-		!m.rigidityValid ? "Measuring..." : m.rigidityDeg < 3.0 ? "Moving together"
-			: s_guide.mountRun ? "Tracker is shifting on the headset" : "Hold them tighter together"
+		!m.valid ? "More data is necessary" : m.coverage >= 0.99 ? "Sufficient movement" : "Turn and tilt more",
+		!m.valid ? "More data is necessary" : m.gatedFraction < 0.15 ? "Good pace" : "Move more slowly",
+		!m.rigidityValid ? "More data is necessary" : m.rigidityDeg < 3.0 ? "The devices move together"
+			: s_guide.mountRun ? "The tracker moves on the headset" : "Hold them more tightly together"
 	};
 	const bool good[3] = { m.valid && m.coverage >= 0.99, m.valid && m.gatedFraction < 0.15, m.rigidityValid && m.rigidityDeg < 3.0 };
 	const bool measured[3] = { m.valid, m.valid, m.rigidityValid };
@@ -584,7 +589,7 @@ static void RunningStage(const VRState &state, const FlexRect &c, double now)
 		ui::Meter(dl, r, names[i], Tr(states[i]), colour, static_cast<float>(values[i]));
 	}
 	ui::DrawLine(dl, ui::TextStyle{ ui::Weight::Regular, 16.0f, footer.H() }, footer.min, ui::col::Muted,
-		Tr("Keep holding until the timer ends."));
+		Tr("Continue until the timer stops."));
 	if (ui::PillButton("##cancelrun", "Cancel", ui::Btn::Secondary, cancelR, ui::Icon::None, 19.0f))
 	{
 		if (g_uiPreviewMode)
@@ -767,16 +772,16 @@ void BuildCalibrateSheet(const VRState &state)
 		if (g_uiPreviewScenario == PreviewScenario::Failed)
 		{
 			CalCtx.lastRunPassed = false;
-			CalCtx.Outcome("Calibration failed", "The devices didn't turn far enough.",
-				"Make bigger turns, and keep them pressed together.",
+			CalCtx.Outcome("Calibration not completed", "The turns of the devices were too small.",
+				"Make larger turns. Keep the devices tightly together.",
 				"Rotation coverage 0.21 of 1.00 (need 0.60)", CalibrationContext::Tone::Warn);
 		}
 		else
 		{
 			CalCtx.lastRunPassed = true;
-			CalCtx.Outcome("Calibration complete", "Check in VR that your trackers line up with your body.", "", "",
+			CalCtx.Outcome("Calibration completed", "In VR, make sure that your trackers align with your body.", "", "",
 				CalibrationContext::Tone::Good, CalibrationContext::Event::Calibrated,
-				"Calibrated with Touch Pro Right and VIVE Tracker 3.0.");
+				"The calibration used Touch Pro Right and VIVE Tracker 3.0.");
 		}
 		s_guide.stage = GuideStage::Done;
 	}

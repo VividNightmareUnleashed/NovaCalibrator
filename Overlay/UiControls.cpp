@@ -302,7 +302,7 @@ namespace ui
 
 	void Stepper(ImDrawList *dl, ImVec2 topLeft, int current, unsigned doneMask, int failed)
 	{
-		const char *const names[3] = { Tr("Get set"), Tr("Move"), Tr("Check") };
+		const char *const names[3] = { Tr("Prepare"), Tr("Move"), Tr("Check") };
 		float x = topLeft.x;
 		const float cy = topLeft.y + 22.0f;
 		for (int i = 0; i < 3; ++i)

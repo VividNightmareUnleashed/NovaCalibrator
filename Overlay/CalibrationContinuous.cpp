@@ -60,9 +60,13 @@ static bool DrainContinuousInput(CalibrationContext &ctx)
 static void NotifyResolveFreeze(CalibrationContext &ctx)
 {
 	NotifyOnce(ctx, Monitors.freezeNotified,
-		"Continuous calibration paused after the headset tracker restarted. It resumes if tracking recovers; another tracker restart may be needed.",
+		"Continuous calibration stopped after the headset tracker started again. It continues when "
+			"the headset tracker values are near the calibration again. If this does not occur, stop "
+			"the tracker and start it again.",
 		CalibrationContext::Tone::Warn,
-		"Nova Calibrator: tracking has not recovered after the headset tracker restarted. Wait, or turn that tracker off and on in view of its base stations.",
+		"Nova Calibrator: tracking is not correct after the headset tracker started again. Wait "
+			"for it to become correct. If tracking does not become correct, stop the tracker and start "
+			"it again in view of its base stations.",
 		ctx.notifyPoorCalibration, CalibrationContext::Event::Paused);
 }
 
@@ -200,7 +204,8 @@ static void TrackerPresenceTick(CalibrationContext &ctx, double now)
 		ctx.continuousTrackerOffEpisodes++;
 	}
 	static const char *const Toast =
-		"Nova Calibrator: the headset tracker is off. Turn it back on to resume continuous calibration.";
+		"Nova Calibrator: the headset tracker is off. Start the tracker. Then continuous "
+			"calibration starts again.";
 	const bool toasts = ctx.notifyPoorCalibration && ToastSink;
 	// The log line naming the reason precedes OpenVR dropping the device by
 	// half a second and is read four times a second; it gets a moment.
@@ -219,24 +224,24 @@ static void TrackerPresenceTick(CalibrationContext &ctx, double now)
 		p.lastNoticeAt = now;
 		std::string line;
 		if (!standby)
-			line = "The headset tracker switched off or lost its connection.";
+			line = "The headset tracker stopped or disconnected.";
 		else if (const int minutes = TurnOffControllersMinutes())
 		{
 			char buf[256];
 			snprintf(buf, sizeof buf,
-				"SteamVR switched the headset tracker off after it sat still for %d minutes.",
+				"SteamVR stopped the headset tracker because it did not move for %d minutes.",
 				minutes);
 			line = buf;
 		}
 		else
-			line = "SteamVR switched the headset tracker off after it sat still.";
+			line = "SteamVR stopped the headset tracker because it did not move.";
 		// The main screen says to turn it back on; the feed says what happened.
 		ctx.Tell(line + "\n", CalibrationContext::Tone::Warn, CalibrationContext::Event::TrackerOff);
 		if (standby && !p.settingHinted)
 		{
 			p.settingHinted = true;
-			ctx.Tell("To keep this from happening, set \xE2\x80\x9CTurn off controllers after\xE2\x80\x9D to Never in SteamVR's Startup / "
-				"Shutdown settings.\n", CalibrationContext::Tone::Neutral, CalibrationContext::Event::TrackerOff);
+			ctx.Tell("To prevent this, set \xE2\x80\x9CTurn off controllers after\xE2\x80\x9D to "
+				"\xE2\x80\x9CNever\xE2\x80\x9D in the SteamVR Startup / Shutdown settings.\n", CalibrationContext::Tone::Neutral, CalibrationContext::Event::TrackerOff);
 		}
 		if (toasts)
 			ToastSink(Toast);
@@ -403,11 +408,12 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 	auto applyDelta = [&](const questcal::ContinuousAlignment::Correction &delta, bool snap)
 	{
 		if (!snap && ctx.continuousRequireTrigger)
-			ctx.Tell("Trigger pulled; applying the correction.\n");
+			ctx.Tell("You pulled the trigger. Nova Calibrator makes the correction.\n");
 		if (!questcal::ApplyCalibrationDelta(ctx, delta.rotation, delta.translation,
 			snap, now, /*moveChaperone=*/false))
 		{
-			ctx.ReportError("A correction was too large to be safe and was skipped. If this keeps happening, recalibrate.\n");
+			ctx.ReportError("A correction was too large to be safe. Nova Calibrator did not use it. If this occurs "
+				"again, calibrate again.\n");
 			return false;
 		}
 		ctx.lastAutoCorrectionUnixTime = static_cast<double>(std::time(nullptr));
@@ -431,7 +437,7 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 	const bool reanchorApplied =
 		handled.reanchor == questcal::ContinuousOutputHandling::Outcome::Applied;
 	if (handled.correctionReady)
-		ctx.Tell("Correction ready. Pull a trigger to apply it.\n");
+		ctx.Tell("A correction is ready. Pull a trigger to use it.\n");
 
 	ctx.continuousState = Continuous->GetState();
 	if (ctx.continuousState != questcal::ContinuousAlignment::State::Frozen)
@@ -475,17 +481,21 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 				NotifyResolveFreeze(ctx);
 			else if (restartsVisible)
 				NotifyOnce(ctx, Monitors.freezeNotified,
-					"Continuous calibration paused: readings moved too far from the calibration. It re-aligns on its own if they hold steady.",
+					"Continuous calibration stopped because the values moved too far from the calibration. If "
+						"the values are stable, it aligns your trackers again automatically.",
 					CalibrationContext::Tone::Warn,
-					"Nova Calibrator: continuous calibration paused; readings moved too far from the calibration. It re-aligns on its own if they hold steady, or recalibrate with the headset tracker.",
+					"Nova Calibrator: continuous calibration stopped because the values moved too far from the "
+						"calibration. If the values are stable, it aligns your trackers again automatically. You "
+						"can also calibrate again with the headset tracker.",
 					ctx.notifyPoorCalibration, CalibrationContext::Event::Paused);
 			else
 				// Without the tracker's restarts in view nothing re-aligns on
 				// its own; only the readings coming back resume it.
 				NotifyOnce(ctx, Monitors.freezeNotified,
-					"Continuous calibration paused: tracking drifted too far to correct safely.",
+					"Continuous calibration stopped because tracking moved too far to correct safely.",
 					CalibrationContext::Tone::Warn,
-					"Nova Calibrator: continuous calibration paused; readings drifted too far to correct safely. Recalibrate with the headset tracker to resume.",
+					"Nova Calibrator: continuous calibration stopped because the values moved too far to "
+						"correct safely. To continue, calibrate again with the headset tracker.",
 					ctx.notifyPoorCalibration, CalibrationContext::Event::Paused);
 			break;
 		case questcal::ContinuousAlignment::Event::Reanchored:
@@ -517,8 +527,8 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 				const bool lighthouseSide = ev.afterTargetResolve ||
 					ev.deviation.tiltDeg >= Continuous->GetConfig().holdTiltDeg;
 				ctx.Tell(lighthouseSide
-					? "Re-aligned your trackers after their base station tracking shifted.\n"
-					: "Re-aligned your trackers with your headset.\n",
+					? "Continuous calibration aligned your trackers again after their base station tracking moved.\n"
+					: "Continuous calibration aligned your trackers with your headset again.\n",
 					CalibrationContext::Tone::Good, CalibrationContext::Event::Realigned);
 			}
 			break;
@@ -533,7 +543,7 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 			ctx.continuousReanchorsUndone++;
 			Monitors.freezeNotified = false;
 			if (!ctx.continuousNoPause)
-				ctx.Tell("Continuous calibration went back to the alignment it had before it last re-aligned your trackers.\n",
+				ctx.Tell("Continuous calibration now aligns your trackers as it did before it last aligned them again.\n",
 					CalibrationContext::Tone::Good);
 			break;
 		case questcal::ContinuousAlignment::Event::ObservationsUnstable:
@@ -542,13 +552,14 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 				ev.scatterRotDeg, ev.scatterPosM * 100.0);
 			ctx.Log(buf);
 			NotifyOnce(ctx, Monitors.unstableNotified,
-				"Tracking is noisy here; continuous calibration is waiting and resumes on its own.",
+				"Tracking is not stable here. Continuous calibration waits, then continues automatically.",
 				CalibrationContext::Tone::Warn,
-				"Nova Calibrator: tracking is noisy here. Continuous calibration is waiting and resumes on its own.",
+				"Nova Calibrator: tracking is not stable here. Continuous calibration waits, then "
+					"continues automatically.",
 				ctx.notifyPoorCalibration, CalibrationContext::Event::Paused);
 			break;
 		case questcal::ContinuousAlignment::Event::Resumed:
-			ctx.Tell("Continuous calibration resumed.\n", CalibrationContext::Tone::Good);
+			ctx.Tell("Continuous calibration continues.\n", CalibrationContext::Tone::Good);
 			Monitors.freezeNotified = false;
 			break;
 		case questcal::ContinuousAlignment::Event::TrackerLost:
@@ -560,16 +571,18 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 			switch (ContinuousLostStream)
 			{
 			case ringpose::StoppedStream::Headset:
-				ctx.Tell("Headset not tracking; continuous calibration waiting.\n");
+				ctx.Tell("The headset has no tracking. Continuous calibration waits until it has tracking again.\n");
 				break;
 			case ringpose::StoppedStream::Both:
-				ctx.Tell("Headset and headset tracker not tracking; continuous calibration waiting.\n");
+				ctx.Tell("The headset and the headset tracker have no tracking. Continuous calibration waits until "
+					"they have tracking again.\n");
 				break;
 			case ringpose::StoppedStream::Neither:
-				ctx.Tell("No usable readings from the headset and its tracker; continuous calibration waiting.\n");
+				ctx.Tell("The headset and its tracker give no values that Nova Calibrator can use. Continuous "
+					"calibration waits until it gets values again.\n");
 				break;
 			default:
-				ctx.Tell("Headset tracker not tracking; continuous calibration waiting.\n");
+				ctx.Tell("The headset tracker has no tracking. Continuous calibration waits until it has tracking again.\n");
 				break;
 			}
 			break;
@@ -577,16 +590,17 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 			switch (ContinuousLostStream)
 			{
 			case ringpose::StoppedStream::Headset:
-				ctx.Tell("Headset back; continuous calibration warming up.\n");
+				ctx.Tell("The headset has tracking again. Continuous calibration collects new values.\n");
 				break;
 			case ringpose::StoppedStream::Both:
-				ctx.Tell("Headset and headset tracker back; continuous calibration warming up.\n");
+				ctx.Tell("The headset and the headset tracker have tracking again. Continuous calibration collects "
+					"new values.\n");
 				break;
 			case ringpose::StoppedStream::Neither:
-				ctx.Tell("Readings back; continuous calibration warming up.\n");
+				ctx.Tell("Values are available again. Continuous calibration collects new values.\n");
 				break;
 			default:
-				ctx.Tell("Headset tracker back; continuous calibration warming up.\n");
+				ctx.Tell("The headset tracker has tracking again. Continuous calibration collects new values.\n");
 				break;
 			}
 			break;

@@ -391,8 +391,10 @@ void LoadProfile(CalibrationContext &ctx)
 	{
 		ctx.profileLoadState = questcal::RecordLoadState::Unreadable;
 		ctx.Log("Calibration profile read failed: " + profileRead.error + "\n");
-		ctx.ReportError("Couldn't read the saved calibration, so it was left as it is. "
-			"Restart Nova Calibrator. If this repeats, save a diagnostics file in Settings and report it.\n",
+		ctx.ReportError("Nova Calibrator could not read the saved calibration. It did not change the calibration. "
+			"Start Nova Calibrator again. If the problem occurs again, save a diagnostics file in "
+			"Settings. Then select \xE2\x80\x9CReport on GitHub\xE2\x80\x9D. Attach the file to your "
+			"report.\n",
 			CalibrationContext::ErrorSource::ProfilePersistence);
 	}
 	else if (profileRead.status == RegistryReadStatus::Missing || profileRead.value.empty())
@@ -432,9 +434,9 @@ void LoadProfile(CalibrationContext &ctx)
 		catch (const std::exception &e)
 		{
 			ctx.profileLoadState = questcal::RecordLoadState::Unreadable;
-			ctx.ReportError(std::string("Error loading calibration profile: ") + e.what() +
-					"\nThe profile is preserved, not overwritten. To start over, delete the"
-					" Config value under " + RegistryKeyDisplayPath + "\n",
+			ctx.ReportError(std::string("Nova Calibrator could not load the calibration profile: ") + e.what() +
+					"\nNova Calibrator kept the profile as it was. To start with a new calibration profile,"
+					" delete the Config value under " + RegistryKeyDisplayPath + "\n",
 				CalibrationContext::ErrorSource::ProfilePersistence);
 		}
 	}
@@ -446,8 +448,9 @@ void LoadProfile(CalibrationContext &ctx)
 	{
 		ctx.settingsLoadState = questcal::RecordLoadState::Unreadable;
 		ctx.Log("Settings read failed: " + settingsRead.error + "\n");
-		ctx.ReportError("Couldn't read Nova Calibrator's settings, so they were left as they are. "
-			"Restart Nova Calibrator. If this repeats, save a diagnostics file in Settings and report it.\n",
+		ctx.ReportError("Nova Calibrator could not read its settings. It did not change them. Start Nova "
+			"Calibrator again. If the problem occurs again, save a diagnostics file in Settings. Then "
+			"select \xE2\x80\x9CReport on GitHub\xE2\x80\x9D. Attach the file to your report.\n",
 			CalibrationContext::ErrorSource::SettingsPersistence);
 	}
 	// Missing or empty keeps whatever the (possibly legacy) Config load produced;
@@ -469,9 +472,9 @@ void LoadProfile(CalibrationContext &ctx)
 			ctx.settingsLoadState = questcal::RecordLoadState::Unreadable;
 			// Until this record is cleared every settings write is refused, so
 			// the toggles in the UI will silently roll back. Say where it is.
-			ctx.ReportError(std::string("Error loading application settings: ") + e.what() +
-					"\nSettings changes will not save until this is fixed. To start over,"
-					" delete the Settings value under " + RegistryKeyDisplayPath + "\n",
+			ctx.ReportError(std::string("Nova Calibrator could not load its settings: ") + e.what() +
+					"\nNova Calibrator does not save changes to settings until this problem is corrected."
+					" To start with new settings, delete the Settings value under " + RegistryKeyDisplayPath + "\n",
 				CalibrationContext::ErrorSource::SettingsPersistence);
 		}
 	}
@@ -500,8 +503,8 @@ void LoadProfile(CalibrationContext &ctx)
 	if (plan.reportRevisionMismatch)
 	{
 		ctx.ReportError(
-			"The calibration profile and protected chaperone were saved at different revisions. "
-			"Chaperone auto-restore is disabled until you capture it again.\n",
+			"The saved chaperone is not for the saved calibration. Thus, chaperone protection is off "
+			"now. Select \xE2\x80\x9CProtect chaperone\xE2\x80\x9D in the Chaperone tool.\n",
 			CalibrationContext::ErrorSource::Chaperone);
 	}
 
@@ -517,14 +520,15 @@ void LoadProfile(CalibrationContext &ctx)
 		break;
 	case questcal::ChaperoneLoadGate::IncompleteOwner:
 		ctx.ReportError(
-			"The protected chaperone has no complete headset/universe baseline. "
-			"It has been disarmed; capture it again before enabling auto-restore.\n",
+			"The saved chaperone does not have all of its data. Thus, chaperone protection is off now. "
+			"Select \xE2\x80\x9CProtect chaperone\xE2\x80\x9D in the Chaperone tool.\n",
 			CalibrationContext::ErrorSource::Chaperone);
 		break;
 	case questcal::ChaperoneLoadGate::ForeignTrackingSystem:
 		ctx.ReportError(
-			"The protected chaperone belongs to a different reference tracking system. "
-			"It has been disarmed; capture it again for this profile.\n",
+			"The saved chaperone is for a different reference tracking system. Thus, chaperone "
+			"protection is off now. Select \xE2\x80\x9CProtect chaperone\xE2\x80\x9D in the Chaperone "
+			"tool.\n",
 			CalibrationContext::ErrorSource::Chaperone);
 		break;
 	}
@@ -584,22 +588,22 @@ static bool WriteConfigRecord(CalibrationContext &ctx, const ProfileRecord &reco
 		return true;
 	case questcal::PersistenceWriteGate::RefusedConfigUnreadable:
 		ctx.ReportError(
-			"Couldn't save the calibration because the saved one couldn't be read. "
-			"It was left untouched so it can be recovered.\n",
+			"Nova Calibrator could not save the calibration because it could not read the saved "
+			"calibration. It kept the saved calibration as it was.\n",
 			CalibrationContext::ErrorSource::ProfilePersistence);
 		return false;
 	case questcal::PersistenceWriteGate::RefusedSettingsUnreadable:
 		ctx.ReportError(
-			"Couldn't save the calibration because Nova Calibrator's settings couldn't be read. "
-			"They were left untouched so they can be recovered.\n",
+			"Nova Calibrator could not save the calibration because it could not read its settings. It "
+			"kept the settings as they were.\n",
 			CalibrationContext::ErrorSource::ProfilePersistence);
 		return false;
 	}
 	if (ctx.persistence.legacySettingsMigrationPending && !WriteSettingsRecord(ctx))
 	{
 		ctx.ReportError(
-			"Couldn't save the calibration because settings from an older version haven't been "
-			"moved over safely yet. Restart Nova Calibrator and try again.\n",
+			"Nova Calibrator could not save the calibration because it must first move the settings "
+			"from an older version. Start Nova Calibrator again. Then make the change again.\n",
 			CalibrationContext::ErrorSource::ProfilePersistence);
 		return false;
 	}
@@ -610,7 +614,8 @@ static bool WriteConfigRecord(CalibrationContext &ctx, const ProfileRecord &reco
 		record, protocol::SetAlignmentField::MaxAnchors, why))
 	{
 		ctx.Log("Calibration profile rejected: " + why + "\n");
-		ctx.ReportError("Couldn't save the calibration because it failed a safety check. Recalibrate.\n",
+		ctx.ReportError("Nova Calibrator could not save the calibration because a safety check found a problem "
+			"with the calibration. Calibrate again.\n",
 			CalibrationContext::ErrorSource::ProfilePersistence);
 		return false;
 	}
@@ -621,7 +626,8 @@ static bool WriteConfigRecord(CalibrationContext &ctx, const ProfileRecord &reco
 	if (!WriteRegistryValue("Config", profile.str(), error))
 	{
 		ctx.Log("Calibration profile write failed: " + error + "\n");
-		ctx.ReportError("Couldn't save the calibration. It will be lost when Nova Calibrator closes.\n",
+		ctx.ReportError("Nova Calibrator could not save the calibration. When Nova Calibrator closes, the "
+			"calibration is not kept.\n",
 			CalibrationContext::ErrorSource::ProfilePersistence);
 		return false;
 	}
@@ -716,14 +722,14 @@ static bool WriteSettingsRecord(CalibrationContext &ctx)
 		return true;
 	case questcal::PersistenceWriteGate::RefusedConfigUnreadable:
 		ctx.ReportError(
-			"Couldn't save Nova Calibrator's settings because the saved calibration couldn't be read. "
-			"Nothing was changed, so both can still be recovered.\n",
+			"Nova Calibrator could not save its settings because it could not read the saved "
+			"calibration. Nothing changed, and Nova Calibrator kept both as they were.\n",
 			CalibrationContext::ErrorSource::SettingsPersistence);
 		return false;
 	case questcal::PersistenceWriteGate::RefusedSettingsUnreadable:
 		ctx.ReportError(
-			"Couldn't save Nova Calibrator's settings because the saved ones couldn't be read. "
-			"They were left untouched so they can be recovered.\n",
+			"Nova Calibrator could not save its settings because it could not read the saved settings. "
+			"It kept them as they were.\n",
 			CalibrationContext::ErrorSource::SettingsPersistence);
 		return false;
 	}
@@ -734,8 +740,9 @@ static bool WriteSettingsRecord(CalibrationContext &ctx)
 	{
 		ctx.Log("Settings rejected: " + why + "\n");
 		ctx.ReportError(
-			"Couldn't save Nova Calibrator's settings because the protected chaperone failed a safety check. "
-			"Protect it again.\n",
+			"Nova Calibrator could not save its settings because a safety check found a problem with "
+			"the saved chaperone. Select \xE2\x80\x9CProtect chaperone\xE2\x80\x9D in the Chaperone "
+			"tool.\n",
 			CalibrationContext::ErrorSource::SettingsPersistence);
 		return false;
 	}
@@ -746,7 +753,8 @@ static bool WriteSettingsRecord(CalibrationContext &ctx)
 	if (!WriteRegistryValue("Settings", settings.str(), error))
 	{
 		ctx.Log("Settings write failed: " + error + "\n");
-		ctx.ReportError("Couldn't save Nova Calibrator's settings. Changes will be lost when it closes.\n",
+		ctx.ReportError("Nova Calibrator could not save its settings. When Nova Calibrator closes, your changes "
+			"are not kept.\n",
 			CalibrationContext::ErrorSource::SettingsPersistence);
 		return false;
 	}

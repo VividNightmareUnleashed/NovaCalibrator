@@ -223,7 +223,7 @@ inline bool SelectReleaseCandidate(const std::string &json,
 	}
 	if (!parseError.empty() || !root.is<picojson::array>())
 	{
-		error = "GitHub returned an invalid release list.";
+		error = "GitHub gave a release list that is not correct.";
 		return false;
 	}
 
@@ -260,14 +260,14 @@ inline bool SelectReleaseCandidate(const std::string &json,
 	parsed.tag = bestTag;
 	if (!JsonField(*best, "html_url", parsed.releaseUrl))
 	{
-		error = "The newest release has no trusted release page.";
+		error = "The newest release has no release page that Nova Calibrator accepts.";
 		return false;
 	}
 	const std::string expectedReleaseUrl =
 		"https://github.com/VividNightmareUnleashed/NovaCalibrator/releases/tag/" + bestTag;
 	if (parsed.releaseUrl != expectedReleaseUrl)
 	{
-		error = "The newest release points outside the Nova Calibrator repository.";
+		error = "The newest release has a link outside the Nova Calibrator repository.";
 		return false;
 	}
 
@@ -293,7 +293,7 @@ inline bool SelectReleaseCandidate(const std::string &json,
 		{
 			if (package)
 			{
-				error = "The newest release contains duplicate install packages.";
+				error = "The newest release has more than one install package.";
 				return false;
 			}
 			package = &asset;
@@ -302,7 +302,7 @@ inline bool SelectReleaseCandidate(const std::string &json,
 		{
 			if (signature)
 			{
-				error = "The newest release contains duplicate signatures.";
+				error = "The newest release has more than one signature.";
 				return false;
 			}
 			signature = &asset;
@@ -310,14 +310,14 @@ inline bool SelectReleaseCandidate(const std::string &json,
 	}
 	if (!package)
 	{
-		error = "The newest release does not contain " + parsed.packageName + ".";
+		error = "The newest release does not include " + parsed.packageName + ".";
 		return false;
 	}
 	// Installed copies take only signed packages, so an unsigned release is
 	// refused, never passed over for an older signed one.
 	if (!signature)
 	{
-		error = "The newest release is not signed.";
+		error = "The newest release has no signature.";
 		return false;
 	}
 
@@ -328,12 +328,12 @@ inline bool SelectReleaseCandidate(const std::string &json,
 		std::floor(size) != size || size < 128.0 * 1024.0 ||
 		size > 64.0 * 1024.0 * 1024.0)
 	{
-		error = "The newest release package has invalid metadata.";
+		error = "The newest release package has incorrect metadata.";
 		return false;
 	}
 	if (!ParseSha256Digest(parsed.digest, parsed.digestBytes))
 	{
-		error = "The newest release package has no valid SHA-256 digest.";
+		error = "The newest release package has no correct SHA-256 digest.";
 		return false;
 	}
 	const std::string expectedDownloadUrl =
@@ -341,7 +341,7 @@ inline bool SelectReleaseCandidate(const std::string &json,
 		bestTag + "/" + parsed.packageName;
 	if (parsed.downloadUrl != expectedDownloadUrl)
 	{
-		error = "The newest release package points outside the Nova Calibrator repository.";
+		error = "The newest release package has a link outside the Nova Calibrator repository.";
 		return false;
 	}
 	double signatureSize = 0.0;
@@ -350,12 +350,12 @@ inline bool SelectReleaseCandidate(const std::string &json,
 		std::floor(signatureSize) != signatureSize || signatureSize < 1.0 ||
 		signatureSize > static_cast<double>(MaxSignatureBytes))
 	{
-		error = "The newest release signature has invalid metadata.";
+		error = "The newest release signature has incorrect metadata.";
 		return false;
 	}
 	if (parsed.signatureUrl != expectedDownloadUrl + ".minisig")
 	{
-		error = "The newest release signature points outside the Nova Calibrator repository.";
+		error = "The newest release signature has a link outside the Nova Calibrator repository.";
 		return false;
 	}
 	parsed.size = static_cast<uint64_t>(size);

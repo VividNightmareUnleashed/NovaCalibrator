@@ -284,21 +284,21 @@ void SetupPreviewState()
 	std::tm local{};
 	const double sinceMidnight = localtime_s(&local, &now) == 0
 		? local.tm_hour * 3600.0 + local.tm_min * 60.0 + local.tm_sec : 12.0 * 3600.0;
-	PreviewActivity("Calibration complete.", Tone::Good, sinceMidnight + (2.0 * 60.0 + 13.0) * minute,
+	PreviewActivity("Nova Calibrator completed the calibration.", Tone::Good, sinceMidnight + (2.0 * 60.0 + 13.0) * minute,
 		Event::Calibrated);
-	PreviewActivity("Calibrated with Touch Pro Right and VIVE Tracker 3.0.", Tone::Good, last + 43.0 * minute,
+	PreviewActivity("The calibration used Touch Pro Right and VIVE Tracker 3.0.", Tone::Good, last + 43.0 * minute,
 		Event::Calibrated);
-	PreviewActivity("Chaperone restored.", Tone::Good, last + 38.0 * minute, Event::Chaperone);
+	PreviewActivity("Nova Calibrator put the chaperone back.", Tone::Good, last + 38.0 * minute, Event::Chaperone);
 	if (sheet)
-		PreviewActivity("Anchor added. This spot now has its own correction.", Tone::Good, last + 21.0 * minute,
+		PreviewActivity("The anchor is added. This area now has its own correction.", Tone::Good, last + 21.0 * minute,
 			Event::Anchor);
-	PreviewActivity("Re-aligned your trackers with your headset.", Tone::Good, last,
+	PreviewActivity("Continuous calibration aligned your trackers with your headset again.", Tone::Good, last,
 		Event::Realigned);
 	if (sheet)
 	{
-		PreviewActivity("Continuous calibration paused: tracking drifted too far to correct safely.", Tone::Warn,
+		PreviewActivity("Continuous calibration stopped because tracking moved too far to correct safely.", Tone::Warn,
 			13.0 * minute, Event::Paused);
-		PreviewActivity("SteamVR switched the headset tracker off after it sat still for 5 minutes.", Tone::Warn,
+		PreviewActivity("SteamVR stopped the headset tracker because it did not move for 5 minutes.", Tone::Warn,
 			30.0, Event::TrackerOff);
 	}
 
@@ -315,9 +315,9 @@ void SetupPreviewState()
 			// Started the moment the tracker woke: the run waits for its new
 			// solution to settle before it measures.
 			CalCtx.state = CalibrationState::Begin;
-			CalCtx.run.waitInstruction = "Waiting for VIVE Tracker 3.0 to settle.";
+			CalCtx.run.waitInstruction = "Nova Calibrator waits until VIVE Tracker 3.0 is stable.";
 			CalCtx.run.waitNote =
-				"Calibration starts on its own in a few seconds. Keep the tracker in view of its base stations.";
+				"Calibration starts automatically in a few seconds. Keep the tracker in view of its base stations.";
 			s_guide.stage = GuideStage::Running;
 		}
 		if (g_uiPreviewScenario == PreviewScenario::Move)
@@ -330,17 +330,17 @@ void SetupPreviewState()
 		if (g_uiPreviewScenario == PreviewScenario::Result)
 		{
 			CalCtx.lastRunPassed = true;
-			CalCtx.Outcome("Calibration complete", "Check in VR that your trackers line up with your body.",
+			CalCtx.Outcome("Calibration completed", "In VR, make sure that your trackers align with your body.",
 				"", "Rotation RMS 2.53 degrees; position RMS 1.0 cm", CalibrationContext::Tone::Good,
-				CalibrationContext::Event::Calibrated, "Calibrated with Touch Pro Right and VIVE Tracker 3.0.");
+				CalibrationContext::Event::Calibrated, "The calibration used Touch Pro Right and VIVE Tracker 3.0.");
 			s_guide.stage = GuideStage::Done;
 		}
 		if (g_uiPreviewScenario == PreviewScenario::Failed)
 		{
 			// The refused solve a preview run under this flag ends in too.
 			CalCtx.lastRunPassed = false;
-			CalCtx.Outcome("Calibration failed", "The devices didn't turn far enough.",
-				"Make bigger turns, and keep them pressed together.",
+			CalCtx.Outcome("Calibration not completed", "The turns of the devices were too small.",
+				"Make larger turns. Keep the devices tightly together.",
 				"Rotation coverage 0.21 of 1.00 (need 0.60)", CalibrationContext::Tone::Warn);
 			s_guide.stage = GuideStage::Done;
 			s_modalDetails = true;
@@ -371,7 +371,7 @@ void SetupPreviewState()
 		// waiting (CurrentUpdate), and an error in the banner.
 		CalCtx.enabled = false;
 		CalCtx.disableReason = CalibrationContext::DisableReason::HmdMismatch;
-		CalCtx.ReportError("Couldn't read your chaperone from SteamVR, so your protected walls weren't changed.\n",
+		CalCtx.ReportError("Nova Calibrator could not read your chaperone from SteamVR. Your saved walls did not change.\n",
 			CalibrationContext::ErrorSource::ChaperoneMonitor);
 		break;
 	case PreviewScenario::Frozen:
@@ -382,7 +382,7 @@ void SetupPreviewState()
 		CalCtx.continuousDeviation.yawDeg = 2.6;
 		CalCtx.continuousDeviation.tiltDeg = 0.9;
 		CalCtx.continuousDeviation.posM = 0.11;
-		CalCtx.Tell("Continuous calibration paused: tracking drifted too far to correct safely.",
+		CalCtx.Tell("Continuous calibration stopped because tracking moved too far to correct safely.",
 			CalibrationContext::Tone::Warn, CalibrationContext::Event::Paused);
 		break;
 	case PreviewScenario::TrackerOff:
@@ -394,10 +394,10 @@ void SetupPreviewState()
 		CalCtx.continuousDeviation.valid = false;
 		// Unmaintained for long enough that the drift evidence calls it bad.
 		CalCtx.driftScore = questcal::DriftVeryPoorScore;
-		CalCtx.Tell("SteamVR switched the headset tracker off after it sat still for 5 minutes.",
+		CalCtx.Tell("SteamVR stopped the headset tracker because it did not move for 5 minutes.",
 			CalibrationContext::Tone::Warn, CalibrationContext::Event::TrackerOff);
-		CalCtx.Tell("To keep this from happening, set \xE2\x80\x9CTurn off controllers after\xE2\x80\x9D to Never in "
-			"SteamVR's Startup / Shutdown settings.", CalibrationContext::Tone::Neutral, CalibrationContext::Event::TrackerOff);
+		CalCtx.Tell("To prevent this, set \xE2\x80\x9CTurn off controllers after\xE2\x80\x9D to "
+			"\xE2\x80\x9CNever\xE2\x80\x9D in the SteamVR Startup / Shutdown settings.", CalibrationContext::Tone::Neutral, CalibrationContext::Event::TrackerOff);
 		break;
 	case PreviewScenario::SetupWelcome:
 	case PreviewScenario::SetupHeadset:

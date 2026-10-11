@@ -406,8 +406,8 @@ void JapaneseLookups(Check check)
 
 	// A pattern, with a device name that has no entry of its own.
 	check("i18n pattern capture",
-		Tr(std::string("VIVE Tracker 3.0 isn't tracking.")) ==
-			Fill(Japanese("%s isn't tracking."), "VIVE Tracker 3.0"),
+		Tr(std::string("VIVE Tracker 3.0 has no tracking.")) ==
+			Fill(Japanese("%s has no tracking."), "VIVE Tracker 3.0"),
 		"a formatted message keeps its value");
 
 	// A captured value that is itself text gets translated.
@@ -418,31 +418,32 @@ void JapaneseLookups(Check check)
 
 	// The activity feed joins headline and body with ": ".
 	check("i18n headline and body",
-		Tr(std::string("Calibration failed: The devices didn't turn far enough.")) ==
-			std::string(Japanese("Calibration failed")) + "\xEF\xBC\x9A" +
-				Japanese("The devices didn't turn far enough."),
+		Tr(std::string("Calibration not completed: The turns of the devices were too small.")) ==
+			std::string(Japanese("Calibration not completed")) + "\xEF\xBC\x9A" +
+				Japanese("The turns of the devices were too small."),
 		"each half of an activity line is translated");
 
 	// An outcome body built from several sentences, with the trailing
 	// newline the log kept.
 	check("i18n sentences",
-		Tr(std::string("Check in VR that your trackers line up with your body. Headset tracker set up. "
-			"Turn on continuous calibration in Settings to use it.\n")) ==
-			std::string(Japanese("Check in VR that your trackers line up with your body.")) +
-				Japanese("Headset tracker set up.") +
-				Japanese("Turn on continuous calibration in Settings to use it.") + "\n",
+		Tr(std::string("In VR, make sure that your trackers align with your body. The headset tracker setup is completed. "
+			"To use it, set \xE2\x80\x9C" "Continuous calibration\xE2\x80\x9D to on in Settings.\n")) ==
+			std::string(Japanese("In VR, make sure that your trackers align with your body.")) +
+				Japanese("The headset tracker setup is completed.") +
+				Japanese("To use it, set \xE2\x80\x9C" "Continuous calibration\xE2\x80\x9D to on in Settings.") + "\n",
 		"joined sentences are translated one by one");
 
 	// The most specific pattern wins over one whose %s would swallow the rest.
 	check("i18n specific pattern first",
-		Tr(std::string("Drift: stale; 2 slips up to 1.5 cm while standing still")).find("1.5") != std::string::npos &&
-			Tr(std::string("Drift: stale; 2 slips up to 1.5 cm while standing still")).find("slips") == std::string::npos,
+		Tr(std::string("Drift: stale; 2 position changes of up to 1.5 cm when the device did not move")).find("1.5") != std::string::npos &&
+			Tr(std::string("Drift: stale; 2 position changes of up to 1.5 cm when the device did not move")).find("position change") ==
+				std::string::npos,
 		"the drift line with evidence matches its own pattern");
 
 	// A sentence with no entry stays English and keeps its space.
 	check("i18n partial",
-		Tr(std::string("Chaperone restored. Nothing else to say.")) ==
-			std::string(Japanese("Chaperone restored.")) + " Nothing else to say.",
+		Tr(std::string("Nova Calibrator put the chaperone back. Nothing else to say.")) ==
+			std::string(Japanese("Nova Calibrator put the chaperone back.")) + " Nothing else to say.",
 		"an untranslated sentence is left readable");
 
 	check("i18n unknown", std::string(Tr("No entry for this at all")) == "No entry for this at all",
@@ -462,14 +463,14 @@ void ItalianLookups(Check check)
 	check("i18n it exact", std::string(Tr("Calibrate")) == Italian("Calibrate"),
 		"an exact key");
 	check("i18n it headline and body",
-		Tr(std::string("Calibration failed: The devices didn't turn far enough.")) ==
-			std::string(Italian("Calibration failed")) + ": " +
-				Italian("The devices didn't turn far enough."),
+		Tr(std::string("Calibration not completed: The turns of the devices were too small.")) ==
+			std::string(Italian("Calibration not completed")) + ": " +
+				Italian("The turns of the devices were too small."),
 		"an activity line keeps a plain colon");
 	check("i18n it sentences",
-		Tr(std::string("Check in VR that your trackers line up with your body. Headset tracker set up.")) ==
-			std::string(Italian("Check in VR that your trackers line up with your body.")) + " " +
-				Italian("Headset tracker set up."),
+		Tr(std::string("In VR, make sure that your trackers align with your body. The headset tracker setup is completed.")) ==
+			std::string(Italian("In VR, make sure that your trackers align with your body.")) + " " +
+				Italian("The headset tracker setup is completed."),
 		"joined sentences keep their space");
 	check("i18n it code", LanguageFromCode("it") == Language::Italian &&
 		std::string(LanguageCode(Language::Italian)) == "it", "the saved code round-trips");

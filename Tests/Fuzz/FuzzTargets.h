@@ -200,7 +200,7 @@ inline std::string CheckReleaseFeed(const uint8_t *data, size_t size)
 	const bool selected = SelectReleaseCandidate(text.substr(3), current, candidate, available, error);
 	if (selected != error.empty())
 		return "the verdict and the error disagree";
-	if (!selected && !(available || error == "GitHub returned an invalid release list."))
+	if (!selected && !(available || error == "GitHub gave a release list that is not correct."))
 		return "a refusal that is neither a bad list nor a bad newest release";
 	if (!selected || !available)
 		return "";

@@ -269,15 +269,15 @@ void WelcomeStep()
 		ui::Rgba(236, 238, 244, 0.66f));
 
 	static const Feature features[] = {
-		{ ui::Icon::Reticle, "Calibrate in seconds", "Hold a controller to a tracker and move both for 10 seconds." },
-		{ ui::Icon::Refresh, "Stays aligned while you play", "When your headset re-centers or corrects itself, your trackers follow." },
-		{ ui::Icon::Bell, "Warns you about drift", "You'll get a notification in VR if the alignment starts to slip." },
+		{ ui::Icon::Reticle, "Calibrate in seconds", "Hold a controller against a tracker. Move both for 10 seconds." },
+		{ ui::Icon::Refresh, "Stays aligned during play", "When a headset re-center or a headset correction occurs, your trackers follow." },
+		{ ui::Icon::Bell, "Tells you about drift", "You get a notification in VR if your trackers do not stay aligned." },
 	};
 	Page page(76.0f);
 	YGNodeRef icon = page.fl.Box(page.root, 104.0f, 104.0f);
 	page.Text(ui::type::Welcome, Tr("Welcome to Nova Calibrator"), 28.0f, 1000.0f);
-	page.Text(kLead, Tr("Play with your headset and SteamVR trackers in one playspace. "
-		"Nova Calibrator lines them up, so your trackers sit where your body is."), 14.0f, 640.0f);
+	page.Text(kLead, Tr("Use your headset and your SteamVR trackers in one playspace. Nova Calibrator aligns them. "
+		"Thus, your trackers are where your body is."), 14.0f, 640.0f);
 	const auto nodes = LayOutFeatures(page, features, 3, 44.0f, 24.0f);
 	page.Compute();
 
@@ -302,7 +302,7 @@ void HeadsetStep(const VRState &state)
 	Page page(72.0f);
 	YGNodeRef hero = page.fl.Box(page.root, 112.0f, 112.0f);
 	page.Text(ui::type::SetupTitle, Tr("Which headset do you use?"), 14.0f, 1000.0f);
-	page.Text(kLead, Tr("Your headset sets the playspace. Nova Calibrator lines your trackers up with it."), 12.0f, 640.0f);
+	page.Text(kLead, Tr("Your headset sets the playspace. Nova Calibrator aligns your trackers with it."), 12.0f, 640.0f);
 	YGNodeRef card = page.fl.Column(page.root);
 	YGNodeStyleSetMargin(card, YGEdgeTop, 28.0f);
 	YGNodeRef quest = page.fl.Box(card, 680.0f, 80.0f);
@@ -373,7 +373,7 @@ void HeadsetStep(const VRState &state)
 		picture.max = ImVec2(picture.min.x + 64.0f, picture.min.y + 64.0f);
 		DrawPicture(dl, later[k].picture, picture, false, true, 0.55f);
 		RowText(dl, r, r.min.x + 80.0f, later[k].name, nullptr, ui::Rgba(236, 238, 244, 0.56f), 0);
-		const char *soon = Tr("Coming later");
+		const char *soon = Tr("Not available");
 		const ui::TextStyle pill{ ui::Weight::SemiBold, 14.0f, 30.0f };
 		const float w = ui::MeasureLine(pill, soon).x + 24.0f;
 		const ImVec2 a(r.max.x - 22.0f - w, r.Center().y - 15.0f);
@@ -410,7 +410,7 @@ void TrackersStep(const VRState &state)
 	YGNodeRef rows[kKindCount];
 	for (int k = 0; k < kKindCount; ++k)
 		rows[k] = page.fl.Box(card, 680.0f, 72.0f);
-	const std::string footnote = Tr("Greyed out? Turn that tracker on first.");
+	const std::string footnote = Tr("Is a row gray? Start a tracker of that type first.");
 	YGNodeRef note = ui::TextNode(page.fl, page.root, ui::type::Footnote, footnote);
 	YGNodeStyleSetMargin(note, YGEdgeTop, 14.0f);
 	YGNodeStyleSetWidth(note, 680.0f);
@@ -474,8 +474,8 @@ void TrackersStep(const VRState &state)
 		}
 		if (kKinds[k].untested)
 		{
-			const float w = ui::BadgeWidth("Untested");
-			ui::BadgePill(dl, ImVec2(endX - w, r.Center().y - 13.0f), "Untested",
+			const float w = ui::BadgeWidth("Not tested");
+			ui::BadgePill(dl, ImVec2(endX - w, r.Center().y - 13.0f), "Not tested",
 				ui::Fade(ui::col::Caution, available ? 1.0f : 0.6f), ui::Fade(ui::col::CautionTint, available ? 1.0f : 0.6f));
 		}
 		ImGui::PopID();
@@ -498,16 +498,16 @@ void UpdatesStep()
 	if (BackButton(dl))
 		Go(SetupStep::Trackers);
 	static const Feature features[] = {
-		{ ui::Icon::ShieldCheck, "Checked before it's offered", "Every release is signed, and you're only offered ones that pass the check." },
-		{ ui::Icon::Clock, "Installs when you say so", "Steam has to be closed to install, so updates always wait for you." },
-		{ ui::Icon::Globe, "Talks only to GitHub", "It only ever checks Nova Calibrator's releases on GitHub." },
+		{ ui::Icon::ShieldCheck, "Each release gets a check first", "Every release has a signature. Nova Calibrator installs only releases with a correct signature." },
+		{ ui::Icon::Clock, "Installs only when you select it", "You must close Steam before an update can install. Thus, updates always wait for you." },
+		{ ui::Icon::Globe, "Connects only to GitHub", "It examines only the Nova Calibrator releases on GitHub." },
 	};
 	Page page(72.0f);
 	YGNodeRef icon = page.fl.Box(page.root, 68.0f, 68.0f);
-	page.Text(ui::type::SetupTitle, Tr("Keep Nova Calibrator up to date"), 20.0f, 1000.0f);
-	page.Text(kLead, Tr("New versions download in the background. You decide when to install them."), 12.0f, 620.0f);
+	page.Text(ui::type::SetupTitle, Tr("Get new versions of Nova Calibrator"), 20.0f, 1000.0f);
+	page.Text(kLead, Tr("New versions download in the background. You select when to install them."), 12.0f, 620.0f);
 	const auto nodes = LayOutFeatures(page, features, 3, 40.0f, 22.0f);
-	const std::string noteText = Tr("You can change this anytime in Settings.");
+	const std::string noteText = Tr("You can change this in Settings at any time.");
 	YGNodeRef note = ui::TextNode(page.fl, page.root, ui::type::Footnote, noteText);
 	YGNodeStyleSetMargin(note, YGEdgeTop, 26.0f);
 	page.Compute();
@@ -657,7 +657,7 @@ void FirstCalibrationStep(const VRState &state)
 
 	Page page(72.0f);
 	page.Text(ui::type::SetupTitle, Tr("Your first calibration"), 0.0f, 1000.0f);
-	page.Text(kLead, Tr(FormatString("Hold one of your Quest controllers against a tracker. You'll move them together for %.0f seconds.",
+	page.Text(kLead, Tr(FormatString("Hold one of your Quest controllers against a tracker. You will move them together for %.0f seconds.",
 		CalCtx.CollectionSeconds())), 12.0f, 640.0f);
 	YGNodeRef pickers = page.fl.Box(page.root, 760.0f, 96.0f);
 	YGNodeStyleSetMargin(pickers, YGEdgeTop, 32.0f);

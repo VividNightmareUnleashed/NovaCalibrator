@@ -268,7 +268,8 @@ void SynchronizeCalibrationDriver(CalibrationContext &ctx)
 		ctx.referenceTrackingSystem, ctx.targetTrackingSystem))
 	{
 		ctx.ReportError(
-			"The live profile has invalid tracking-system identities and was disabled before sending it to the driver\n");
+			"The profile for the driver has incorrect tracking-system IDs. Nova Calibrator set it to "
+				"off before the driver received it.\n");
 		ctx.enabled = false;
 		ctx.disableReason = CalibrationContext::DisableReason::InvalidIdentity;
 	}
@@ -308,7 +309,8 @@ void SynchronizeCalibrationDriver(CalibrationContext &ctx)
 			ctx.transform.translationMeters, ctx.transform.scale)))
 	{
 		ctx.ReportError(
-			"The live calibration contains invalid numeric values and was disabled before sending it to the driver\n");
+			"The calibration for the driver has numbers that are not correct. Nova Calibrator set it "
+				"to off before the driver received it.\n");
 		ctx.enabled = false;
 		ctx.disableReason = CalibrationContext::DisableReason::InvalidTransform;
 		timeShift = 0.0;

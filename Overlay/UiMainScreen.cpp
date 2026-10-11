@@ -73,19 +73,21 @@ const char *ContinuousStatusLine(ContinuousStatus status)
 	switch (status)
 	{
 	case ContinuousStatus::Off:        return "Continuous calibration is off.";
-	case ContinuousStatus::NoTracker:  return "Continuous calibration needs a headset tracker. Pick one in Settings.";
-	case ContinuousStatus::NeedsMount: return "Continuous calibration needs the headset tracker set up. Do it in Settings.";
-	case ContinuousStatus::NotRunning: return "Continuous calibration is waiting. It resumes when tracking is available.";
-	case ContinuousStatus::TrackerOff: return "Continuous calibration is waiting because the headset tracker is off. Turn it back on to resume.";
+	case ContinuousStatus::NoTracker:  return "A headset tracker is necessary for continuous calibration. Select one in Settings.";
+	case ContinuousStatus::NeedsMount: return "Continuous calibration cannot operate until the headset tracker setup is completed. "
+		"Select \xE2\x80\x9CSet up headset tracker\xE2\x80\x9D in Settings.";
+	case ContinuousStatus::NotRunning: return "Continuous calibration waits until tracking is available.";
+	case ContinuousStatus::TrackerOff: return "Continuous calibration waits because the headset tracker is off. Start the tracker to continue.";
 	case ContinuousStatus::Tracking:   return "Continuous calibration is active.";
-	case ContinuousStatus::Coasting:   return "Continuous calibration is waiting. The headset tracker isn't being seen.";
-	case ContinuousStatus::HeadsetUnseen: return "Continuous calibration is waiting. The headset isn't tracking.";
+	case ContinuousStatus::Coasting:   return "Continuous calibration waits because the headset tracker has no tracking.";
+	case ContinuousStatus::HeadsetUnseen: return "Continuous calibration waits because the headset has no tracking.";
 	case ContinuousStatus::Frozen:
 		return CalCtx.continuousFreezeFromRestart
-			? "Continuous calibration is paused after a tracker restart. Recovery may need another tracker restart."
-			: "Continuous calibration is paused. Readings drifted too far to correct.";
-	case ContinuousStatus::Holding:    return "Continuous calibration is waiting. It resumes when tracking settles.";
-	default:                           return "Continuous calibration is warming up.";
+			? "Continuous calibration is stopped because the tracker started again. To continue, it is "
+				"possibly necessary to stop the tracker and start it again."
+			: "Continuous calibration is stopped. The values moved too far to correct.";
+	case ContinuousStatus::Holding:    return "Continuous calibration waits until tracking is stable.";
+	default:                           return "Continuous calibration collects new values.";
 	}
 }
 
@@ -182,8 +184,8 @@ const char *RecalibrationNudge(CalRating rating)
 	if (rating < Rating_Poor)
 		return nullptr;
 	return rating == Rating_VeryPoor
-		? "Your trackers are noticeably off. Recalibrate to fix them."
-		: "Recalibrate to tighten the alignment.";
+		? "Your trackers are not aligned. Calibrate again to align them."
+		: "Calibrate again to align the trackers more accurately.";
 }
 
 // Empty when the timestamp (0 = unknown) or the clock is unusable; each caller
@@ -248,29 +250,33 @@ namespace
 		switch (CalCtx.disableReason)
 		{
 		case Reason::HmdMismatch:
-			return FormatString("Your %s headset isn't connected, so calibration is off until it's back.",
+			return FormatString("Your %s headset is not connected. Calibration is off until you connect it again.",
 				FriendlySystemName(CalCtx.referenceTrackingSystem).c_str());
 		case Reason::DriverUnreachable:
-			return "SteamVR isn't accepting the calibration. Restart SteamVR.";
+			return "SteamVR does not accept the calibration. Start SteamVR again.";
 		case Reason::DriverVersionMismatch:
-			return "The app and its SteamVR driver are from different releases. Reinstall Nova Calibrator, then restart SteamVR.";
+			return "Nova Calibrator and its SteamVR driver are from different releases. Install Nova "
+				"Calibrator again. Then start SteamVR again.";
 		case Reason::DriverRefusedValues:
-			return "The SteamVR driver refused the calibration's values. Recalibrate.";
+			return "The SteamVR driver did not accept the calibration values. Calibrate again.";
 		case Reason::InvalidIdentity:
-			return "The saved calibration doesn't match the connected hardware. Recalibrate.";
+			return "The saved calibration is not for the connected hardware. Calibrate again.";
 		case Reason::VirtualTarget:
-			return "The saved calibration was made with a virtual tracker, which can't be calibrated. Recalibrate with a real tracker.";
+			return "The saved calibration uses a virtual tracker. Nova Calibrator cannot calibrate a virtual "
+				"tracker. Calibrate again with a real tracker.";
 		case Reason::InvalidTransform:
-			return "The saved calibration is damaged. Recalibrate.";
+			return "The saved calibration is damaged. Calibrate again.";
 		case Reason::UniverseUnsafe:
-			return "The headset re-centered while Nova Calibrator wasn't watching, so the saved alignment is off. Recalibrate.";
+			return "A headset re-center occurred when Nova Calibrator could not follow it. The saved "
+				"calibration does not align your trackers correctly now. Calibrate again.";
 		case Reason::FrameMovesLost:
-			return "SteamVR moved the base stations more often than Nova Calibrator could follow, so the saved alignment may be off. Recalibrate.";
+			return "SteamVR moved the base stations more often than Nova Calibrator could follow. The saved "
+				"calibration possibly does not align your trackers correctly. Calibrate again.";
 		case Reason::None:
 		default:
 			// Never borrow another cause's sentence: a universe change that
 			// was not observed is not something to assert.
-			return "Calibration disabled. Restart SteamVR or recalibrate.";
+			return "The calibration is off. Start SteamVR again or calibrate again.";
 		}
 	}
 
@@ -290,15 +296,15 @@ namespace
 					CalCtx.lastResult.scaleCondition, CalCtx.lastResult.scaleStdDev));
 		}
 		if (CalCtx.jumpsCompensated > 0 || CalCtx.referenceGapEvents > 0)
-			details.push_back(FormatString("Jumps: %u compensated%s", CalCtx.jumpsCompensated,
-				CalCtx.referenceGapEvents > 0 ? " (tracking gaps seen; recalibrate if alignment looks off)" : ""));
+			details.push_back(FormatString("Jumps: %u corrected%s", CalCtx.jumpsCompensated,
+				CalCtx.referenceGapEvents > 0 ? " (tracking stopped for short times: if the trackers are not aligned, calibrate again)" : ""));
 		{
 			const char *health = CalCtx.alignment == CalibrationContext::AlignmentHealth::Stale ? "stale" :
-				CalCtx.alignment == CalibrationContext::AlignmentHealth::Aging ? "aging" : "fresh";
+				CalCtx.alignment == CalibrationContext::AlignmentHealth::Aging ? "old" : "fresh";
 			std::string line = FormatString("Drift: %s", health);
 			// Evidence only when there is some.
 			if (CalCtx.driftSlideEvents > 0)
-				line += FormatString("; %u slip%s up to %.1f cm while standing still",
+				line += FormatString("; %u position change%s of up to %.1f cm when the device did not move",
 					CalCtx.driftSlideEvents, CalCtx.driftSlideEvents == 1 ? "" : "s", CalCtx.driftMaxSlideM * 100.0);
 			if (CalCtx.discontinuousLossEvents > 0)
 				line += FormatString("; %u tracking dropout%s with a position change",
@@ -335,7 +341,7 @@ namespace
 			hero.mark = ui::Mark::None;
 			hero.value = Tr("Not calibrated");
 			hero.description = Tr(FormatString(
-				"Your trackers won't line up with your headset until you calibrate. It takes %.0f seconds.",
+				"Your trackers do not align with your headset until you calibrate. Calibration takes %.0f seconds.",
 				CalCtx.CollectionSeconds()));
 			return hero;
 		}
@@ -353,11 +359,12 @@ namespace
 		if (continuous == ContinuousStatus::Frozen)
 		{
 			hero.mark = ui::Mark::Paused;
-			hero.value = Tr("Paused");
+			hero.value = Tr("Stopped");
 			hero.valueColour = ui::col::Caution;
 			hero.description = Tr(CalCtx.continuousFreezeFromRestart
-				? "Restart the headset tracker in view of its base stations. If stable tracking stays misaligned, recalibrate."
-				: "Tracking has drifted away from your calibration. Recalibrate to bring your trackers back in line.");
+				? "Stop the headset tracker and start it again in view of its base stations. If tracking is "
+					"stable but the trackers are not aligned, calibrate again."
+				: "Tracking moved away from your calibration. Calibrate again to align your trackers.");
 			hero.action = HeroAction::RecalibrateMount;
 			hero.lengthPicker = false;
 			hero.stopContinuous = true;
@@ -430,25 +437,27 @@ float BuildHomePage(const VRState &state, ImVec2 origin, float width)
 		// The calibration sheet normally covers this; if it ever does not,
 		// the same two facts are here: what is happening and how to stop it.
 		if (CurrentSheet() != Sheet::Calibrate)
-			notices.push_back({ ui::Icon::Reticle, ui::col::Link, ui::col::LinkTint, std::string(), Tr("Calibrating..."),
+			notices.push_back({ ui::Icon::Reticle, ui::col::Link, ui::col::LinkTint, std::string(), Tr("Nova Calibrator calibrates..."),
 				"Cancel", ui::Icon::None, NoticeCalibrating });
 	}
 	if (update.state == questcal::update::State::Ready)
 		notices.push_back({ ui::Icon::Download, ui::col::Good, ui::col::GoodTint,
 			Tr(FormatString("Nova Calibrator %s is ready", update.version.c_str())),
-			Tr("Downloaded and verified. Close Steam before you install it."), "Install", ui::Icon::Download, NoticeUpdate });
+			Tr("The update is downloaded and verified. Close Steam before you install it."), "Install", ui::Icon::Download, NoticeUpdate });
 	if (PoseChannelDown())
 	{
-		std::string why = Tr("Nova Calibrator isn't getting tracking data from SteamVR, so it can't watch for drift. Restart SteamVR.");
+		std::string why = Tr("Nova Calibrator does not receive tracking data from SteamVR. Thus, it cannot monitor "
+			"drift. Start SteamVR again.");
 		if (CalCtx.uiAdvanced)
 			why += FormatString(" (host hooks: 005 %s, 006 %s)",
-				CalCtx.driverPoseHookMask & protocol::PoseHook005 ? "active" : "missing",
-				CalCtx.driverPoseHookMask & protocol::PoseHook006 ? "active" : "missing");
+				CalCtx.driverPoseHookMask & protocol::PoseHook005 ? "active" : "not found",
+				CalCtx.driverPoseHookMask & protocol::PoseHook006 ? "active" : "not found");
 		notices.push_back({ ui::Icon::Warn, ui::col::Caution, ui::col::CautionTint, std::string(), why });
 	}
 	if (CalCtx.enabled && CalCtx.hookBypassingDevices != 0)
 	{
-		std::string why = Tr("Calibration can't move some target devices, because their tracking doesn't pass through Nova Calibrator's SteamVR driver.");
+		std::string why = Tr("Calibration cannot move some target devices because their tracking does not go through "
+			"the Nova Calibrator SteamVR driver.");
 		if (CalCtx.uiAdvanced)
 		{
 			std::string ids;
@@ -620,7 +629,8 @@ float BuildHomePage(const VRState &state, ImVec2 origin, float width)
 		if (CalCtx.calibrationSpeed != previous)
 			SaveSettingOrRestore(CalCtx.calibrationSpeed, previous);
 		if (ImGui::IsMouseHoveringRect(r.min, r.max) && !ImGui::IsAnyItemActive())
-			ShowTip("How long calibration collects tracking data. Longer can be more accurate.\nMove gently at every setting.");
+			ShowTip("Select the time that calibration collects tracking data.\nA longer time can make the "
+				"calibration more accurate.\nAlways move slowly.");
 	}
 	{
 		// The less-used actions. Before there is a calibration to clear, the
@@ -636,10 +646,10 @@ float BuildHomePage(const VRState &state, ImVec2 origin, float width)
 				OpenSheet(Sheet::Pair);
 		}
 		if (ImGui::IsItemHovered() && !ImGui::IsPopupOpen("##moremenu"))
-			ShowTip(menu ? "More actions" : "Choose the pair to calibrate");
+			ShowTip(menu ? "More actions" : "Select the pair to calibrate");
 		if (ui::BeginMenuPopup("##moremenu", ImVec2(r.min.x, r.max.y + 8.0f), ImVec2(0.0f, 0.0f), 280.0f))
 		{
-			if (ui::MenuItem("##pairitem", ui::Icon::Identify, "Choose the pair"))
+			if (ui::MenuItem("##pairitem", ui::Icon::Identify, "Select the pair"))
 				OpenSheet(Sheet::Pair);
 			if (ui::MenuItem("##clearitem", ui::Icon::Trash, "Clear calibration", ui::col::DangerInk))
 				OpenDialog(Dialog::ClearCalibration);
@@ -691,23 +701,23 @@ float BuildHomePage(const VRState &state, ImVec2 origin, float width)
 				target = DeviceDisplayName(d);
 		}
 		const bool chosen = CalCtx.referenceID < vr::k_unMaxTrackedDeviceCount || CalCtx.targetID < vr::k_unMaxTrackedDeviceCount;
-		const std::string sub = !chosen ? std::string(Tr("Not chosen yet"))
+		const std::string sub = !chosen ? std::string(Tr("Not selected"))
 			: (reference.empty() ? std::string(Tr("Not connected")) : reference) + " + " +
 				(target.empty() ? std::string(Tr("Not connected")) : target);
-		if (ui::ToolTile("##pair", fl.Rect(tileNodes[0]), ui::Icon::Identify, "Choose the pair", sub.c_str(), true, false))
+		if (ui::ToolTile("##pair", fl.Rect(tileNodes[0]), ui::Icon::Identify, "Select the pair", sub.c_str(), true, false))
 			OpenSheet(Sheet::Pair);
 		if (ImGui::IsItemHovered())
-			ShowTip("The Quest device and the SteamVR device you hold together to calibrate.");
+			ShowTip("You hold these two devices together when you calibrate:\none Quest device and one SteamVR device.");
 	}
 	{
 		std::string sub;
 		if (CalCtx.chaperone.valid)
 		{
 			auto age = FormatUnixAge(CalCtx.chaperone.copyUnixTime);
-			sub = age ? Tr(FormatString("Protected %s", age->c_str())) : std::string(Tr("Protected"));
+			sub = age ? Tr(FormatString("Saved %s", age->c_str())) : std::string(Tr("Saved"));
 		}
 		else
-			sub = Tr("Not protected yet");
+			sub = Tr("Not saved");
 		if (ui::ToolTile("##chaperone", fl.Rect(tileNodes[1]), ui::Icon::Chaperone, "Chaperone", sub.c_str(), true, false))
 			OpenSheet(Sheet::Chaperone);
 	}
@@ -715,7 +725,7 @@ float BuildHomePage(const VRState &state, ImVec2 origin, float width)
 		const bool anchorsAvailable = CalCtx.validProfile && !CalCtx.profileUniverseUnsafe;
 		const size_t count = CalCtx.fieldAnchors.size();
 		const std::string sub = !anchorsAvailable ? std::string(Tr("Calibrate first"))
-			: count == 0 ? std::string(Tr("No anchors yet"))
+			: count == 0 ? std::string(Tr("No anchors"))
 			: Tr(FormatString("%zu anchor%s saved", count, count == 1 ? "" : "s"));
 		if (ui::ToolTile("##anchors", fl.Rect(tileNodes[2]), ui::Icon::Anchor, "Field anchors", sub.c_str(), anchorsAvailable,
 			!anchorsAvailable))
@@ -741,7 +751,7 @@ float BuildHomePage(const VRState &state, ImVec2 origin, float width)
 	{
 		const FlexRect r = fl.Rect(emptyRecent);
 		ui::DrawText(dl, ui::type::Body, ImVec2(r.min.x, r.min.y + 37.0f), r.W(), ui::col::Muted,
-			Tr("Nothing yet. Calibrations and corrections will appear here."), ui::Align::Center);
+			Tr("There is no activity. Calibrations and corrections will show here."), ui::Align::Center);
 	}
 	return YGNodeLayoutGetHeight(root);
 }

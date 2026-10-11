@@ -235,8 +235,8 @@ void DisarmChaperoneAndPersist(CalibrationContext &ctx, double now,
 }
 
 constexpr const char *ForeignHeadsetChaperone =
-	"The protected chaperone was saved for a different headset, so it was switched off. "
-	"Protect it again from the Chaperone tool.\n";
+	"Your chaperone was saved for a different headset. Thus, chaperone protection is off now. "
+	"Select \xE2\x80\x9CProtect chaperone\xE2\x80\x9D in the Chaperone tool.\n";
 
 void ProfileUniverseTick(CalibrationContext &ctx, double now);
 void DrainJumpObservations(CalibrationContext &ctx);
@@ -279,7 +279,8 @@ void CheckProtectedChaperone(CalibrationContext &ctx)
 		if (ctx.timeLastTick - Space.lastSetupFailure >= 30.0)
 		{
 			ctx.ReportError(
-				"Couldn't check the protected chaperone: SteamVR's chaperone setup isn't available right now.\n",
+				"Nova Calibrator could not examine the saved chaperone because the SteamVR chaperone setup "
+					"is not available now.\n",
 				CalibrationContext::ErrorSource::ChaperoneMonitor);
 			Space.lastSetupFailure = ctx.timeLastTick;
 		}
@@ -296,7 +297,7 @@ void CheckProtectedChaperone(CalibrationContext &ctx)
 		if (ctx.timeLastTick - Space.lastReadFailure >= 30.0)
 		{
 			ctx.ReportError(
-				"Couldn't read your chaperone from SteamVR, so your protected walls weren't changed.\n",
+				"Nova Calibrator could not read your chaperone from SteamVR. Your saved walls did not change.\n",
 				CalibrationContext::ErrorSource::ChaperoneMonitor);
 			Space.lastReadFailure = ctx.timeLastTick;
 		}
@@ -408,8 +409,9 @@ void CalibrationSpaceTick(CalibrationContext &ctx, double now)
 		{
 			ctx.persistence.MarkSettings(now);
 			ctx.ReportError(
-				"The headset re-centered, so the protected chaperone no longer lines up and was turned off. "
-				"Protect it again from the Chaperone tool.\n",
+				"Because a headset re-center occurred, the saved walls are not aligned now. "
+				"\xE2\x80\x9CRestore automatically\xE2\x80\x9D is off. Select \xE2\x80\x9CProtect current "
+				"walls\xE2\x80\x9D in the Chaperone tool.\n",
 				CalibrationContext::ErrorSource::Chaperone);
 			SaveSettings(ctx);
 		}
@@ -472,8 +474,9 @@ void CalibrationSpaceTick(CalibrationContext &ctx, double now)
 		Space.hmd.rotation, Space.hmd.translation))
 	{
 		DisarmChaperoneAndPersist(ctx, now,
-			"The headset re-centered while Nova Calibrator couldn't follow it, so the protected chaperone was switched off. "
-			"Protect it again from the Chaperone tool.\n");
+			"A headset re-center occurred when Nova Calibrator could not follow it. Thus, chaperone "
+			"protection is off now. Select \xE2\x80\x9CProtect chaperone\xE2\x80\x9D in the Chaperone "
+			"tool.\n");
 		return;
 	}
 	if (!reanchored)
@@ -552,8 +555,8 @@ void RebindCalibrationUniverse(CalibrationContext &ctx,
 	{
 		ctx.DisarmChaperone();
 		ctx.ReportError(
-			"The protected chaperone belonged to the previous calibration and was turned off. "
-			"Protect it again from the Chaperone tool.\n",
+			"Your chaperone was saved with the previous calibration. Thus, chaperone protection is off "
+			"now. Select \xE2\x80\x9CProtect chaperone\xE2\x80\x9D in the Chaperone tool.\n",
 			CalibrationContext::ErrorSource::Chaperone);
 	}
 }
@@ -656,7 +659,7 @@ bool ApplyUniverseDelta(CalibrationContext &ctx,
 		ctx, delta.rotation, delta.translation, true, now, /*moveChaperone=*/true))
 	{
 		ctx.ReportError(
-			"A headset re-center was too large to compensate safely. Recalibrate before continuing.\n");
+			"A headset re-center was too large to correct safely. Calibrate again before you continue.\n");
 		return false;
 	}
 
@@ -787,10 +790,11 @@ void ProfileUniverseTick(CalibrationContext &ctx, double now)
 	if (autoApplyChanged)
 		ctx.persistence.MarkSettings(now);
 	ctx.ReportError(autoApplyChanged
-		? "The headset re-centered while Nova Calibrator couldn't follow it. "
-			"The calibration and the protected chaperone are off until you recalibrate.\n"
-		: "The headset re-centered while Nova Calibrator couldn't follow it. "
-			"The calibration is off until you recalibrate.\n",
+		? "A headset re-center occurred when Nova Calibrator could not follow it. The calibration "
+			"and \xE2\x80\x9CRestore automatically\xE2\x80\x9D are off. Calibrate again. Then select "
+			"\xE2\x80\x9CProtect chaperone\xE2\x80\x9D in the Chaperone tool.\n"
+		: "A headset re-center occurred when Nova Calibrator could not follow it. The calibration is "
+			"off until you calibrate again.\n",
 		CalibrationContext::ErrorSource::Chaperone);
 	questcal::SynchronizeCalibrationDriver(ctx);
 	SavePendingChanges(ctx);
@@ -837,12 +841,14 @@ bool LoadChaperoneBounds()
 {
 	if (CalCtx.profileUniverseUnsafe)
 		return FailClosedChaperoneCapture(
-			"Couldn't protect the chaperone. The headset re-centered since the last calibration. Recalibrate first.\n");
+			"Nova Calibrator could not start chaperone protection because a headset re-center occurred "
+				"after the last calibration. Calibrate again first.\n");
 
 	auto setup = vr::VRChaperoneSetup();
 	if (!setup)
 		return FailClosedChaperoneCapture(
-			"Couldn't protect the chaperone because SteamVR's chaperone isn't available. Restart SteamVR and try again.\n");
+			"Nova Calibrator could not start chaperone protection because the SteamVR chaperone is not "
+				"available. Start SteamVR again. Then try again.\n");
 
 	setup->RevertWorkingCopy();
 	CalibrationContext::Chaperone snapshot;
@@ -850,19 +856,22 @@ bool LoadChaperoneBounds()
 	if (!questcal::ReadCurrentHmdIdentity(
 		snapshot.ownerTrackingSystem, snapshot.ownerHmdSerial))
 		return FailClosedChaperoneCapture(
-			"Couldn't protect the chaperone because the headset isn't showing up in SteamVR. Try again once it's connected.\n");
+			"Nova Calibrator could not start chaperone protection because SteamVR does not show the "
+				"headset. Connect the headset. Then try again.\n");
 	if (CalCtx.validProfile &&
 		snapshot.ownerTrackingSystem != CalCtx.referenceTrackingSystem)
 		return FailClosedChaperoneCapture(
-			"Couldn't protect the chaperone. The calibration was made with a different headset system. Recalibrate first.\n");
+			"Nova Calibrator could not start chaperone protection because the calibration is for a "
+				"different headset system. Calibrate again first.\n");
 	if (!CopyCurrentHmdWorldFromDriver(snapshot))
 		return FailClosedChaperoneCapture(
-			"Couldn't protect the chaperone because the headset isn't tracking yet. Put it on and try again.\n");
+			"Nova Calibrator could not start chaperone protection because the headset has no tracking "
+				"at this time. Put on the headset. Then try again.\n");
 
 	uint32_t quadCount = 0;
 	if (!setup->GetLiveCollisionBoundsInfo(nullptr, &quadCount) || quadCount > 16384)
 		return FailClosedChaperoneCapture(
-			"Couldn't read the chaperone walls from SteamVR. Try again.\n");
+			"Nova Calibrator could not read the chaperone walls from SteamVR. Try again.\n");
 
 	snapshot.geometry.resize(quadCount);
 	uint32_t returnedCount = quadCount;
@@ -871,7 +880,7 @@ bool LoadChaperoneBounds()
 	if (!setup->GetLiveCollisionBoundsInfo(walls, &returnedCount) ||
 		returnedCount != quadCount)
 		return FailClosedChaperoneCapture(
-			"The chaperone changed while it was being saved. Try again.\n");
+			"The chaperone changed while Nova Calibrator saved it. Try again.\n");
 
 	if (!setup->GetWorkingStandingZeroPoseToRawTrackingPose(
 			&snapshot.standingCenter) ||
@@ -880,14 +889,16 @@ bool LoadChaperoneBounds()
 		!questcal::IsPlausibleChaperone(
 			snapshot.geometry, snapshot.standingCenter, snapshot.playSpaceSize))
 		return FailClosedChaperoneCapture(
-			"Couldn't protect the chaperone because SteamVR has no usable play area. Set up your room in SteamVR, then try again.\n");
+			"Nova Calibrator could not start chaperone protection because SteamVR has no play area "
+				"that it can use. Do Room Setup in SteamVR. Then try again.\n");
 
 	const std::time_t copyTime = std::time(nullptr);
 	const double copyUnixTime = static_cast<double>(copyTime);
 	if (copyTime == static_cast<std::time_t>(-1) || copyUnixTime < 0.0 ||
 		copyUnixTime > protocol::limits::MaxPlausibleUnixTimeSeconds)
 		return FailClosedChaperoneCapture(
-			"Couldn't protect the chaperone because the PC clock looks wrong. Check the date and time, then try again.\n");
+			"Nova Calibrator could not start chaperone protection because the PC clock is possibly not "
+				"correct. Examine the date and time. Then try again.\n");
 
 	snapshot.copyUnixTime = copyUnixTime;
 	snapshot.valid = true;
@@ -900,8 +911,8 @@ bool LoadChaperoneBounds()
 		{
 			CalCtx.persistence.MarkSettings(CalCtx.timeLastTick);
 			CalCtx.ReportError(
-				"Couldn't protect the chaperone because the previous one couldn't be switched off first, "
-				"so nothing was changed.\n",
+				"Nova Calibrator could not start chaperone protection because it could not stop the "
+				"previous protection. Nothing changed.\n",
 				CalibrationContext::ErrorSource::Chaperone);
 			return false;
 		}
@@ -924,10 +935,12 @@ bool LoadChaperoneBounds()
 	char message[160];
 	if (quadCount == 0)
 		snprintf(message, sizeof message,
-			"Chaperone saved without walls, so auto-restore stays off until Room Setup adds some.");
+			"The chaperone was saved without walls. Thus, there is nothing to put back automatically. "
+				"Add walls in SteamVR Room Setup. Then select \xE2\x80\x9CProtect current "
+				"walls\xE2\x80\x9D.");
 	else
 		snprintf(message, sizeof message,
-			"Chaperone saved: %u wall%s, %.1f x %.1f m.",
+			"The chaperone is saved: %u wall%s, %.1f \xC3\x97 %.1f m.",
 			quadCount, quadCount == 1 ? "" : "s", CalCtx.chaperone.playSpaceSize.v[0],
 			CalCtx.chaperone.playSpaceSize.v[1]);
 	CalCtx.Tell(message, quadCount == 0 ? CalibrationContext::Tone::Warn : CalibrationContext::Tone::Good,
@@ -942,7 +955,8 @@ bool ApplyChaperoneBounds(bool logSuccess)
 		CalCtx.chaperone.playSpaceSize))
 	{
 		CalCtx.ReportError(
-			"Couldn't restore the chaperone: the protected chaperone is damaged. Protect it again.\n",
+			"Nova Calibrator could not put the chaperone back because the saved chaperone is damaged. "
+				"Select \xE2\x80\x9CProtect chaperone\xE2\x80\x9D in the Chaperone tool.\n",
 			CalibrationContext::ErrorSource::Chaperone);
 		return false;
 	}
@@ -954,7 +968,8 @@ bool ApplyChaperoneBounds(bool logSuccess)
 	if (permission == questcal::ChaperonePermission::OwnerUnavailable)
 	{
 		CalCtx.ReportError(
-			"Couldn't restore the chaperone: the headset isn't reporting to SteamVR yet.\n",
+			"Nova Calibrator could not put the chaperone back because SteamVR does not show the "
+				"headset at this time.\n",
 			CalibrationContext::ErrorSource::Chaperone);
 		return false;
 	}
@@ -966,7 +981,9 @@ bool ApplyChaperoneBounds(bool logSuccess)
 	if (permission == questcal::ChaperonePermission::Unsettled)
 	{
 		CalCtx.ReportError(
-			"Couldn't restore the chaperone yet: the headset hasn't been tracked this session. Put it on and try again.\n",
+			"Nova Calibrator cannot put the chaperone back at this time because the headset had no "
+				"tracking in this session. Put on the headset. Then select \xE2\x80\x9CRestore "
+				"now\xE2\x80\x9D.\n",
 			CalibrationContext::ErrorSource::Chaperone);
 		return false;
 	}
@@ -975,7 +992,8 @@ bool ApplyChaperoneBounds(bool logSuccess)
 	if (!setup)
 	{
 		CalCtx.ReportError(
-			"Couldn't restore the chaperone: SteamVR's chaperone setup isn't available right now.\n",
+			"Nova Calibrator could not put the chaperone back because the SteamVR chaperone setup is "
+				"not available now.\n",
 			CalibrationContext::ErrorSource::Chaperone);
 		return false;
 	}
@@ -1021,7 +1039,7 @@ bool ApplyChaperoneBounds(bool logSuccess)
 	if (restored == questcal::ChaperoneCommitRejected)
 	{
 		CalCtx.ReportError(
-			"Couldn't restore the chaperone: SteamVR rejected the update.\n",
+			"Nova Calibrator could not put the chaperone back because SteamVR did not accept the change.\n",
 			CalibrationContext::ErrorSource::Chaperone);
 		return false;
 	}
@@ -1029,12 +1047,13 @@ bool ApplyChaperoneBounds(bool logSuccess)
 	if (restored == questcal::ChaperoneReadbackMismatch)
 	{
 		CalCtx.ReportError(
-			"Couldn't verify the restored chaperone. Check it in SteamVR Room Setup before relying on it.\n",
+			"Nova Calibrator put the chaperone back, but it could not make sure that the chaperone is "
+				"correct. Before you use it, examine it in SteamVR Room Setup.\n",
 			CalibrationContext::ErrorSource::Chaperone);
 		return false;
 	}
 	if (logSuccess)
-		CalCtx.Tell("Chaperone restored.", CalibrationContext::Tone::Good, CalibrationContext::Event::Chaperone);
+		CalCtx.Tell("Nova Calibrator put the chaperone back.", CalibrationContext::Tone::Good, CalibrationContext::Event::Chaperone);
 	CalCtx.ClearError(CalibrationContext::ErrorSource::Chaperone);
 	return true;
 }
