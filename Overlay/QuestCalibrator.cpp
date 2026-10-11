@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "Calibration.h"
 #include "Configuration.h"
+#include "Diagnostics.h"
 #include "Localization.h"
 #include "Updater.h"
 #include "UiKit.h"
@@ -27,6 +28,7 @@
 // WIN32_LEAN_AND_MEAN keeps shellapi.h out of windows.h; CommandLineToArgvW
 // needs it (shell32.lib is already linked by the project).
 #include <shellapi.h>
+#include <tlhelp32.h>
 #include <openvr.h>
 #include <cstdint>
 #include <ctime>
@@ -60,11 +62,73 @@ static std::string Narrow(const std::wstring &wide);
 static GLFWwindow *glfwWindow = nullptr;
 static bool dashboardOwnsInput = false;
 static vr::VROverlayHandle_t overlayMainHandle = 0, overlayThumbnailHandle = 0;
+// Set when the app closes its own window (to run the update installer), so the
+// exit does not count as the player closing it.
+static bool applicationExitRequested = false;
 
 void RequestApplicationExit()
 {
+	applicationExitRequested = true;
 	if (glfwWindow)
 		glfwSetWindowShouldClose(glfwWindow, GLFW_TRUE);
+}
+
+// SteamVR's server process, held until exit so that a SteamVR that ends
+// without the quit event (a crash, or vrserver ended in Task Manager) is seen:
+// the OpenVR calls can then only fail, and the dashboard overlay is gone for
+// good. Null in a preview, or when it was not found.
+static HANDLE steamVrServer = nullptr;
+
+// After VR_Init, so the server is running. There is one vrserver.exe; were
+// there a stale one beside it, the newest is the one VR_Init reached.
+static void WatchSteamVrServer()
+{
+	HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if (snapshot == INVALID_HANDLE_VALUE)
+	{
+		AppendSessionLog("could not list processes to find SteamVR's server; a SteamVR crash will not be seen");
+		return;
+	}
+	PROCESSENTRY32W entry{};
+	entry.dwSize = sizeof entry;
+	ULONGLONG newestStart = 0;
+	DWORD serverId = 0;
+	for (BOOL more = Process32FirstW(snapshot, &entry); more; more = Process32NextW(snapshot, &entry))
+	{
+		if (_wcsicmp(entry.szExeFile, L"vrserver.exe") != 0)
+			continue;
+		HANDLE process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID);
+		if (!process)
+			continue;
+		FILETIME created{}, exited{}, kernel{}, user{};
+		const ULONGLONG start = GetProcessTimes(process, &created, &exited, &kernel, &user)
+			? (static_cast<ULONGLONG>(created.dwHighDateTime) << 32) | created.dwLowDateTime : 0;
+		if (!steamVrServer || start > newestStart)
+		{
+			if (steamVrServer)
+				CloseHandle(steamVrServer);
+			steamVrServer = process;
+			newestStart = start;
+			serverId = entry.th32ProcessID;
+		}
+		else
+			CloseHandle(process);
+	}
+	CloseHandle(snapshot);
+	AppendSessionLog(steamVrServer
+		? "watching SteamVR's server process " + std::to_string(serverId)
+		: std::string("could not open SteamVR's server process; a SteamVR crash will not be seen"));
+}
+
+static bool SteamVrServerEnded()
+{
+	return steamVrServer && WaitForSingleObject(steamVrServer, 0) == WAIT_OBJECT_0;
+}
+
+// The runtime a diagnostics file may still ask, or null once SteamVR is gone.
+static vr::IVRSystem *LiveSystem()
+{
+	return SteamVrServerEnded() ? nullptr : vr::VRSystem();
 }
 
 // The calibration layer's toast sink. The handle is read at call time; a zero
@@ -912,6 +976,16 @@ bool RunLoop(const LaunchOptions &options, const OverlayFramebuffer &framebuffer
 	int framesRendered = 0;
 	while (!glfwWindowShouldClose(glfwWindow))
 	{
+		// Before the frame's first OpenVR call. SteamVR does not come back to
+		// this connection; a SteamVR started again launches its own Nova
+		// Calibrator, which this instance would keep out.
+		if (SteamVrServerEnded())
+		{
+			AppendSessionLog("SteamVR's server process ended without the quit event");
+			SaveDiagnosticsAtExit(DiagnosticsTrigger::SteamVrCrash, nullptr);
+			return true;
+		}
+
 		TryCreateVROverlay();
 
 		double time = glfwGetTime();
@@ -1012,6 +1086,12 @@ bool RunLoop(const LaunchOptions &options, const OverlayFramebuffer &framebuffer
 					break;
 				}
 				case vr::VREvent_Quit:
+					// Tells SteamVR that Nova Calibrator is quitting, which gives
+					// it longer before SteamVR ends it, then keeps the session's
+					// diagnostics: players quit without saving them.
+					if (vr::VRSystem())
+						vr::VRSystem()->AcknowledgeQuit_Exiting();
+					SaveDiagnosticsAtExit(DiagnosticsTrigger::SteamVrQuit, vr::VRSystem());
 					return true;
 				}
 			}
@@ -1115,6 +1195,9 @@ bool RunLoop(const LaunchOptions &options, const OverlayFramebuffer &framebuffer
 		else
 			glfwWaitEventsTimeout(waitEventsTimeout);
 	}
+	// The title bar's close button or Alt+F4. A preview has no session to keep.
+	if (!g_uiPreviewMode && !applicationExitRequested)
+		SaveDiagnosticsAtExit(DiagnosticsTrigger::WindowClosed, LiveSystem());
 	return true;
 }
 
@@ -1227,6 +1310,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE /*hInstance*/, _In_opt_ HINSTANCE /*hPrevIn
 		if (!g_uiPreviewMode)
 		{
 			InitVR(vrInitialized);
+			WatchSteamVrServer();
 			ManifestInstallResult registration = EnsureManifestRegistration(false);
 			if (!registration.success)
 				AppendSessionLog("SteamVR manifest self-repair failed: " + registration.message);
@@ -1268,6 +1352,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE /*hInstance*/, _In_opt_ HINSTANCE /*hPrevIn
 	if (!options.missingPath.empty())
 		questcal::i18n::WriteMissing(options.missingPath);
 
+	// The error goes into the session log first, so the file holds it.
+	bool fatalLogged = false;
+	if (!fatal.empty() && calibratorInitialized)
+	{
+		AppendSessionLog(fatal);
+		fatalLogged = true;
+		SaveDiagnosticsAtExit(DiagnosticsTrigger::FatalError, LiveSystem());
+	}
+
 	// One shutdown pair for every path, before the modal dialog below can block:
 	// ShutdownCalibrator flushes debounced profile/settings writes. The
 	// ownership flags and the emptied graphics slots make the retry after a
@@ -1287,7 +1380,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE /*hInstance*/, _In_opt_ HINSTANCE /*hPrevIn
 
 	if (!fatal.empty())
 	{
-		AppendSessionLog(fatal);
+		if (!fatalLogged)
+			AppendSessionLog(fatal);
 		wchar_t message[1024];
 		swprintf(message, 1024, L"%hs", fatal.c_str());
 		MessageBox(nullptr, message, L"Nova Calibrator", MB_OK | MB_ICONERROR);

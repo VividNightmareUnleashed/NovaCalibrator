@@ -6,8 +6,10 @@
 
 #include <windows.h>
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 
 bool DiagnosticsExportScenario()
@@ -52,24 +54,54 @@ bool DiagnosticsExportScenario()
 		ctx.targetDeviceMask[id] = true;
 		capture.frameGroup[id] = 9;
 	}
-	// Eleven older reports: writing the twelfth keeps the newest ten.
+	// Eleven older reports of each kind. Each kind is written in turn, and its
+	// twelfth report keeps that kind's newest ten and leaves the others alone.
+	struct Kind
+	{
+		DiagnosticsTrigger trigger;
+		const char *ending;      // of the file name
+		const char *firstLine;   // what ends the first line, after the time
+	};
+	const Kind kinds[] = {
+		{ DiagnosticsTrigger::Request, ".txt", "" },
+		{ DiagnosticsTrigger::SteamVrQuit, "-steamvr-quit.txt", " as SteamVR quit" },
+		{ DiagnosticsTrigger::SteamVrCrash, "-steamvr-crash.txt", " after SteamVR stopped without quitting" },
+		{ DiagnosticsTrigger::WindowClosed, "-window-closed.txt", " as the window closed" },
+		{ DiagnosticsTrigger::FatalError, "-fatal-error.txt", " after a fatal error" },
+	};
+	constexpr size_t kindCount = std::size(kinds);
 	const auto reports = root / L"NovaCalibrator" / L"diagnostics";
 	std::filesystem::create_directories(reports);
+	const auto oldReport = [&](int i, size_t kind) {
+		const std::string ending = kinds[kind].ending;
+		return reports / (L"NovaCalibrator-diagnostics-20000101-0000" + std::wstring(i < 10 ? L"0" : L"") +
+			std::to_wstring(i) + std::wstring(ending.begin(), ending.end()));
+	};
+	const auto oldLeft = [&](size_t kind) {
+		size_t left = 0;
+		for (int i = 0; i < 11; ++i)
+			left += std::filesystem::exists(oldReport(i, kind)) ? 1 : 0;
+		return left;
+	};
+	const auto oldestGone = [&](size_t kind) {
+		return !std::filesystem::exists(oldReport(0, kind)) && !std::filesystem::exists(oldReport(1, kind));
+	};
 	for (int i = 0; i < 11; ++i)
-		std::ofstream(reports / (L"NovaCalibrator-diagnostics-20000101-0000" +
-			std::wstring(i < 10 ? L"0" : L"") + std::to_wstring(i) + L".txt")) << "old";
-	std::string path, error;
-	const bool saved = WriteDiagnosticsFile(ctx, path, error, nullptr, capture);
-	size_t kept = 0;
-	bool oldestKept = false;
-	for (const auto &entry : std::filesystem::directory_iterator(reports))
+		for (size_t kind = 0; kind < kindCount; ++kind)
+			std::ofstream(oldReport(i, kind)) << "old";
+	std::string paths[kindCount], errors[kindCount];
+	bool allSaved = true, pruned = true;
+	for (size_t kind = 0; kind < kindCount; ++kind)
 	{
-		++kept;
-		oldestKept = oldestKept ||
-			entry.path().filename() == L"NovaCalibrator-diagnostics-20000101-000000.txt" ||
-			entry.path().filename() == L"NovaCalibrator-diagnostics-20000101-000001.txt";
+		allSaved = WriteDiagnosticsFile(ctx, paths[kind], errors[kind], nullptr, capture, kinds[kind].trigger) &&
+			errors[kind].empty() && allSaved;
+		for (size_t other = 0; other < kindCount; ++other)
+			pruned = pruned && (other <= kind ? oldLeft(other) == 9 && oldestGone(other) : oldLeft(other) == 11);
 	}
-	const bool pruned = kept == 10 && !oldestKept;
+	const auto endsWith = [](const std::string &text, const std::string &end) {
+		return text.size() >= end.size() && text.compare(text.size() - end.size(), end.size(), end) == 0;
+	};
+	const std::string &path = paths[0];
 	// What the log and the screen get instead of the full path.
 	const bool shortened = PathForLog(path).rfind("%LOCALAPPDATA%\\NovaCalibrator\\diagnostics\\", 0) == 0 &&
 		ShortenUserPath("C:\\Users\\Jo\\AppData\\Local\\x", "C:\\Users\\jo\\AppData\\Local", "C:\\Users\\jo") ==
@@ -77,24 +109,44 @@ bool DiagnosticsExportScenario()
 		ShortenUserPath("C:\\Users\\jo\\Desktop\\x", "C:\\Users\\jo\\AppData\\Local", "C:\\Users\\jo") ==
 			"%USERPROFILE%\\Desktop\\x" &&
 		ShortenUserPath("C:\\Users\\joanna\\x", "", "C:\\Users\\jo") == "C:\\Users\\joanna\\x";
-	std::string report;
-	if (saved)
-	{
-		std::ifstream file(std::filesystem::u8path(path), std::ios::binary);
-		std::ostringstream contents;
-		contents << file.rdbuf();
-		report = contents.str();
-		file.close();
-		std::filesystem::remove(std::filesystem::u8path(path));
-	}
+	const auto take = [](const std::string &file) {
+		std::string text;
+		{
+			std::ifstream in(std::filesystem::u8path(file), std::ios::binary);
+			std::ostringstream contents;
+			contents << in.rdbuf();
+			text = contents.str();
+		}
+		std::filesystem::remove(std::filesystem::u8path(file));
+		return text;
+	};
+	std::string texts[kindCount];
+	for (size_t kind = 0; kind < kindCount; ++kind)
+		texts[kind] = paths[kind].empty() ? std::string() : take(paths[kind]);
 	for (int i = 0; i < 11; ++i)
-		std::filesystem::remove(reports / (L"NovaCalibrator-diagnostics-20000101-0000" +
-			std::wstring(i < 10 ? L"0" : L"") + std::to_wstring(i) + L".txt"));
+		for (size_t kind = 0; kind < kindCount; ++kind)
+			std::filesystem::remove(oldReport(i, kind));
 	// Only remove the exact directories created by this fixture, never recursively.
 	std::filesystem::remove(root / L"NovaCalibrator" / L"diagnostics");
 	std::filesystem::remove(root / L"NovaCalibrator");
 	std::filesystem::remove(root);
-	return saved && error.empty() && shortened && pruned &&
+	// A request's name and first line end in its time; every other kind says
+	// why, in the words the session log uses too.
+	const auto endsInDigit = [](const std::string &text, size_t back) {
+		return text.size() > back && std::isdigit(static_cast<unsigned char>(text[text.size() - 1 - back])) != 0;
+	};
+	bool named = true;
+	for (size_t kind = 0; kind < kindCount; ++kind)
+	{
+		const std::string firstLine = texts[kind].substr(0, texts[kind].find('\n'));
+		const std::string why = DiagnosticsTriggerText(kinds[kind].trigger);
+		named = named && endsWith(paths[kind], kinds[kind].ending) &&
+			(kind == 0 ? why.empty() && endsInDigit(firstLine, 0) && endsInDigit(paths[kind], 4)
+				: " " + why == kinds[kind].firstLine && endsWith(firstLine, kinds[kind].firstLine)) &&
+			texts[kind].find("\nformat: questcal-diagnostics/2\n") != std::string::npos;
+	}
+	const std::string &report = texts[0];
+	return allSaved && shortened && pruned && named &&
 		report.find("\nformat: questcal-diagnostics/2\n") != std::string::npos &&
 		report.find("disable reason: None,") != std::string::npos &&
 		report.find("SHA-256: unavailable") == std::string::npos &&

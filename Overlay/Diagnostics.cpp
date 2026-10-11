@@ -138,11 +138,45 @@ static_assert(std::size(ContinuousStateNames) ==
 	static_cast<size_t>(questcal::ContinuousAlignment::State::Holding) + 1,
 	"name every continuous calibration state");
 
-// Older reports in the folder past this many are deleted when a new one is
+// Older reports of the same kind past this many are deleted when a new one is
 // written.
 constexpr size_t KeptReports = 10;
 
-void PruneOldReports(const std::wstring &dir)
+// Each trigger's file name ending, after the time, and its words in the first
+// line. A requested file ends in its time.
+struct TriggerNaming
+{
+	const wchar_t *ending;
+	const char *text;
+};
+constexpr TriggerNaming TriggerNamings[] = {
+	{ L".txt", "" },
+	{ L"-steamvr-quit.txt", "as SteamVR quit" },
+	{ L"-steamvr-crash.txt", "after SteamVR stopped without quitting" },
+	{ L"-window-closed.txt", "as the window closed" },
+	{ L"-fatal-error.txt", "after a fatal error" },
+};
+static_assert(std::size(TriggerNamings) == static_cast<size_t>(DiagnosticsTrigger::FatalError) + 1,
+	"name every diagnostics trigger");
+
+const TriggerNaming &NamingOf(DiagnosticsTrigger trigger)
+{
+	return TriggerNamings[static_cast<size_t>(trigger)];
+}
+
+// The trigger a report's file name ends in; a request when none other does.
+DiagnosticsTrigger TriggerOfReport(const std::wstring &name)
+{
+	for (size_t i = 1; i < std::size(TriggerNamings); ++i)
+	{
+		const std::wstring ending = TriggerNamings[i].ending;
+		if (name.size() >= ending.size() && name.compare(name.size() - ending.size(), ending.size(), ending) == 0)
+			return static_cast<DiagnosticsTrigger>(i);
+	}
+	return DiagnosticsTrigger::Request;
+}
+
+void PruneOldReports(const std::wstring &dir, DiagnosticsTrigger trigger)
 {
 	std::vector<std::wstring> reports;
 	WIN32_FIND_DATAW found;
@@ -151,7 +185,7 @@ void PruneOldReports(const std::wstring &dir)
 		return;
 	do
 	{
-		if (!(found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+		if (!(found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && TriggerOfReport(found.cFileName) == trigger)
 			reports.push_back(found.cFileName);
 	} while (FindNextFileW(search, &found));
 	FindClose(search);
@@ -688,9 +722,15 @@ void DescribeLogs(std::ostream &out, const DiagnosticCapture &capture, const std
 
 } // namespace
 
-bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, std::string &error,
-	vr::IVRSystem *system, const DiagnosticCapture &capture)
+const char *DiagnosticsTriggerText(DiagnosticsTrigger trigger)
 {
+	return NamingOf(trigger).text;
+}
+
+bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, std::string &error,
+	vr::IVRSystem *system, const DiagnosticCapture &capture, DiagnosticsTrigger trigger)
+{
+	const TriggerNaming &naming = NamingOf(trigger);
 	std::wstring localAppData = EnvW(L"LOCALAPPDATA");
 	if (localAppData.empty())
 	{
@@ -710,7 +750,8 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 	runtimePoses << std::setprecision(10);
 	DescribeRuntimePoses(runtimePoses, ctx, system, capture, qpcToSeconds);
 	std::ostringstream out;
-	out << "Nova Calibrator " << QUESTCAL_VERSION_STRING << " diagnostics, written " << Stamp("%Y-%m-%d %H:%M:%S") << "\n";
+	out << "Nova Calibrator " << QUESTCAL_VERSION_STRING << " diagnostics, written " << Stamp("%Y-%m-%d %H:%M:%S")
+		<< (*naming.text ? " " : "") << naming.text << "\n";
 	out << "format: questcal-diagnostics/2\n";
 	out << "Personal folders and the account name are shown as <user>, the computer name as <pc>.\n";
 	out << "Device serial numbers are kept: they identify hardware, not people.\n\n";
@@ -742,7 +783,7 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 	std::string text = AnonymiseDiagnosticsText(out.str(),
 		Utf8(EnvW(L"USERPROFILE")), Utf8(EnvW(L"USERNAME")), Utf8(EnvW(L"COMPUTERNAME")));
 
-	std::wstring path = dir + L"\\NovaCalibrator-diagnostics-" + Wide(Stamp("%Y%m%d-%H%M%S")) + L".txt";
+	std::wstring path = dir + L"\\NovaCalibrator-diagnostics-" + Wide(Stamp("%Y%m%d-%H%M%S")) + naming.ending;
 	std::ofstream file(path.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
 	if (!file.is_open())
 	{
@@ -756,7 +797,7 @@ bool WriteDiagnosticsFile(const CalibrationContext &ctx, std::string &pathOut, s
 		return false;
 	}
 	file.close();
-	PruneOldReports(dir);
+	PruneOldReports(dir, trigger);
 	pathOut = Utf8(path);
 	return true;
 }
