@@ -3371,6 +3371,51 @@ void RunDriftScenarios()
 			detail);
 	}
 
+	// A headset taken off (2026-10-13): Virtual Desktop re-predicted its last
+	// pose at 5 Hz, both velocities repeated bit for bit while the position
+	// crept 2 mm/s, and every refilled 8 s window called that a slide until
+	// SteamVR quit. A streamed reference device's re-predicted samples are left
+	// out; the same stream unmarked still slides, and a live headset stream
+	// (velocities never repeated) on a drifting universe still does.
+	{
+		auto headsetSample = [](double t, const Eigen::Vector3d &pos, const Eigen::Vector3d &velocity)
+		{
+			return RingSample(0, t, Eigen::Quaterniond::Identity(), Eigen::Vector3d::Zero(),
+				Eigen::Quaterniond::Identity(), pos, velocity, Eigen::Vector3d(0.0, 0.436, 0.0));
+		};
+		auto runStale = [&](bool streamed)
+		{
+			DriftMonitor dm(TestQpcToSeconds);
+			DriftRun r;
+			const Eigen::Vector3d stuckVelocity(0.023, 0.0, 0.0);
+			for (double t = 0.0; t < 20.0; t += 0.2)
+			{
+				dm.Push(headsetSample(t, base + Eigen::Vector3d(0.0021 * t, 0.0, 0.0), stuckVelocity),
+					1.0, streamed);
+				drain(dm, r);
+			}
+			return r;
+		};
+		const DriftRun unmarked = runStale(false);
+		const DriftRun stale = runStale(true);
+
+		DriftMonitor dm(TestQpcToSeconds);
+		DriftRun live;
+		std::mt19937 rng(11);
+		std::normal_distribution<double> n(0.0, 0.0015), v(0.0, 0.01);
+		const Eigen::Vector3d driftRate(0.0033, 0.0, 0.0011);
+		for (double t = 0.0; t < 10.0; t += 1.0 / rate)
+		{
+			dm.Push(headsetSample(t, base + driftRate * t + Eigen::Vector3d(n(rng), n(rng), n(rng)),
+				Eigen::Vector3d(v(rng), v(rng), v(rng))), 1.0, true);
+			drain(dm, live);
+		}
+		snprintf(detail, sizeof detail, "stale stream slides unmarked/streamed %d/%d; live headset slides %d",
+			unmarked.slides, stale.slides, live.slides);
+		Check("drift: a re-predicted headset stream is not evidence",
+			unmarked.slides >= 1 && stale.slides == 0 && stale.losses == 0 && live.slides == 1, detail);
+	}
+
 	// A profile scale edit changes the coordinate basis, not the physical pose.
 	// Reset that device's baselines at the edit, then prove fresh same-scale
 	// relocalization evidence is still detected afterward.

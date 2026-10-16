@@ -10,9 +10,14 @@
 static_assert(static_cast<double>(ringpose::MaxToleratedMonitorGap) / ringpose::SparsestPoseRateHz <
 	DriftMonitor::Config{}.lossGap, "a tolerated monitor gap would span the drift monitor's loss gap");
 
-void DriftMonitor::Push(const protocol::DevicePoseSample &s, double linearScale)
+void DriftMonitor::Push(const protocol::DevicePoseSample &s, double linearScale, bool streamed)
 {
 	auto &dev = devices[s.deviceId];
+	const bool repredicted = dev.havePushed && ringpose::IsRepredicted(dev.lastPushed, s);
+	dev.havePushed = true;
+	dev.lastPushed = s;
+	if (streamed && repredicted)
+		return;
 	double t = RingSampleTime(s, qpcToSeconds);
 	bool haveLast = dev.lastValid.time >= 0.0;
 
@@ -146,6 +151,7 @@ void DriftMonitor::Reset()
 		dev.window.clear();
 		dev.lastEvalTime = -1.0;
 		dev.lastValid = LastValid();
+		dev.havePushed = false;
 	}
 	events.clear();
 }

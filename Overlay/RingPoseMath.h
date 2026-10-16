@@ -72,6 +72,20 @@ inline bool MonitorGapTolerable(uint64_t gap, bool crossedSessionBoundary)
 	return !crossedSessionBoundary && gap <= MaxToleratedMonitorGap;
 }
 
+// A pose its transport predicted forward from an older one: both velocities
+// repeated bit for bit while the pose moved on (Virtual Desktop; see
+// TrackingStreamDigest.h). One now and then is a late frame. A run of them is
+// no tracking at all: the headset taken off, sent at 5 Hz (2026-10-13), or a
+// smoother ahead of the hook zeroing the velocities (2026-10-14).
+inline bool IsRepredicted(const protocol::DevicePoseSample &previous, const protocol::DevicePoseSample &s)
+{
+	auto same = [](const double *a, const double *b) { return a[0] == b[0] && a[1] == b[1] && a[2] == b[2]; };
+	const bool samePose = same(s.position, previous.position) &&
+		s.rotation.w == previous.rotation.w && s.rotation.x == previous.rotation.x &&
+		s.rotation.y == previous.rotation.y && s.rotation.z == previous.rotation.z;
+	return same(s.velocity, previous.velocity) && same(s.angularVelocity, previous.angularVelocity) && !samePose;
+}
+
 } // namespace ringpose
 
 // IsUsableRingSample and IsTrustedRingSample, the accept-or-drop gate, are in

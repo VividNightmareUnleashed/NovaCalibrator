@@ -57,7 +57,7 @@ public:
 			const bool samePos = Same(s.position, d.previous.position);
 			const bool sameRot = s.rotation.w == d.previous.rotation.w && s.rotation.x == d.previous.rotation.x &&
 				s.rotation.y == d.previous.rotation.y && s.rotation.z == d.previous.rotation.z;
-			if (sameV && sameW && !(samePos && sameRot))
+			if (ringpose::IsRepredicted(d.previous, s))
 				++d.repredicted;
 			else if (sameW && !sameV)
 				++d.angularOnly;
