@@ -1,3 +1,4 @@
+#include "../Driver/HookChain.h"
 #include "../Driver/HookLifecyclePolicy.h"
 #include "../Driver/InterfaceHookInjector.h"
 #include "../Driver/Logging.h"
@@ -6,13 +7,19 @@
 #include "../Overlay/HookCoverage.h"
 #include "../common/Protocol.h"
 
+#include <windows.h>
+
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <initializer_list>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <string>
 #include <thread>
+#include <vector>
 
 // The real detours, installed with MinHook on stand-ins for vrserver's driver
 // context and host. Teardown disables the hooks without removing them, so each
@@ -522,6 +529,378 @@ void HookCoverageScenario(Check check)
 	check("hooks: a target that bypasses the pose hook is reported after three syncs",
 		first == 0 && second == 0 && third == 0b0100 && fourth == 0b0100 && reached == 0, detail);
 }
+// Code at made-up addresses for the jump walk: reads inside it succeed, any
+// other read fails, as ReadProcessMemory does on unmapped memory.
+struct FakeCode
+{
+	static constexpr uintptr_t Base = 0x10000;
+	std::vector<uint8_t> bytes = std::vector<uint8_t>(0x400, 0xCC);
+
+	bool operator()(uintptr_t at, void *out, size_t size) const
+	{
+		if (at < Base || at + size > Base + bytes.size())
+			return false;
+		std::memcpy(out, bytes.data() + (at - Base), size);
+		return true;
+	}
+	void Put(uintptr_t at, std::initializer_list<uint8_t> code)
+	{
+		std::copy(code.begin(), code.end(), bytes.begin() + (at - Base));
+	}
+	void Put64(uintptr_t at, uint64_t value)
+	{
+		std::memcpy(bytes.data() + (at - Base), &value, sizeof value);
+	}
+	// jmp rel32 from `at` to `to`.
+	void Jump(uintptr_t at, uintptr_t to)
+	{
+		const int32_t rel = static_cast<int32_t>(static_cast<intptr_t>(to) - static_cast<intptr_t>(at + 5));
+		Put(at, { 0xE9 });
+		std::memcpy(bytes.data() + (at - Base) + 1, &rel, sizeof rel);
+	}
+	// MinHook's x64 relay: jmp [rip+0], then the absolute target.
+	void Relay(uintptr_t at, uint64_t to)
+	{
+		Put(at, { 0xFF, 0x25, 0, 0, 0, 0 });
+		Put64(at + 6, to);
+	}
+};
+
+// The pose hook's own chain, as MinHook leaves it and with the forms other
+// hooking libraries write in front: each walk ends at the detour, and a thunk
+// behind the detour is not followed.
+void HookChainOwnScenario(Check check)
+{
+	using questcal::hookchain::Follow;
+	constexpr uintptr_t B = FakeCode::Base;
+	constexpr uintptr_t Detour = 0x7FF000001000;   // never read: compared first
+	FakeCode code;
+	code.Jump(B + 0x00, B + 0x100);   // entry -> relay -> detour
+	code.Relay(B + 0x100, Detour);
+	code.Jump(B + 0x20, B + 0x00);    // a hot patch: jmp short back to a jmp rel32
+	code.Put(B + 0x30, { 0xEB, 0xEE });   // 0x30 + 2 - 0x12 = 0x20
+	code.Put(B + 0x40, { 0x48, 0xB8 });   // mov rax, imm64; jmp rax
+	code.Put64(B + 0x42, B + 0x30);
+	code.Put(B + 0x4A, { 0xFF, 0xE0 });
+	code.Put(B + 0x60, { 0x49, 0xBB });   // mov r11, imm64; jmp r11
+	code.Put64(B + 0x62, B + 0x40);
+	code.Put(B + 0x6A, { 0x41, 0xFF, 0xE3 });
+	code.Jump(B + 0x200, B + 0x300);  // a detour that is itself an incremental-link thunk
+	code.Jump(B + 0x300, B + 0x380);
+
+	const auto minhook = Follow(B + 0x00, Detour, code);
+	const auto hotPatch = Follow(B + 0x30, Detour, code);
+	const auto absolute = Follow(B + 0x60, Detour, code);
+	const auto atDetour = Follow(B + 0x00, B + 0x00, code);
+	const auto thunk = Follow(B + 0x200, B + 0x300, code);
+
+	char detail[200];
+	std::snprintf(detail, sizeof detail, "minhook %d/%u, hot patch %d/%u, absolute %d/%u, at detour %d/%u, "
+		"thunk %d/%u end %llx", minhook.reachedDetour, minhook.hops, hotPatch.reachedDetour, hotPatch.hops,
+		absolute.reachedDetour, absolute.hops, atDetour.reachedDetour, atDetour.hops, thunk.reachedDetour,
+		thunk.hops, static_cast<unsigned long long>(thunk.end));
+	check("hooks: the jump walk follows the pose hook's own chain to its detour",
+		minhook.reachedDetour && minhook.hops == 2 && minhook.end == Detour &&
+		hotPatch.reachedDetour && hotPatch.hops == 4 &&
+		absolute.reachedDetour && absolute.hops == 6 && !absolute.unreadable &&
+		atDetour.reachedDetour && atDetour.hops == 0 &&
+		thunk.reachedDetour && thunk.hops == 1 && thunk.end == B + 0x300, detail);
+}
+
+// A second MinHook user patched the entry over the pose hook's patch: the walk
+// ends in its detour. Code that is not a jump, a jump loop, and a jump to
+// memory that cannot be read never count as reaching the detour.
+void HookChainForeignScenario(Check check)
+{
+	using questcal::hookchain::Follow;
+	using questcal::hookchain::MaxHops;
+	constexpr uintptr_t B = FakeCode::Base;
+	constexpr uintptr_t Detour = 0x7FF000001000;
+	FakeCode code;
+	code.Jump(B + 0x00, B + 0x180);   // the second user's entry patch -> its relay
+	code.Relay(B + 0x180, B + 0x280); // -> its detour, ordinary code
+	code.Put(B + 0x280, { 0x48, 0x89, 0x5C, 0x24, 0x08 });
+	code.Put(B + 0x40, { 0x40, 0x53 });   // an unpatched function: push rbx
+	code.Put(B + 0x50, { 0x48, 0xB8 });   // mov rax, imm64 not followed by jmp rax
+	code.Put64(B + 0x52, Detour);
+	code.Put(B + 0x5A, { 0x90, 0x90 });
+	code.Put(B + 0x60, { 0xE9, 0xFB, 0xFF, 0xFF, 0xFF });   // jmp to itself
+	code.Jump(B + 0x70, 0x500000);    // to memory that is not there
+	code.Put(B + 0x80, { 0xFF, 0x25, 0x00, 0x00, 0x10, 0x00 });   // pointer not there
+	code.Put(B + 0x3FF, { 0xE9 });    // a jump cut off by the end of memory
+
+	const auto ahead = Follow(B + 0x00, Detour, code);
+	const auto plain = Follow(B + 0x40, Detour, code);
+	const auto movOnly = Follow(B + 0x50, Detour, code);
+	const auto loop = Follow(B + 0x60, Detour, code);
+	const auto gone = Follow(B + 0x70, Detour, code);
+	const auto pointer = Follow(B + 0x80, Detour, code);
+	const auto cut = Follow(B + 0x3FF, Detour, code);
+
+	char detail[260];
+	std::snprintf(detail, sizeof detail, "ahead %d end %llx hops %u; plain %d/%u; mov %d/%u; loop %d/%u; "
+		"gone %d unreadable %d end %llx; pointer %d unreadable %d; cut %d unreadable %d",
+		ahead.reachedDetour, static_cast<unsigned long long>(ahead.end), ahead.hops, plain.reachedDetour,
+		plain.hops, movOnly.reachedDetour, movOnly.hops, loop.reachedDetour, loop.hops, gone.reachedDetour,
+		gone.unreadable, static_cast<unsigned long long>(gone.end), pointer.reachedDetour, pointer.unreadable,
+		cut.reachedDetour, cut.unreadable);
+	check("hooks: the jump walk ends in code that runs ahead of the detour",
+		!ahead.reachedDetour && ahead.end == B + 0x280 && ahead.hops == 2 && !ahead.unreadable &&
+		!plain.reachedDetour && plain.end == B + 0x40 && plain.hops == 0 &&
+		!movOnly.reachedDetour && movOnly.end == B + 0x50 &&
+		!loop.reachedDetour && loop.hops == MaxHops &&
+		!gone.reachedDetour && gone.unreadable && gone.end == 0x500000 &&
+		!pointer.reachedDetour && pointer.unreadable &&
+		!cut.reachedDetour && cut.end == B + 0x3FF, detail);
+}
+
+// The module name the driver reports is taken up to the first NUL inside its
+// array only, without control characters; a driver's file is named as the
+// player knows the driver.
+void ForeignModuleNameScenario(Check check)
+{
+	char unterminated[8];
+	std::memcpy(unterminated, "ABCDEFGH", sizeof unterminated);
+	const char odd[] = "dri\x01ver_X\x7F.dll\0hidden";
+	const std::string full = questcal::ForeignModuleFile(unterminated, sizeof unterminated);
+	const std::string cleaned = questcal::ForeignModuleFile(odd, sizeof odd);
+	const std::string smooth = questcal::ForeignDriverName("driver_SmoothTracking.dll");
+	const std::string upper = questcal::ForeignDriverName("DRIVER_Lighthouse.DLL");
+	const std::string bare = questcal::ForeignDriverName("driver_.dll");
+	const std::string other = questcal::ForeignDriverName("OVRInjector.dll");
+	const std::string exe = questcal::ForeignDriverName("driver_tool.exe");
+
+	char detail[200];
+	std::snprintf(detail, sizeof detail, "'%s' '%s' '%s' '%s' '%s' '%s' '%s'", full.c_str(), cleaned.c_str(),
+		smooth.c_str(), upper.c_str(), bare.c_str(), other.c_str(), exe.c_str());
+	check("hooks: the module ahead is read safely and named as its driver",
+		full == "ABCDEFGH" && cleaned == "driver_X.dll" && smooth == "SmoothTracking" &&
+		upper == "Lighthouse" && bare.empty() && other.empty() && exe.empty(), detail);
+}
+
+// What OpenVR-SmoothTracking's detour does to a pose: moves it (smoothing) and
+// zeroes its velocity, then calls the code its patch displaced.
+PoseUpdateFn ForeignDisplaced = nullptr;
+std::atomic<int> ForeignCalls{ 0 };
+void ForeignSmoothingDetour(void *host, uint32_t device, const vr::DriverPose_t &pose, uint32_t size)
+{
+	ForeignCalls.fetch_add(1);
+	vr::DriverPose_t smoothed = pose;
+	smoothed.vecPosition[0] += 0.5;
+	smoothed.vecVelocity[0] = smoothed.vecVelocity[1] = smoothed.vecVelocity[2] = 0.0;
+	ForeignDisplaced(host, device, smoothed, size);
+}
+
+// The second hooker's relay, in this image so the entry's jmp rel32 reaches it.
+alignas(16) uint8_t ForeignRelay[16] = {};
+
+// Drivers that hook by taking the host's vtable slot, and call what it held.
+// Distinct functions, each with its own next, as two drivers would be.
+PoseUpdateFn FirstTakerNext = nullptr;
+PoseUpdateFn SecondTakerNext = nullptr;
+__declspec(noinline) void FirstSlotTaker(void *host, uint32_t device, const vr::DriverPose_t &pose,
+	uint32_t size)
+{
+	ForeignCalls.fetch_add(10);
+	FirstTakerNext(host, device, pose, size);
+}
+__declspec(noinline) void SecondSlotTaker(void *host, uint32_t device, const vr::DriverPose_t &pose,
+	uint32_t size)
+{
+	ForeignCalls.fetch_add(100);
+	SecondTakerNext(host, device, pose, size);
+}
+
+// `executable` keeps the page executable afterwards, for code written into
+// this image's data.
+bool WriteCode(void *at, const void *bytes, size_t size, bool executable = false)
+{
+	DWORD previous = 0;
+	if (!VirtualProtect(at, size, PAGE_EXECUTE_READWRITE, &previous))
+		return false;
+	std::memcpy(at, bytes, size);
+	DWORD ignored = 0;
+	if (!executable)
+		VirtualProtect(at, size, previous, &ignored);
+	return FlushInstructionCache(GetCurrentProcess(), at, size) != FALSE;
+}
+
+void **HostPoseSlot()
+{
+	return *reinterpret_cast<void ***>(&Host) + openvr_hook::PoseUpdateSlot;
+}
+
+bool SetHostPoseSlot(void *value)
+{
+	return WriteCode(HostPoseSlot(), &value, sizeof value);
+}
+
+// This test executable's file name, as the driver reports a module.
+std::string OwnModuleFile()
+{
+	wchar_t path[MAX_PATH] = {};
+	GetModuleFileNameW(nullptr, path, MAX_PATH);
+	const wchar_t *name = path;
+	for (const wchar_t *c = path; *c; ++c)
+		if (*c == L'\\' || *c == L'/')
+			name = c + 1;
+	char utf8[MAX_PATH * 3] = {};
+	WideCharToMultiByte(CP_UTF8, 0, name, -1, utf8, sizeof utf8, nullptr, nullptr);
+	return utf8;
+}
+
+// The 2026-10-14 case: OpenVR-SmoothTracking loads after this driver and
+// MinHooks TrackedDevicePoseUpdated over the pose hook's patch, so the pose
+// ring received its smoothed, zero-velocity poses. The order check finds its
+// code ahead, names its module, and puts the observation hook in the host's
+// vtable: the ring then gets each pose raw, once, while the smoothing and the
+// calibration still reach the host as before. Teardown gives the slot back.
+void ForeignHookObservedScenario(Check check)
+{
+	const char *name = "hooks: a driver hooking poses ahead of the pose hook is found and raw poses are recorded ahead of it";
+	auto provider = std::make_unique<ServerTrackedDeviceProvider>();
+	auto *context = reinterpret_cast<vr::IVRDriverContext *>(&Context);
+	const bool calibrated = CalibrateDeviceZero(*provider);
+	if (!InjectHooks(provider.get(), context))
+	{
+		check(name, false, "InjectHooks failed");
+		return;
+	}
+	RequestHostInterface();
+	void *const target = *HostPoseSlot();
+	RefreshPoseHookOrder();
+	const protocol::HookStatus clean = PoseHookStatus();
+
+	// The second MinHook user's patch: the entry's jump now leads to its relay,
+	// and its detour calls where the jump it replaced led.
+	uint8_t ownPatch[5];
+	std::memcpy(ownPatch, target, sizeof ownPatch);
+	int32_t ownRel;
+	std::memcpy(&ownRel, ownPatch + 1, sizeof ownRel);
+	ForeignDisplaced = reinterpret_cast<PoseUpdateFn>(static_cast<uint8_t *>(target) + 5 + ownRel);
+	const uint64_t foreignDetour = reinterpret_cast<uint64_t>(&ForeignSmoothingDetour);
+	uint8_t relay[14] = { 0xFF, 0x25, 0, 0, 0, 0 };
+	std::memcpy(relay + 6, &foreignDetour, sizeof foreignDetour);
+	const intptr_t toRelay = reinterpret_cast<intptr_t>(ForeignRelay) - (reinterpret_cast<intptr_t>(target) + 5);
+	const int32_t foreignRel = static_cast<int32_t>(toRelay);
+	uint8_t foreignPatch[5] = { 0xE9 };
+	std::memcpy(foreignPatch + 1, &foreignRel, sizeof foreignRel);
+	const bool patched = ownPatch[0] == 0xE9 && toRelay == foreignRel &&
+		WriteCode(ForeignRelay, relay, sizeof relay, true) && WriteCode(target, foreignPatch, sizeof foreignPatch);
+
+	// Before the check: the ring gets what the second hooker made of the pose.
+	const uint32_t publishedBefore = provider->PublishedForTest();
+	ForeignCalls.store(0);
+	SendPoseThroughHost(0, sizeof(vr::DriverPose_t), 1.0);
+	const protocol::DevicePoseSample unobserved = provider->LastPublishedForTest();
+	const bool smoothedBefore = provider->PublishedForTest() == publishedBefore + 1 &&
+		unobserved.position[0] == 1.5 && ForeignCalls.load() == 1;
+
+	RefreshPoseHookOrder();
+	const protocol::HookStatus found = PoseHookStatus();
+	const bool observerInSlot = *HostPoseSlot() != target;
+
+	vr::DriverPose_t pose{};
+	pose.vecPosition[0] = 2.0;
+	pose.vecVelocity[0] = 0.25;
+	pose.poseIsValid = pose.deviceIsConnected = true;
+	pose.result = vr::TrackingResult_Running_OK;
+	pose.qRotation.w = pose.qWorldFromDriverRotation.w = pose.qDriverFromHeadRotation.w = 1;
+	const uint32_t publishedAhead = provider->PublishedForTest();
+	HostReceivedOriginX.store(0.0);
+	reinterpret_cast<PoseUpdateFn>(*HostPoseSlot())(&Host, 0, pose, sizeof pose);
+	const protocol::DevicePoseSample raw = provider->LastPublishedForTest();
+	const bool rawOnce = provider->PublishedForTest() == publishedAhead + 1 &&
+		raw.position[0] == 2.0 && raw.velocity[0] == 0.25;
+	const bool hostGotBoth = ForeignCalls.load() == 2 && HostReceivedPositionX.load() == 2.5 &&
+		HostReceivedOriginX.load() != 0.0;
+	const protocol::HookStatus observed = PoseHookStatus();
+
+	const bool unpatched = WriteCode(target, ownPatch, sizeof ownPatch);
+	RefreshPoseHookOrder();
+	const protocol::HookStatus gone = PoseHookStatus();
+	const bool released = DisableHooks();
+	const bool slotBack = *HostPoseSlot() == target;
+
+	char detail[400];
+	std::snprintf(detail, sizeof detail,
+		"clean checks %u ahead %x observer %x; patched %d smoothed before %d; found ahead %x seen %x "
+		"observer %x failed %x module '%s' in slot %d; raw once %d (%.2f, %.2f) host %d (%.2f); observed %u "
+		"around %u; gone ahead %x seen %x observer %x; unpatched %d released %d slot back %d",
+		clean.orderChecks, clean.foreignAheadMask, clean.observerMask, patched, smoothedBefore,
+		found.foreignAheadMask, found.foreignAheadSeenMask, found.observerMask, found.observerFailedMask,
+		found.foreignModule, observerInSlot, rawOnce, raw.position[0], raw.velocity[0], hostGotBoth,
+		HostReceivedPositionX.load(), observed.observedPoseUpdates, observed.unobservedPoseUpdates,
+		gone.foreignAheadMask, gone.foreignAheadSeenMask, gone.observerMask, unpatched, released, slotBack);
+	check(name, calibrated && clean.orderChecks == 1 && clean.foreignAheadMask == 0 &&
+		clean.foreignAheadSeenMask == 0 && clean.observerMask == 0 && clean.foreignModule[0] == '\0' &&
+		patched && smoothedBefore &&
+		found.foreignAheadMask == protocol::PoseHook006 && found.foreignAheadSeenMask == protocol::PoseHook006 &&
+		found.observerMask == protocol::PoseHook006 && found.observerFailedMask == 0 &&
+		OwnModuleFile() == found.foreignModule && observerInSlot &&
+		rawOnce && hostGotBoth && observed.observedPoseUpdates == 1 && observed.unobservedPoseUpdates == 0 &&
+		unpatched && gone.foreignAheadMask == 0 && gone.foreignAheadSeenMask == protocol::PoseHook006 &&
+		gone.observerMask == protocol::PoseHook006 && released && slotBack, detail);
+}
+
+// Another driver takes the host's vtable slot after the observer and calls
+// it: the observer is reported overtaken, and never placed on top of that
+// code, which would make the two call each other. Poses still flow.
+void ObserverOvertakenScenario(Check check)
+{
+	const char *name = "hooks: an observation hook overtaken in the host vtable is reported and not placed again";
+	auto provider = std::make_unique<ServerTrackedDeviceProvider>();
+	auto *context = reinterpret_cast<vr::IVRDriverContext *>(&Context);
+	if (!InjectHooks(provider.get(), context))
+	{
+		check(name, false, "InjectHooks failed");
+		return;
+	}
+	RequestHostInterface();
+	void *const target = *HostPoseSlot();
+
+	// A vtable hook ahead of the pose hook, as a driver hooking by slot does.
+	void *const first = reinterpret_cast<void *>(&FirstSlotTaker);
+	void *const second = reinterpret_cast<void *>(&SecondSlotTaker);
+	FirstTakerNext = reinterpret_cast<PoseUpdateFn>(target);
+	const bool firstTaken = SetHostPoseSlot(first);
+	RefreshPoseHookOrder();
+	const protocol::HookStatus placed = PoseHookStatus();
+	void *const observer = *HostPoseSlot();
+
+	// A second one takes the slot from the observer.
+	SecondTakerNext = reinterpret_cast<PoseUpdateFn>(observer);
+	const bool secondTaken = SetHostPoseSlot(second);
+	RefreshPoseHookOrder();
+	const protocol::HookStatus overtaken = PoseHookStatus();
+	const bool notReplaced = *HostPoseSlot() == second;
+	const uint32_t publishedBefore = provider->PublishedForTest();
+	HostReceivedPositionX.store(0.0);
+	ForeignCalls.store(0);
+	SendPoseThroughHost(0, sizeof(vr::DriverPose_t), 3.0);
+	const bool flows = HostReceivedPositionX.load() == 3.0 && ForeignCalls.load() == 110 &&
+		provider->PublishedForTest() == publishedBefore + 1 &&
+		provider->LastPublishedForTest().position[0] == 3.0;
+
+	// Unwound in order: the second taker leaves, then teardown takes the
+	// observer out, then the first taker leaves.
+	const bool secondLeft = SetHostPoseSlot(observer);
+	const bool released = DisableHooks();
+	const bool observerLeft = *HostPoseSlot() == first;
+	const bool firstLeft = SetHostPoseSlot(target);
+
+	char detail[260];
+	std::snprintf(detail, sizeof detail, "taken %d/%d; placed observer %x failed %x; overtaken observer %x "
+		"failed %x ahead %x; not replaced %d flows %d; unwound %d %d %d %d",
+		firstTaken, secondTaken, placed.observerMask, placed.observerFailedMask, overtaken.observerMask,
+		overtaken.observerFailedMask, overtaken.foreignAheadMask, notReplaced, flows, secondLeft, released,
+		observerLeft, firstLeft);
+	check(name, firstTaken && secondTaken && placed.observerMask == protocol::PoseHook006 &&
+		placed.observerFailedMask == 0 && observer != first && observer != target &&
+		overtaken.observerFailedMask == protocol::PoseHook006 &&
+		overtaken.foreignAheadMask == protocol::PoseHook006 && notReplaced && flows &&
+		secondLeft && released && observerLeft && firstLeft, detail);
+}
 } // namespace
 
 void RunHookInjectorScenarios(Check check)
@@ -533,4 +912,9 @@ void RunHookInjectorScenarios(Check check)
 	QuietBaseStationScenario(check);
 	ShortRotationStationScenario(check);
 	HookCoverageScenario(check);
+	HookChainOwnScenario(check);
+	HookChainForeignScenario(check);
+	ForeignModuleNameScenario(check);
+	ForeignHookObservedScenario(check);
+	ObserverOvertakenScenario(check);
 }

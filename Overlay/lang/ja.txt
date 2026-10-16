@@ -207,6 +207,14 @@ en: Calibration cannot move some target devices because their tracking does not 
 ja: 一部の対象デバイスのトラッキングが Nova Calibrator の SteamVR ドライバーを通らないため、キャリブレーションでそれらを動かせません。
 en: (OpenVR devices %s)
 ja: （OpenVR デバイス {0}）
+en: Nova Calibrator measures tracking before "%s" changes it.
+ja: Nova Calibrator は、「{0}」が変更する前のトラッキングを測定しています。
+en: Nova Calibrator measures tracking before another program changes it.
+ja: Nova Calibrator は、別のプログラムが変更する前のトラッキングを測定しています。
+en: The SteamVR driver "%s" changes tracking before Nova Calibrator receives it, so drift correction may misjudge your movement. Start SteamVR again. If this stays, turn that driver's smoothing off for the headset.
+ja: SteamVR ドライバー「{0}」が Nova Calibrator より先にトラッキングを変更しているため、ドリフト補正が動きを誤って判断する場合があります。SteamVR を再起動してください。解消しない場合は、そのドライバーでヘッドセットのスムージングをオフにしてください。
+en: Another program changes tracking before Nova Calibrator receives it, so drift correction may misjudge your movement. Start SteamVR again. If this stays, turn that program's smoothing off for the headset.
+ja: 別のプログラムが Nova Calibrator より先にトラッキングを変更しているため、ドリフト補正が動きを誤って判断する場合があります。SteamVR を再起動してください。解消しない場合は、そのプログラムでヘッドセットのスムージングをオフにしてください。
 en: Nova Calibrator %s is ready
 ja: Nova Calibrator {0} の準備ができました
 en: The update is downloaded and verified. Close Steam before you install it.

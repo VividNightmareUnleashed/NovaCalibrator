@@ -48,9 +48,13 @@ public:
 	bool TrySetRuntimeState(const protocol::SetRuntimeState &newState,
 		protocol::RejectReason *reason = nullptr);
 	// `host` is how the device's own driver reached the hook; a pose without
-	// one is never re-sent (ResendQuietPoses).
+	// one is never re-sent (ResendQuietPoses). `publish` false leaves the pose
+	// out of the pose ring: an observation hook already recorded it raw.
 	void HandleDevicePoseUpdated(uint32_t openVRID, vr::DriverPose_t &pose,
-		const PoseHostCall &host = {});
+		const PoseHostCall &host = {}, bool publish = true);
+	// Records a raw pose for the pose ring and nothing else: the observation
+	// hook's part, ahead of another module's code (InterfaceHookInjector.cpp).
+	void PublishRawPose(uint32_t openVRID, const vr::DriverPose_t &pose);
 	// IPC-thread owned checkpoint, separate from temporary slot neutralization.
 	void GetRuntimeState(protocol::Response &response) const
 	{
@@ -67,6 +71,10 @@ public:
 	}
 	// RunFrame's re-send pass, without its pose ring retry.
 	void ResendQuietPosesForTest() { ResendQuietPoses(); }
+	// Every sample built for the pose ring, counted even with no ring open;
+	// the last one under its device's pose mutex.
+	uint32_t PublishedForTest() const { return publishedForTest.load(std::memory_order_relaxed); }
+	protocol::DevicePoseSample LastPublishedForTest() const { return lastPublishedForTest; }
 #endif
 
 private:
@@ -164,10 +172,14 @@ private:
 	protocol::SetRuntimeState recoveryState;
 	double qpcToSeconds = 0.0;
 #ifdef QUESTCAL_DRIVER_PROVIDER_TEST_SEAM
+	std::atomic<uint32_t> publishedForTest{ 0 };
+	protocol::DevicePoseSample lastPublishedForTest;
 	double poseTimeForTest = -1.0;
 	vr::ETrackedDeviceClass deviceClassForTest[vr::k_unMaxTrackedDeviceCount] = {};
 #endif
 
+	// Under the device's pose mutex.
+	void PublishSample(uint32_t openVRID, const vr::DriverPose_t &pose, int64_t qpc);
 	// Publishes every raw (pre-transform) pose for the overlay's solver.
 	protocol::PoseRingWriter poseRing;
 	// Publishes a completed Create (in Init or a RunFrame retry) to the pose

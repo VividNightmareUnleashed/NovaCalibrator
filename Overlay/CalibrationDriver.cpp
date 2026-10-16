@@ -144,6 +144,15 @@ void ApplyCompletion(CalibrationContext &ctx,
 		ctx.driverHookedDevices = result.hookStatus.hookedDevices;
 		ctx.driverMismatchedPoseUpdates = result.hookStatus.mismatchedPoseUpdates;
 		ctx.driverReentrantPoseUpdates = result.hookStatus.reentrantPoseUpdates;
+		const protocol::HookStatus &order = result.hookStatus;
+		ctx.driverOrderChecks = order.orderChecks;
+		ctx.driverForeignAheadMask = order.foreignAheadMask;
+		ctx.driverForeignAheadSeenMask = order.foreignAheadSeenMask;
+		ctx.driverObserverMask = order.observerMask;
+		ctx.driverObserverFailedMask = order.observerFailedMask;
+		ctx.driverObservedPoseUpdates = order.observedPoseUpdates;
+		ctx.driverUnobservedPoseUpdates = order.unobservedPoseUpdates;
+		ctx.driverForeignModule = ForeignModuleFile(order.foreignModule, sizeof order.foreignModule);
 		uint64_t tracked = 0;
 		uint64_t targets = 0;
 		for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
