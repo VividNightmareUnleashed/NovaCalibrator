@@ -373,6 +373,11 @@ void SetupPreviewState()
 		CalCtx.disableReason = CalibrationContext::DisableReason::HmdMismatch;
 		CalCtx.ReportError("Nova Calibrator could not read your chaperone from SteamVR. Your saved walls did not change.\n",
 			CalibrationContext::ErrorSource::ChaperoneMonitor);
+		// OpenVR-SmoothTracking ahead of the pose hook, with the raw-pose
+		// observer in front of it.
+		CalCtx.driverForeignAheadMask = CalCtx.driverForeignAheadSeenMask = protocol::PoseHook006;
+		CalCtx.driverObserverMask = protocol::PoseHook006;
+		CalCtx.driverForeignModule = "driver_SmoothTracking.dll";
 		break;
 	case PreviewScenario::Frozen:
 		// The loop measured a deviation too large to correct and stopped:

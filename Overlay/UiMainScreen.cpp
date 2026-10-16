@@ -2,6 +2,7 @@
 // notices, tools and recent activity.
 #include "stdafx.h"
 #include "UiInternal.h"
+#include "HookCoverage.h"
 #include "QualityBands.h"
 
 // The driver's pose channel feeds every runtime monitor. Preview mode has no
@@ -467,6 +468,33 @@ float BuildHomePage(const VRState &state, ImVec2 origin, float width)
 			why += FormatString(" (OpenVR devices %s)", ids.c_str());
 		}
 		notices.push_back({ ui::Icon::Warn, ui::col::Caution, ui::col::CautionTint, std::string(), why });
+	}
+	// Another module's code runs ahead of the pose hook (OpenVR-SmoothTracking,
+	// say). The driver records raw poses ahead of it, so it keeps working; the
+	// player only needs to act when that could not be done.
+	if ((CalCtx.driverObserverMask | CalCtx.driverObserverFailedMask) != 0)
+	{
+		const std::string driver = questcal::ForeignDriverName(CalCtx.driverForeignModule);
+		const bool failed = CalCtx.driverObserverFailedMask != 0;
+		std::string why;
+		if (failed)
+			why = driver.empty()
+				? Tr("Another program changes tracking before Nova Calibrator receives it, so drift correction "
+					"may misjudge your movement. Start SteamVR again. If this stays, turn that program's "
+					"smoothing off for the headset.")
+				: Tr(FormatString("The SteamVR driver \"%s\" changes tracking before Nova Calibrator receives it, "
+					"so drift correction may misjudge your movement. Start SteamVR again. If this stays, turn "
+					"that driver's smoothing off for the headset.", driver.c_str()));
+		else
+			why = driver.empty()
+				? Tr("Nova Calibrator measures tracking before another program changes it.")
+				: Tr(FormatString("Nova Calibrator measures tracking before \"%s\" changes it.", driver.c_str()));
+		if (CalCtx.uiAdvanced && driver.empty() && !CalCtx.driverForeignModule.empty())
+			why += " (" + CalCtx.driverForeignModule + ")";
+		if (failed)
+			notices.push_back({ ui::Icon::Warn, ui::col::Caution, ui::col::CautionTint, std::string(), why });
+		else
+			notices.push_back({ ui::Icon::Info, ui::col::Link, ui::col::LinkTint, std::string(), why });
 	}
 
 	// ---- Layout ----

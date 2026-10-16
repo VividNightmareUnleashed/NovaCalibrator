@@ -115,7 +115,11 @@ vr::EVRInitError ServerTrackedDeviceProvider::Init(vr::IVRDriverContext *pDriver
 		return reason;
 	};
 	sink.poseHookMask = [] { return PoseUpdateHookMask(); };
-	sink.hookStatus = [] { return PoseHookStatus(); };
+	sink.hookStatus = []
+	{
+		RefreshPoseHookOrder();
+		return PoseHookStatus();
+	};
 	sink.getRuntimeState = [this](protocol::Response &response) { GetRuntimeState(response); };
 	if (!server.Run(std::move(sink)))
 	{
@@ -399,8 +403,45 @@ void ServerTrackedDeviceProvider::ReadRuntimeState(uint32_t openVRID,
     field = snapshot.field;
 }
 
+void ServerTrackedDeviceProvider::PublishSample(uint32_t openVRID, const vr::DriverPose_t &pose,
+	int64_t qpc)
+{
+	protocol::DevicePoseSample sample;
+	sample.sampleTimeQpc = qpc;
+	sample.deviceId = openVRID;
+	sample.trackingResult = static_cast<uint32_t>(pose.result);
+	sample.poseIsValid = pose.poseIsValid;
+	sample.deviceIsConnected = pose.deviceIsConnected;
+	sample.poseTimeOffset = pose.poseTimeOffset;
+	sample.worldFromDriverRotation = pose.qWorldFromDriverRotation;
+	sample.rotation = pose.qRotation;
+	for (int i = 0; i < 3; ++i)
+	{
+		sample.worldFromDriverTranslation[i] = pose.vecWorldFromDriverTranslation[i];
+		sample.position[i] = pose.vecPosition[i];
+		sample.velocity[i] = pose.vecVelocity[i];
+		sample.angularVelocity[i] = pose.vecAngularVelocity[i];
+	}
+#ifdef QUESTCAL_DRIVER_PROVIDER_TEST_SEAM
+	lastPublishedForTest = sample;
+	publishedForTest.fetch_add(1, std::memory_order_relaxed);
+#endif
+	if (poseRingReady.load(std::memory_order_acquire))
+		poseRing.Publish(sample);
+}
+
+void ServerTrackedDeviceProvider::PublishRawPose(uint32_t openVRID, const vr::DriverPose_t &pose)
+{
+	if (openVRID >= vr::k_unMaxTrackedDeviceCount)
+		return;
+	std::lock_guard<std::mutex> poseLock(poseMutexes[openVRID]);
+	LARGE_INTEGER now;
+	QueryPerformanceCounter(&now);
+	PublishSample(openVRID, pose, now.QuadPart);
+}
+
 void ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::DriverPose_t &pose,
-	const PoseHostCall &host)
+	const PoseHostCall &host, bool publish)
 {
 	if (openVRID >= vr::k_unMaxTrackedDeviceCount)
 		return;
@@ -415,26 +456,8 @@ void ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr:
 	LARGE_INTEGER now;
 	QueryPerformanceCounter(&now);
 
-	if (poseRingReady.load(std::memory_order_acquire))
-	{
-		protocol::DevicePoseSample sample;
-		sample.sampleTimeQpc = now.QuadPart;
-		sample.deviceId = openVRID;
-		sample.trackingResult = static_cast<uint32_t>(pose.result);
-		sample.poseIsValid = pose.poseIsValid;
-		sample.deviceIsConnected = pose.deviceIsConnected;
-		sample.poseTimeOffset = pose.poseTimeOffset;
-		sample.worldFromDriverRotation = pose.qWorldFromDriverRotation;
-		sample.rotation = pose.qRotation;
-		for (int i = 0; i < 3; ++i)
-		{
-			sample.worldFromDriverTranslation[i] = pose.vecWorldFromDriverTranslation[i];
-			sample.position[i] = pose.vecPosition[i];
-			sample.velocity[i] = pose.vecVelocity[i];
-			sample.angularVelocity[i] = pose.vecAngularVelocity[i];
-		}
-		poseRing.Publish(sample);
-	}
+	if (publish)
+		PublishSample(openVRID, pose, now.QuadPart);
 
 	const vr::DriverPose_t raw = pose;
 	DeviceTransform tf;

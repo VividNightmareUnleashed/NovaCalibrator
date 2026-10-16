@@ -26,8 +26,14 @@ void ResendPose(const PoseHostCall &call, uint32_t device, const vr::DriverPose_
 bool InjectHooks(ServerTrackedDeviceProvider *driver, vr::IVRDriverContext *pDriverContext);
 bool IsPoseUpdateHookInstalled();
 uint32_t PoseUpdateHookMask();
-// What the pose hook has seen since InjectHooks.
+// What the pose hook has seen since InjectHooks, and what the last
+// RefreshPoseHookOrder found.
 protocol::HookStatus PoseHookStatus();
+// Checks, by following only jumps from each hooked vtable slot, whether another
+// module's code runs ahead of a hook; ahead of a pose hook, places an
+// observation hook in the host's vtable that records the raw poses for the
+// pose ring instead. Run before each handshake's PoseHookStatus.
+void RefreshPoseHookOrder();
 // Disables every hook and returns true once no pose callback can still reach
 // the driver. The detours themselves stay in place, pinned with this module,
 // and only forward. False means a callback was still inside the driver when

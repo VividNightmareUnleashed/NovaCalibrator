@@ -111,6 +111,7 @@
     <ClInclude Include="..\common\VersionProbe.h" />
     <ClInclude Include="AlignmentField.h" />
     <ClInclude Include="AtomicSnapshot.h" />
+    <ClInclude Include="HookChain.h" />
     <ClInclude Include="Hooking.h" />
     <ClInclude Include="InterfaceHookInjector.h" />
     <ClInclude Include="OpenVRHookLayout.h" />

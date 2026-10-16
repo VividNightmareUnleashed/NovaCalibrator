@@ -400,6 +400,13 @@ std::string DescribeContinuousDiagnostics(const CalibrationContext &ctx, double 
 		<< ", bypassing targets 0x" << ctx.hookBypassingDevices << std::dec
 		<< ", size-mismatched updates " << ctx.driverMismatchedPoseUpdates
 		<< ", re-entrant updates " << ctx.driverReentrantPoseUpdates << "\n";
+	// Masks: pose hooks 005 = 1, 006 = 2, driver context = 4.
+	out << "pose hook order: checks " << ctx.driverOrderChecks << ", foreign code ahead 0x" << std::hex
+		<< ctx.driverForeignAheadMask << " (this session 0x" << ctx.driverForeignAheadSeenMask << ") in "
+		<< (ctx.driverForeignModule.empty() ? "(no module)" : ctx.driverForeignModule)
+		<< ", raw-pose observer active 0x" << ctx.driverObserverMask << ", could not observe 0x"
+		<< ctx.driverObserverFailedMask << std::dec << ", observed updates " << ctx.driverObservedPoseUpdates
+		<< ", updates around the observer " << ctx.driverUnobservedPoseUpdates << "\n";
 	out << "Quest last engine update age: ";
 	age(input.lastUpdateTime);
 	out << "; last observation age: ";

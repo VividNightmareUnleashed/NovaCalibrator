@@ -19,10 +19,13 @@ namespace protocol
 	// driver reinstall and a SteamVR restart. v11 starts every connection with
 	// the version probe (VersionProbe.h), so the two ends of a partial update
 	// report a version mismatch instead of a frame of the wrong size, says why a
-	// request was refused, and reports which devices reach the pose hook.
-	const uint32_t Version = 11;
+	// request was refused, and reports which devices reach the pose hook. v12
+	// reports another module's code running ahead of the hooks.
+	const uint32_t Version = 12;
 	const uint32_t PoseHook005 = 1u << 0;
 	const uint32_t PoseHook006 = 1u << 1;
+	// IVRDriverContext::GetGenericInterface, in HookStatus's hook masks only.
+	const uint32_t ContextHook = 1u << 2;
 
 	enum RequestType : uint32_t
 	{
@@ -230,6 +233,29 @@ namespace protocol
 		// Pose updates forwarded untouched because they re-entered the hook for
 		// the same device from inside the host call it forwards to.
 		uint32_t reentrantPoseUpdates = 0;
+		// Times the driver has checked whose code runs first in each hooked
+		// function (once per handshake).
+		uint32_t orderChecks = 0;
+		// Hooks another module's code runs ahead of (PoseHook005, PoseHook006,
+		// ContextHook), so it sees and can change what they receive: at the last
+		// check, and at any check this session.
+		uint32_t foreignAheadMask = 0;
+		uint32_t foreignAheadSeenMask = 0;
+		// Pose hooks whose observation hook, in the host's vtable ahead of that
+		// code, records the raw poses for the pose ring; and pose hooks where one
+		// is needed but could not be placed, or was itself overtaken.
+		uint32_t observerMask = 0;
+		uint32_t observerFailedMask = 0;
+		// Raw poses the observation hooks recorded, and poses the pose hook
+		// recorded itself while an observation hook was active because they did
+		// not come through it (another host object, or a pose the module ahead
+		// sent on its own).
+		uint32_t observedPoseUpdates = 0;
+		uint32_t unobservedPoseUpdates = 0;
+		// File name of the module the first code ahead belongs to, UTF-8 and
+		// NUL-terminated; empty when it belongs to none. The overlay accepts it
+		// only up to the first NUL inside the array.
+		char foreignModule[44] = {};
 	};
 
 	// Fixed-size wire messages; the whole struct crosses the pipe via sizeof.
@@ -271,9 +297,9 @@ namespace protocol
 	static_assert(sizeof(SetAlignmentField) == 664, "SetAlignmentField wire layout changed");
 	static_assert(sizeof(FrameCorrection) == 56, "FrameCorrection wire layout changed");
 	static_assert(sizeof(SetRuntimeState) == 4880, "SetRuntimeState wire layout changed");
-	static_assert(sizeof(HookStatus) == 16, "HookStatus wire layout changed");
+	static_assert(sizeof(HookStatus) == 88, "HookStatus wire layout changed");
 	static_assert(sizeof(Request) == 4976, "Request wire layout changed");
-	static_assert(sizeof(Response) == 4920, "Response wire layout changed");
+	static_assert(sizeof(Response) == 4992, "Response wire layout changed");
 	// The fields each message starts with.
 	static_assert(offsetof(Request, protocol) == 0 && offsetof(Request, type) == 4,
 		"Request header layout changed");

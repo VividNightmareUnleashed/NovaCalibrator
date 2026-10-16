@@ -1,5 +1,6 @@
 #include "Logging.h"
 #include "Hooking.h"
+#include "HookChain.h"
 #include "InterfaceHookInjector.h"
 #include "OpenVRHookLayout.h"
 #include "HookLifecyclePolicy.h"
@@ -29,11 +30,23 @@ questcal::hooks::CallbackActivity ActiveCallbacks;
 std::atomic<uint64_t> HookedDevices{ 0 };
 std::atomic<uint32_t> MismatchedPoseUpdates{ 0 };
 std::atomic<uint32_t> ReentrantPoseUpdates{ 0 };
+std::atomic<uint32_t> ObservedPoseUpdates{ 0 };
+std::atomic<uint32_t> UnobservedPoseUpdates{ 0 };
+// What RefreshPoseHookOrder found, protected by StatusMutex.
+std::mutex StatusMutex;
+uint32_t OrderChecks = 0;
+uint32_t ForeignAheadMask = 0;
+uint32_t ForeignAheadSeenMask = 0;
+uint32_t ObserverFailedMask = 0;
+char ForeignModule[sizeof(protocol::HookStatus::foreignModule)] = {};
 // The device whose pose this thread is forwarding through a pose detour. A
 // host whose TrackedDevicePoseUpdated calls another hooked version (005
 // forwarding to 006, say) would otherwise transform the pose twice and publish
 // the transformed one as raw.
 thread_local uint32_t ForwardingDevice = vr::k_unTrackedDeviceIndexInvalid;
+// The device whose pose this thread is forwarding through an observation hook,
+// which has already recorded it raw.
+thread_local uint32_t ObservingDevice = vr::k_unTrackedDeviceIndexInvalid;
 std::mutex HookSetupMutex;
 bool MinHookInitialized = false;   // protected by HookSetupMutex
 bool HooksInstalled = false;       // protected by HookSetupMutex
@@ -68,9 +81,43 @@ using PoseUpdateDetour =
 PoseUpdateHook TrackedDevicePoseUpdatedHook005("IVRServerDriverHost005::TrackedDevicePoseUpdated");
 PoseUpdateHook TrackedDevicePoseUpdatedHook006("IVRServerDriverHost006::TrackedDevicePoseUpdated");
 
+// A driver loaded after this one that hooks TrackedDevicePoseUpdated the same
+// way (OpenVR-SmoothTracking does, with MinHook) patches the function's entry
+// over this hook's patch, so its code runs first and the pose hook receives
+// what it made of each pose: smoothed, with its velocities zeroed. The
+// calibration is still applied there, after it, as it always was, so what the
+// player sees with that driver does not change; but the solver, drift and jump
+// detection need the pose as the device's own driver sent it. So once
+// RefreshPoseHookOrder finds foreign code ahead, an observation hook takes the
+// host's vtable slot, which device drivers call through, and records each pose
+// raw before forwarding it to whatever the slot held.
+struct ObserverHook
+{
+	// The host vtable slot the pose hook was installed from. Set once, under
+	// HookSetupMutex; host objects live as long as vrserver.
+	std::atomic<void **> slot{ nullptr };
+	// What the slot held when the observer took it, which the observer calls.
+	// Set before the observer can be reached, and kept: a thread may still be
+	// forwarding through it after teardown.
+	std::atomic<PoseUpdateDetour> next{ nullptr };
+	// While set, the observer records raw poses, and the pose hook does not
+	// record those that came through it.
+	std::atomic<bool> active{ false };
+	// The observer is in the slot (HookSetupMutex).
+	bool inSlot = false;
+	// The observer left the slot other than through teardown, or teardown could
+	// not take it out (something took the slot after it). Something may still
+	// call it, and it only forwards; placing it again on top of other code could
+	// make the two call each other (HookSetupMutex).
+	bool stranded = false;
+};
+
+ObserverHook Observer005;
+ObserverHook Observer006;
+
 // The forwarding body every interface version shares. The detours stay
 // distinct functions because each is the address MinHook patches in.
-void ForwardPoseUpdate(PoseUpdateHook &hook, void *_this,
+void ForwardPoseUpdate(PoseUpdateHook &hook, const ObserverHook &observer, void *_this,
 	uint32_t unWhichDevice, const vr::DriverPose_t &newPose, uint32_t unPoseStructSize)
 {
 	// Set before the hook was first enabled and never cleared, since hooks are
@@ -113,6 +160,17 @@ void ForwardPoseUpdate(PoseUpdateHook &hook, void *_this,
 			HookedDevices.fetch_or(bit, std::memory_order_relaxed);
 	}
 
+	// An observation hook, ahead of the code ahead of this hook, recorded this
+	// pose raw on its way here.
+	bool publish = true;
+	if (observer.active.load(std::memory_order_acquire))
+	{
+		if (ObservingDevice == unWhichDevice)
+			publish = false;
+		else
+			UnobservedPoseUpdates.fetch_add(1, std::memory_order_relaxed);
+	}
+
 	auto pose = newPose;
 	{
 		// Counted from before Driver is read until the driver is done. The count
@@ -125,7 +183,8 @@ void ForwardPoseUpdate(PoseUpdateHook &hook, void *_this,
 			if (InsideDriverCallbackForTest)
 				InsideDriverCallbackForTest();
 #endif
-			driver->HandleDevicePoseUpdated(unWhichDevice, pose, PoseHostCall{ _this, original });
+			driver->HandleDevicePoseUpdated(unWhichDevice, pose, PoseHostCall{ _this, original },
+				publish);
 		}
 	}
 	if (original)
@@ -135,15 +194,55 @@ void ForwardPoseUpdate(PoseUpdateHook &hook, void *_this,
 void DetourTrackedDevicePoseUpdated005(void *_this,
 	uint32_t unWhichDevice, const vr::DriverPose_t &newPose, uint32_t unPoseStructSize)
 {
-	ForwardPoseUpdate(TrackedDevicePoseUpdatedHook005, _this, unWhichDevice, newPose,
-		unPoseStructSize);
+	ForwardPoseUpdate(TrackedDevicePoseUpdatedHook005, Observer005, _this, unWhichDevice,
+		newPose, unPoseStructSize);
 }
 
 void DetourTrackedDevicePoseUpdated006(void *_this,
 	uint32_t unWhichDevice, const vr::DriverPose_t &newPose, uint32_t unPoseStructSize)
 {
-	ForwardPoseUpdate(TrackedDevicePoseUpdatedHook006, _this, unWhichDevice, newPose,
-		unPoseStructSize);
+	ForwardPoseUpdate(TrackedDevicePoseUpdatedHook006, Observer006, _this, unWhichDevice,
+		newPose, unPoseStructSize);
+}
+
+// Records the pose raw, then forwards it untouched to what the slot held.
+void ObservePoseUpdate(ObserverHook &observer, void *_this,
+	uint32_t unWhichDevice, const vr::DriverPose_t &newPose, uint32_t unPoseStructSize)
+{
+	const PoseUpdateDetour next = observer.next.load(std::memory_order_acquire);
+	// Not a pose this thread is already forwarding: one the host passes on to
+	// another version's vtable, or one re-sent after it was handled.
+	if (observer.active.load(std::memory_order_acquire) && ObservingDevice != unWhichDevice &&
+		ForwardingDevice != unWhichDevice && unPoseStructSize == sizeof(vr::DriverPose_t) &&
+		unWhichDevice < vr::k_unMaxTrackedDeviceCount)
+	{
+		CallbackGuard callback(ActiveCallbacks);
+		if (ServerTrackedDeviceProvider *driver = Driver.load(std::memory_order_seq_cst))
+		{
+			driver->PublishRawPose(unWhichDevice, newPose);
+			ObservedPoseUpdates.fetch_add(1, std::memory_order_relaxed);
+		}
+	}
+	struct Observing
+	{
+		uint32_t outer;
+		~Observing() { ObservingDevice = outer; }
+	} observing{ ObservingDevice };
+	ObservingDevice = unWhichDevice;
+	if (next)
+		next(_this, unWhichDevice, newPose, unPoseStructSize);
+}
+
+void ObserveTrackedDevicePoseUpdated005(void *_this,
+	uint32_t unWhichDevice, const vr::DriverPose_t &newPose, uint32_t unPoseStructSize)
+{
+	ObservePoseUpdate(Observer005, _this, unWhichDevice, newPose, unPoseStructSize);
+}
+
+void ObserveTrackedDevicePoseUpdated006(void *_this,
+	uint32_t unWhichDevice, const vr::DriverPose_t &newPose, uint32_t unPoseStructSize)
+{
+	ObservePoseUpdate(Observer006, _this, unWhichDevice, newPose, unPoseStructSize);
 }
 
 // Supporting another interface version is one row here.
@@ -153,14 +252,76 @@ struct PoseHookBinding
 	PoseUpdateHook *hook;
 	PoseUpdateDetour detour;
 	std::atomic<bool> *ready;
+	uint32_t bit;   // protocol::PoseHook005...
+	ObserverHook *observer;
+	PoseUpdateDetour observe;
 };
 
 const PoseHookBinding PoseHookBindings[] = {
 	{ "IVRServerDriverHost_005", &TrackedDevicePoseUpdatedHook005,
-		&DetourTrackedDevicePoseUpdated005, &PoseHook005Ready },
+		&DetourTrackedDevicePoseUpdated005, &PoseHook005Ready, protocol::PoseHook005,
+		&Observer005, &ObserveTrackedDevicePoseUpdated005 },
 	{ "IVRServerDriverHost_006", &TrackedDevicePoseUpdatedHook006,
-		&DetourTrackedDevicePoseUpdated006, &PoseHook006Ready },
+		&DetourTrackedDevicePoseUpdated006, &PoseHook006Ready, protocol::PoseHook006,
+		&Observer006, &ObserveTrackedDevicePoseUpdated006 },
 };
+
+// The driver context's GetGenericInterface slot, for the order check.
+std::atomic<void **> ContextSlot{ nullptr };
+
+// Reads without faulting: a decoded jump can point anywhere.
+bool ReadMemory(uintptr_t address, void *out, size_t size)
+{
+	SIZE_T read = 0;
+	return address != 0 && ReadProcessMemory(GetCurrentProcess(),
+		reinterpret_cast<LPCVOID>(address), out, size, &read) != FALSE && read == size;
+}
+
+questcal::hookchain::Walk WalkFrom(uintptr_t start, uintptr_t detour)
+{
+	return questcal::hookchain::Follow(start, detour, ReadMemory);
+}
+
+// The protection that lets `protect`'s page be written and still run what it
+// ran; 0 when it cannot be written that way.
+DWORD WritableProtection(DWORD protect)
+{
+	if (protect & (PAGE_GUARD | PAGE_NOACCESS))
+		return 0;
+	switch (protect & 0xFF)
+	{
+	case PAGE_READONLY:
+	case PAGE_READWRITE:
+	case PAGE_WRITECOPY:
+		return PAGE_READWRITE;
+	case PAGE_EXECUTE_READ:
+	case PAGE_EXECUTE_READWRITE:
+	case PAGE_EXECUTE_WRITECOPY:
+		return PAGE_EXECUTE_READWRITE;
+	default:
+		return 0;
+	}
+}
+
+// Swaps `expected` in the vtable slot for `desired`: an aligned pointer store,
+// so a caller reading the slot meanwhile gets one or the other.
+bool ExchangeSlot(void **slot, void *expected, void *desired)
+{
+	MEMORY_BASIC_INFORMATION info{};
+	if (!slot || (reinterpret_cast<uintptr_t>(slot) % alignof(void *)) != 0 ||
+		VirtualQuery(slot, &info, sizeof info) != sizeof info || info.State != MEM_COMMIT)
+		return false;
+	const DWORD writable = WritableProtection(info.Protect);
+	if (!writable)
+		return false;
+	DWORD previous = 0;
+	if (!VirtualProtect(slot, sizeof(void *), writable, &previous))
+		return false;
+	const void *seen = InterlockedCompareExchangePointer(slot, desired, expected);
+	DWORD ignored = 0;
+	VirtualProtect(slot, sizeof(void *), previous, &ignored);
+	return seen == expected;
+}
 
 bool DisableEveryHook()
 {
@@ -209,6 +370,9 @@ void TryInstallPoseHook(const char *interfaceVersion, void *originalInterface)
 	if (binding->hook->CreateHookInObjectVTable(
 		originalInterface, openvr_hook::PoseUpdateSlot, binding->detour))
 	{
+		if (!binding->observer->slot.load(std::memory_order_relaxed))
+			binding->observer->slot.store(*static_cast<void ***>(originalInterface) +
+				openvr_hook::PoseUpdateSlot, std::memory_order_release);
 		binding->ready->store(true, std::memory_order_release);
 	}
 }
@@ -266,6 +430,13 @@ bool InjectHooks(ServerTrackedDeviceProvider *driver, vr::IVRDriverContext *pDri
 	HookedDevices.store(0, std::memory_order_relaxed);
 	MismatchedPoseUpdates.store(0, std::memory_order_relaxed);
 	ReentrantPoseUpdates.store(0, std::memory_order_relaxed);
+	ObservedPoseUpdates.store(0, std::memory_order_relaxed);
+	UnobservedPoseUpdates.store(0, std::memory_order_relaxed);
+	{
+		std::lock_guard<std::mutex> status(StatusMutex);
+		OrderChecks = ForeignAheadMask = ForeignAheadSeenMask = ObserverFailedMask = 0;
+		ForeignModule[0] = '\0';
+	}
 	// Once per process; a later Init enables the hooks the first one created.
 	if (!MinHookInitialized)
 	{
@@ -291,6 +462,9 @@ bool InjectHooks(ServerTrackedDeviceProvider *driver, vr::IVRDriverContext *pDri
 		return false;
 	}
 
+	if (!ContextSlot.load(std::memory_order_relaxed))
+		ContextSlot.store(*reinterpret_cast<void ***>(pDriverContext) +
+			openvr_hook::GetGenericInterfaceSlot, std::memory_order_release);
 	HooksInstalled = true;
 	AcceptingHookRequests.store(true, std::memory_order_release);
 	return true;
@@ -317,7 +491,173 @@ protocol::HookStatus PoseHookStatus()
 	status.hookedDevices = HookedDevices.load(std::memory_order_relaxed);
 	status.mismatchedPoseUpdates = MismatchedPoseUpdates.load(std::memory_order_relaxed);
 	status.reentrantPoseUpdates = ReentrantPoseUpdates.load(std::memory_order_relaxed);
+	status.observedPoseUpdates = ObservedPoseUpdates.load(std::memory_order_relaxed);
+	status.unobservedPoseUpdates = UnobservedPoseUpdates.load(std::memory_order_relaxed);
+	for (const PoseHookBinding &binding : PoseHookBindings)
+		if (binding.observer->active.load(std::memory_order_acquire))
+			status.observerMask |= binding.bit;
+	std::lock_guard<std::mutex> lock(StatusMutex);
+	status.orderChecks = OrderChecks;
+	status.foreignAheadMask = ForeignAheadMask;
+	status.foreignAheadSeenMask = ForeignAheadSeenMask;
+	status.observerFailedMask = ObserverFailedMask;
+	std::memcpy(status.foreignModule, ForeignModule, sizeof status.foreignModule);
 	return status;
+}
+
+namespace
+{
+// The file name of the module `address` lies in, UTF-8, cut to fit `out`
+// with its NUL; empty when it lies in none.
+void ModuleFileName(uintptr_t address, char (&out)[sizeof ForeignModule])
+{
+	out[0] = '\0';
+	HMODULE module = nullptr;
+	if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+		GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+		reinterpret_cast<LPCWSTR>(address), &module) || !module)
+		return;
+	wchar_t path[MAX_PATH] = {};
+	const DWORD length = GetModuleFileNameW(module, path, MAX_PATH);
+	if (length == 0 || length >= MAX_PATH)
+		return;
+	const wchar_t *name = path;
+	for (const wchar_t *c = path; *c; ++c)
+		if (*c == L'\\' || *c == L'/')
+			name = c + 1;
+	char utf8[MAX_PATH * 3] = {};
+	if (WideCharToMultiByte(CP_UTF8, 0, name, -1, utf8, sizeof utf8, nullptr, nullptr) <= 0)
+		return;
+	// Cut on a character boundary, never inside a UTF-8 sequence.
+	size_t keep = std::strlen(utf8);
+	if (keep >= sizeof out)
+	{
+		keep = sizeof out - 1;
+		while (keep > 0 && (static_cast<unsigned char>(utf8[keep]) & 0xC0) == 0x80)
+			--keep;
+	}
+	std::memcpy(out, utf8, keep);
+	out[keep] = '\0';
+}
+
+// Places the observer in front of `current`, the code its walk found ahead.
+// Called with HookSetupMutex held.
+bool PlaceObserver(const PoseHookBinding &binding, void **slot, void *current)
+{
+	ObserverHook &observer = *binding.observer;
+	observer.next.store(reinterpret_cast<PoseUpdateDetour>(current), std::memory_order_release);
+	if (!ExchangeSlot(slot, current, reinterpret_cast<void *>(binding.observe)))
+		return false;
+	observer.inSlot = true;
+	// Only now: until the observer is reached, the pose hook records every pose
+	// itself. A pose the observer saw before this store is recorded by neither,
+	// never by both.
+	observer.active.store(true, std::memory_order_release);
+	return true;
+}
+} // namespace
+
+void RefreshPoseHookOrder()
+{
+	uint32_t ahead = 0;
+	uint32_t failed = 0;
+	uint32_t placed = 0;
+	uintptr_t firstAhead = 0;
+	{
+		std::lock_guard<std::mutex> lock(HookSetupMutex);
+		if (!HooksInstalled)
+			return;
+		auto noteAhead = [&](uint32_t bit, uintptr_t end) {
+			ahead |= bit;
+			// The pose hooks' code ahead is the one worth naming.
+			if (!firstAhead || bit != protocol::ContextHook)
+				firstAhead = end;
+		};
+
+		void **contextSlot = ContextSlot.load(std::memory_order_acquire);
+		uint64_t contextTarget = 0;
+		if (contextSlot && ReadMemory(reinterpret_cast<uintptr_t>(contextSlot),
+			&contextTarget, sizeof contextTarget))
+		{
+			const auto walk = WalkFrom(static_cast<uintptr_t>(contextTarget),
+				reinterpret_cast<uintptr_t>(&DetourGetGenericInterface));
+			if (!walk.reachedDetour)
+				noteAhead(protocol::ContextHook, walk.end);
+		}
+
+		for (const PoseHookBinding &binding : PoseHookBindings)
+		{
+			ObserverHook &observer = *binding.observer;
+			void **slot = observer.slot.load(std::memory_order_acquire);
+			if (!binding.ready->load(std::memory_order_acquire) || !slot)
+				continue;
+			uint64_t current = 0;
+			if (!ReadMemory(reinterpret_cast<uintptr_t>(slot), &current, sizeof current))
+				continue;
+			const uintptr_t detour = reinterpret_cast<uintptr_t>(binding.detour);
+			const uintptr_t observe = reinterpret_cast<uintptr_t>(binding.observe);
+			if (current == observe)
+			{
+				// The observer is first; the code behind it may since have gone.
+				const auto behind = WalkFrom(reinterpret_cast<uintptr_t>(
+					observer.next.load(std::memory_order_acquire)), detour);
+				if (!behind.reachedDetour)
+					noteAhead(binding.bit, behind.end);
+				if (!observer.active.load(std::memory_order_relaxed))
+					observer.active.store(true, std::memory_order_release);
+				continue;
+			}
+
+			const auto walk = WalkFrom(static_cast<uintptr_t>(current), detour);
+			if (walk.reachedDetour)
+			{
+				if (observer.inSlot)
+				{
+					// What replaced the observer reaches the pose hook only by
+					// jumps (a hook removed by restoring what it found): nothing
+					// runs ahead now, and the pose hook records again.
+					observer.active.store(false, std::memory_order_release);
+					observer.inSlot = false;
+					observer.stranded = true;
+				}
+				continue;
+			}
+			noteAhead(binding.bit, walk.end);
+			if (observer.inSlot || observer.stranded)
+			{
+				// Code took the slot after the observer. It may call the
+				// observer, so the observer is never placed on top of it.
+				failed |= binding.bit;
+				continue;
+			}
+			if (PlaceObserver(binding, slot, reinterpret_cast<void *>(current)))
+				placed |= binding.bit;
+			else
+				failed |= binding.bit;
+		}
+	}
+
+	char module[sizeof ForeignModule] = {};
+	if (firstAhead)
+		ModuleFileName(firstAhead, module);
+	std::lock_guard<std::mutex> status(StatusMutex);
+	++OrderChecks;
+	const uint32_t newlyAhead = ahead & ~ForeignAheadSeenMask;
+	const uint32_t newlyFailed = failed & ~ObserverFailedMask;
+	ForeignAheadMask = ahead;
+	ForeignAheadSeenMask |= ahead;
+	// Kept once it happened: what the pose hook recorded meanwhile was not raw.
+	ObserverFailedMask |= failed;
+	if (firstAhead)
+		std::memcpy(ForeignModule, module, sizeof ForeignModule);
+	if (newlyAhead)
+		LOG("Code in %s runs ahead of hook mask 0x%x (pose hooks 1 and 2, driver context 4)",
+			module[0] ? module : "no module", newlyAhead);
+	if (placed)
+		LOG("Recording raw poses from the host vtable, ahead of that code, for pose hook mask 0x%x",
+			placed);
+	if (newlyFailed)
+		LOG("Could not record raw poses ahead of that code for pose hook mask 0x%x", newlyFailed);
 }
 
 bool DisableHooks()
@@ -340,6 +680,24 @@ bool DisableHooks()
 		for (const PoseHookBinding &binding : PoseHookBindings)
 			binding.ready->store(false, std::memory_order_release);
 		HooksInstalled = false;
+		// The observers stop recording, and leave their slots when nothing has
+		// taken them since. A thread still in one only forwards, to code that
+		// stays where it is.
+		for (const PoseHookBinding &binding : PoseHookBindings)
+		{
+			ObserverHook &observer = *binding.observer;
+			observer.active.store(false, std::memory_order_release);
+			if (!observer.inSlot)
+				continue;
+			observer.inSlot = false;
+			if (!ExchangeSlot(observer.slot.load(std::memory_order_acquire),
+				reinterpret_cast<void *>(binding.observe),
+				reinterpret_cast<void *>(observer.next.load(std::memory_order_acquire))))
+			{
+				observer.stranded = true;
+				LOG("A pose observation hook could not leave the host vtable; it stays and only forwards");
+			}
+		}
 		if (MinHookInitialized && !DisableEveryHook())
 		{
 			LOG("One or more hooks could not be disabled individually; disabling all MinHook targets");

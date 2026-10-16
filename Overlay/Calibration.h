@@ -294,6 +294,19 @@ struct CalibrationContext : CalibrationProfileState
 	uint64_t driverHookedDevices = 0;
 	uint32_t driverMismatchedPoseUpdates = 0;
 	uint32_t driverReentrantPoseUpdates = 0;
+	// Whose code runs first in the driver's hooks (protocol::HookStatus): the
+	// hooks another module runs ahead of, now and at any check this session;
+	// the pose hooks whose observation hook records raw poses ahead of it, and
+	// those where none could; and the module's file name (empty: none, or no
+	// module).
+	uint32_t driverOrderChecks = 0;
+	uint32_t driverForeignAheadMask = 0;
+	uint32_t driverForeignAheadSeenMask = 0;
+	uint32_t driverObserverMask = 0;
+	uint32_t driverObserverFailedMask = 0;
+	uint32_t driverObservedPoseUpdates = 0;
+	uint32_t driverUnobservedPoseUpdates = 0;
+	std::string driverForeignModule;
 	// Target devices SteamVR tracks whose poses have not reached the hook over
 	// several synchronizations: calibration cannot move them.
 	uint64_t hookBypassingDevices = 0;
