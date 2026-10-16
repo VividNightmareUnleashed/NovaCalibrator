@@ -62,8 +62,12 @@ public:
 
 	// Each device is evaluated independently. `linearScale` converts raw
 	// tracking units into calibrated meters: 1 for reference-system samples,
-	// the active calibration scale for target-system ones.
-	void Push(const protocol::DevicePoseSample &sample, double linearScale = 1.0);
+	// the active calibration scale for target-system ones. `streamed` marks a
+	// reference-system device whose re-predicted samples (ringpose::IsRepredicted)
+	// are left out: a headset taken off kept "sliding" at rest on them every
+	// window until SteamVR quit (2026-10-13). Not for lighthouse devices, which
+	// may report a resting velocity of exactly zero on every sample.
+	void Push(const protocol::DevicePoseSample &sample, double linearScale = 1.0, bool streamed = false);
 
 	bool PollEvent(Event &out);
 
@@ -90,6 +94,9 @@ private:
 		std::deque<Snap> window;
 		double lastEvalTime = -1.0;
 		LastValid lastValid;
+		// The last sample pushed, used or not, for IsRepredicted.
+		bool havePushed = false;
+		protocol::DevicePoseSample lastPushed{};
 	};
 
 	void EvaluateWindow(uint32_t id, DeviceState &dev);

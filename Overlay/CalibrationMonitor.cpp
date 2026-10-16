@@ -638,7 +638,8 @@ void calibration_internal::RuntimeMonitorTick(CalibrationContext &ctx, double no
 
 		if (ringpose::AnchorsUniverse(candidate))
 			Drift->Push(s,
-				ctx.targetDeviceMask[s.deviceId] ? ctx.transform.scale : 1.0);
+				ctx.targetDeviceMask[s.deviceId] ? ctx.transform.scale : 1.0,
+				/*streamed=*/candidate.referenceSide);
 	}
 
 	if (ctx.detailedLogging)
