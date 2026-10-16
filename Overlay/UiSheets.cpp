@@ -804,7 +804,12 @@ void BuildClearAnchorsDialog()
 				candidate.fieldAnchors.clear();
 			},
 			true))
+		{
+			// Without this line a session log showed an anchor added and,
+			// later, none, with nothing between (2026-10-14).
+			CalCtx.Log(FormatString("Field anchors cleared by the player (%zu)\n", count));
 			ResyncDriverState();
+		}
 		CloseDialog();
 	}
 }
