@@ -37,6 +37,11 @@ static vr::ETrackedDeviceClass DeviceClasses[vr::k_unMaxTrackedDeviceCount] = {}
 // Also from the scan: another driver's virtual trackers
 // (IsVirtualTrackerSystem), which have no base station frame to watch.
 static bool VirtualDevices[vr::k_unMaxTrackedDeviceCount] = {};
+// Also from the scan: whose tracking system a device is in, which decides
+// whether its frame moves are the target side's before the driver
+// synchronization marks it a target device.
+static std::string DeviceTrackingSystems[vr::k_unMaxTrackedDeviceCount];
+static bool DeviceTrackingSystemKnown[vr::k_unMaxTrackedDeviceCount] = {};
 static double LastLighthousePoll = -1e9;
 static double LastSerialScan = -1e9;
 static uint64_t LighthouseRotationsSeen = 0;
@@ -166,11 +171,13 @@ void calibration_internal::LighthouseTick(CalibrationContext &ctx, double time)
 			{
 				DeviceSerials[id].clear();
 				VirtualDevices[id] = false;
+				DeviceTrackingSystemKnown[id] = false;
 				continue;
 			}
 			std::string trackingSystem;
-			const bool virtualDevice = ReadTrackedDeviceString(id, vr::Prop_TrackingSystemName_String, trackingSystem) &&
-				questcal::IsVirtualTrackerSystem(trackingSystem);
+			DeviceTrackingSystemKnown[id] = ReadTrackedDeviceString(id, vr::Prop_TrackingSystemName_String, trackingSystem);
+			DeviceTrackingSystems[id] = trackingSystem;
+			const bool virtualDevice = DeviceTrackingSystemKnown[id] && questcal::IsVirtualTrackerSystem(trackingSystem);
 			if (virtualDevice && !VirtualDevices[id])
 				FrameWatch.ForgetDevice(id);
 			VirtualDevices[id] = virtualDevice;
@@ -289,6 +296,32 @@ static bool DuringUniverseSetup(const CalibrationContext &ctx, double moveTime)
 	return moveTime - FrameWatch.TrackingSince() < UniverseSetupFallbackSeconds;
 }
 
+// Whether a device's frame changes are the target side's. The driver
+// synchronization marks a device a target one about a second after it
+// appears, and its first samples come before that (live 2026-10-15: a
+// controller's first-seen switch was dropped and it kept a correction 8 deg
+// off the rest of its frame). Until the mark comes, a device whose tracking
+// system is the target's, or not read yet, is waited for: its moves and
+// switches are given back to the watch (LighthouseFrameWatch::Hold), and
+// acted on once it is marked. One of another tracking system is not ours.
+// The wait is bounded so a device that is never marked (one whose properties
+// stay unreadable) cannot fill the move queue; what it held is then dropped
+// with a line in the log.
+using FrameMembership = questcal::TrackerFrameCorrections::Membership;
+static constexpr double FrameMembershipWaitSeconds = 120.0;
+
+static FrameMembership TargetMembership(const CalibrationContext &ctx, uint32_t id, double changeTime)
+{
+	if (id >= vr::k_unMaxTrackedDeviceCount)
+		return FrameMembership::Other;
+	if (ctx.targetDeviceMask[id])
+		return FrameMembership::Target;
+	if (DeviceTrackingSystemKnown[id] && DeviceTrackingSystems[id] != ctx.targetTrackingSystem)
+		return FrameMembership::Other;
+	return FrameWatch.LatestTime() - changeTime < FrameMembershipWaitSeconds
+		? FrameMembership::Waiting : FrameMembership::Other;
+}
+
 // The shared calibration stays in one target space. A proven frame move is
 // cancelled only for the device that reported it: N_i' = N_i o F_i^-1.
 // The watch also handles hidden trackers and returns after tracking loss.
@@ -315,8 +348,22 @@ static void CompensateTrackerFrameMoves(CalibrationContext &ctx)
 	bool changed = false;
 	for (const auto &move : moves)
 	{
-		if (!ctx.targetDeviceMask[move.id])
+		const FrameMembership membership = TargetMembership(ctx, move.id, move.time);
+		if (membership == FrameMembership::Waiting)
+		{
+			if (!move.held)
+				ctx.Diag("lighthouse device " + std::to_string(move.id) + " frame moved before it is known "
+					"to be a target device; the move waits until it is");
+			FrameWatch.Hold(move);
 			continue;
+		}
+		if (membership == FrameMembership::Other)
+		{
+			if (move.held)
+				ctx.Log("Lighthouse: dropped a frame move held for device " + std::to_string(move.id) +
+					": it did not become a target device\n");
+			continue;
+		}
 		double yawDeg = 0.0, tiltDeg = 0.0;
 		const bool notable = DescribeFrameMove(move, yawDeg, tiltDeg);
 		const bool setup = DuringUniverseSetup(ctx, move.time);
@@ -410,13 +457,30 @@ static void JoinTrackerFrames(CalibrationContext &ctx)
 	// A measurement keeps its target's correction as the run began with it: the
 	// run checks at its end that the correction followed its frame moves only.
 	const uint32_t measured = ctx.state != CalibrationState::None ? ctx.run.targetId : vr::k_unTrackedDeviceIndexInvalid;
-	auto member = [&ctx](uint32_t id) { return id < vr::k_unMaxTrackedDeviceCount && ctx.targetDeviceMask[id]; };
+	auto membership = [&ctx](uint32_t id, double time) { return TargetMembership(ctx, id, time); };
+	auto calibrated = [&ctx](uint32_t id) { return id < vr::k_unMaxTrackedDeviceCount && ctx.targetDeviceMask[id]; };
+	using Outcome = questcal::TrackerFrameCorrections::SwitchOutcome::Kind;
 	bool changed = false;
-	for (const auto &change : switches)
+	for (const auto &outcome : ctx.trackerFrames.JoinSwitches(switches, FrameWatch, headsetTracker, measured,
+		membership, calibrated))
 	{
-		if (!member(change.id))
+		const auto &change = outcome.change;
+		const auto &result = outcome.result;
+		if (outcome.kind == Outcome::Dropped)
+		{
+			ctx.Log("Lighthouse: dropped a frame change held for device " + std::to_string(change.id) +
+				": it did not become a target device\n");
 			continue;
-		const auto result = ctx.trackerFrames.Join(change, FrameWatch, headsetTracker, measured, member);
+		}
+		if (outcome.kind == Outcome::Held)
+		{
+			// Said once, when it first waits; the outcome is logged when it comes.
+			if (!change.held)
+				ctx.Diag("lighthouse device " + std::to_string(change.id) + " " + DeviceSerials[change.id] +
+					" changed frame (" + SwitchCause(change.cause) + "); its join waits: " +
+					(result.kept ? result.kept : "it is not known to be a target device yet"));
+			continue;
+		}
 		char line[1024];
 		if (result.joined.empty())
 		{

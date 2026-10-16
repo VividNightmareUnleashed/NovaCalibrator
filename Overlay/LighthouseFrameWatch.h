@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <initializer_list>
 #include <set>
 #include <string>
 #include <vector>
@@ -88,6 +89,11 @@ public:
 		// How long such a device waits for the move to show on another
 		// device: the station's own sample can come after it.
 		double inferSeconds = 5.0;
+		// How long a device's samples can still carry the frame a move left
+		// after another device's carry the new one: the driver solves each
+		// device on its own, so a move reaches them one at a time (live
+		// 2026-10-15: a tracker one sample behind the rest lost a 17.8 cm move).
+		double lagSeconds = 1.0;
 	};
 
 	enum class Kind { Moved, ReExpressed, Unclear };
@@ -126,6 +132,8 @@ public:
 		Eigen::Vector3d fromTrans{ 0, 0, 0 };
 		Eigen::Quaterniond toRot{ 1, 0, 0, 0 };
 		Eigen::Vector3d toTrans{ 0, 0, 0 };
+		// Given back by the caller (Hold) at least once.
+		bool held = false;
 	};
 
 	// A device, not a base station, in a frame its correction did not follow
@@ -146,6 +154,8 @@ public:
 		Eigen::Vector3d fromTrans{ 0, 0, 0 };
 		Eigen::Quaterniond toRot{ 1, 0, 0, 0 };
 		Eigen::Vector3d toTrans{ 0, 0, 0 };
+		// Given back by the caller (Hold) at least once.
+		bool held = false;
 	};
 
 	LighthouseFrameWatch() = default;
@@ -301,26 +311,65 @@ public:
 		return static_cast<int>(id);
 	}
 
-	// The moved devices since the last call, in the order they moved. Bounded:
-	// once MaxPendingMoves wait untaken, later ones are dropped.
+	// The moved devices since the last call, in the order they moved, after
+	// the ones given back (Hold). Bounded: once MaxPendingMoves wait untaken,
+	// later ones are dropped and TakeMoveOverflow says so.
 	std::vector<Move> TakeMoves()
 	{
 		std::vector<Move> out;
-		out.swap(moves);
+		out.swap(heldMoves);
+		out.insert(out.end(), moves.begin(), moves.end());
+		moves.clear();
 		return out;
 	}
 
 	// The switches since the last call, in the order they were settled: at
 	// once for a re-expressed or newly seen device, once no move led to its
-	// new frame for one that jumped into it or came back in it. Bounded like
-	// the moves; a switch past the bound is dropped, which leaves the device
-	// with the correction it had, as before switches were reported.
+	// new frame for one that jumped into it or came back in it. The ones
+	// given back (Hold) come first, unless the device switched again since:
+	// a join reads the frame the device is in now, so the newest switch
+	// stands for both. Bounded like the moves; a switch past the bound is
+	// dropped, which leaves the device with the correction it had, as before
+	// switches were reported.
 	std::vector<Switch> TakeSwitches()
 	{
 		std::vector<Switch> out;
-		out.swap(switches);
+		for (const auto &held : heldSwitches)
+			if (std::none_of(switches.begin(), switches.end(), [&](const Switch &s) { return s.id == held.id; }))
+				out.push_back(held);
+		heldSwitches.clear();
+		out.insert(out.end(), switches.begin(), switches.end());
+		switches.clear();
 		return out;
 	}
+
+	// A move or switch the caller cannot act on yet, given back to be handed
+	// out again with the next ones: the device's membership in the target
+	// side is not known yet (it is decided after the device's first samples
+	// arrive), or its join must wait for another change of its frame to be
+	// read. Live 2026-10-15: a controller's first sample came before it was
+	// known to be a target device, its switch was dropped, and it kept a
+	// correction 8 deg off the rest of its frame. A held move counts toward
+	// the move bound.
+	void Hold(Move m)
+	{
+		m.held = true;
+		if (heldMoves.size() + moves.size() < MaxPendingMoves)
+			heldMoves.push_back(m);
+		else
+			moveOverflow = true;
+	}
+
+	void Hold(Switch s)
+	{
+		s.held = true;
+		heldSwitches.erase(std::remove_if(heldSwitches.begin(), heldSwitches.end(),
+			[&](const Switch &h) { return h.id == s.id; }), heldSwitches.end());
+		heldSwitches.push_back(s);
+	}
+
+	// The time of the newest sample seen, -1e300 before any.
+	double LatestTime() const { return latestTime; }
 
     // Overflow invalidates completeness: callers must stop applying the
     // profile until recalibration, rather than silently use partial frames.
@@ -344,8 +393,10 @@ public:
 		open.clear();
 		closed.clear();
 		moves.clear();
+		heldMoves.clear();
         moveOverflow = false;
 		switches.clear();
+		heldSwitches.clear();
 		transitions.clear();
 		inferences.clear();
 		latestTime = -1e300;
@@ -358,10 +409,12 @@ public:
 	{
 		if (id < vr::k_unMaxTrackedDeviceCount)
 			devices[id] = Device{};
-		moves.erase(std::remove_if(moves.begin(), moves.end(),
-			[id](const Move &m) { return m.id == id; }), moves.end());
-		switches.erase(std::remove_if(switches.begin(), switches.end(),
-			[id](const Switch &s) { return s.id == id; }), switches.end());
+		for (auto *list : { &moves, &heldMoves })
+			list->erase(std::remove_if(list->begin(), list->end(),
+				[id](const Move &m) { return m.id == id; }), list->end());
+		for (auto *list : { &switches, &heldSwitches })
+			list->erase(std::remove_if(list->begin(), list->end(),
+				[id](const Switch &s) { return s.id == id; }), list->end());
 		inferences.erase(std::remove_if(inferences.begin(), inferences.end(),
 			[id](const Inference &i) { return i.move.id == id; }), inferences.end());
 	}
@@ -535,11 +588,29 @@ private:
 	struct Transition
 	{
 		uint64_t seq = 0;
+		double time = 0.0;   // of the sample that first showed it
 		Eigen::Quaterniond fromRot{ 1, 0, 0, 0 };
 		Eigen::Vector3d fromTrans{ 0, 0, 0 };
 		Eigen::Quaterniond toRot{ 1, 0, 0, 0 };
 		Eigen::Vector3d toTrans{ 0, 0, 0 };
 	};
+
+	// The first transition a change of `was`'s frame can have come from: the
+	// ones recorded since its last sample, and the ones shown by other
+	// devices up to lagSeconds before it, which it reached late.
+	uint64_t Since(const Device &was) const
+	{
+		uint64_t since = was.mark;
+		for (auto t = transitions.rbegin(); t != transitions.rend(); ++t)
+		{
+			if (t->seq >= since)
+				continue;
+			if (t->time < was.time - config.lagSeconds)
+				break;
+			since = t->seq;
+		}
+		return since;
+	}
 
 	// A device's frame change waiting for other devices to show it was a move.
 	struct Inference
@@ -565,7 +636,7 @@ private:
 		}
 		if (transitions.size() >= MaxTransitions)
 			transitions.erase(transitions.begin());
-		transitions.push_back({ nextTransition++, was.wfdRot, was.wfdTrans, is.wfdRot, is.wfdTrans });
+		transitions.push_back({ nextTransition++, is.time, was.wfdRot, was.wfdTrans, is.wfdRot, is.wfdTrans });
 
 		for (size_t i = 0; i < inferences.size();)
 		{
@@ -611,12 +682,18 @@ private:
 		f.move.returned = returned;
 		f.move.ownJump = !returned;
 		SetFrames(f.move, was, is);
-		f.since = was.mark;
+		f.since = Since(was);
 		f.fromRot = was.wfdRot;
 		f.fromTrans = was.wfdTrans;
 		f.toRot = is.wfdRot;
 		f.toTrans = is.wfdTrans;
-		// A newer change of the same device supersedes one still waiting.
+		// A change of the same device still waiting is settled before the
+		// newer one: no move led to it so far, and dropping it would leave
+		// the device's correction short of it with nothing said (live
+		// 2026-10-15: a 17.8 cm move lost this way, 4 s before it expired).
+		for (const auto &g : inferences)
+			if (g.move.id == id)
+				Settle(g);
 		inferences.erase(std::remove_if(inferences.begin(), inferences.end(),
 			[id](const Inference &g) { return g.move.id == id; }), inferences.end());
 		if (Leads(f))
@@ -661,7 +738,7 @@ private:
 
 	void Hand(const Move &m)
 	{
-		if (moves.size() < MaxPendingMoves)
+		if (moves.size() + heldMoves.size() < MaxPendingMoves)
 			moves.push_back(m);
         else
             moveOverflow = true;
@@ -685,9 +762,9 @@ private:
 	Device devices[vr::k_unMaxTrackedDeviceCount];
 	std::vector<Change> open;
 	std::vector<Report> closed;
-	std::vector<Move> moves;
+	std::vector<Move> moves, heldMoves;
     bool moveOverflow = false;
-	std::vector<Switch> switches;
+	std::vector<Switch> switches, heldSwitches;
 	std::vector<Transition> transitions;
 	std::vector<Inference> inferences;
 	uint64_t nextTransition = 0;

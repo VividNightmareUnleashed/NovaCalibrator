@@ -1063,6 +1063,300 @@ void FrameJoins(Check check)
 			appeared && followedOnce, detail);
 	}
 }
+// The overlay's drain (CalibrationMonitor.cpp), against a schedule of frames
+// per device: moves of a device not yet known to be a target one are given
+// back, moves before `setupUntil` are left alone as SteamVR's universe setup,
+// and switches go through JoinSwitches. Every device is stationary unless its
+// schedule says its own pose jumped; its truth is its local pose put in the
+// frame the corrections started from (`reference`), so Error() is how far its
+// corrected pose is from where it is.
+struct ReplayRig
+{
+	using Membership = questcal::TrackerFrameCorrections::Membership;
+	struct Frame
+	{
+		Q rotation = Q::Identity();
+		V translation = V::Zero();
+	};
+	struct Device
+	{
+		V local = V::Zero();
+		double appears = 0.0;
+		double targetFrom = 0.0;       // Waiting before this
+		std::map<double, int> frames;  // from this time, the index into Rig::frames
+		std::map<double, V> jumps;     // from this time, its local position
+		std::vector<double> lagged;    // a sample still in the frame before this change
+		std::vector<std::pair<double, double>> calibrating;   // tracking result 101 between
+	};
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections frames;
+	std::vector<Frame> placements;
+	std::map<uint32_t, Device> devices;
+	double time = 0.0, step = 0.01, setupUntil = -1e9;
+	int reference = 0;   // the placement corrections start from
+	size_t followed = 0, leftAlone = 0, heldMoves = 0;
+	std::vector<questcal::TrackerFrameCorrections::SwitchOutcome> outcomes;
+
+	static int At(const std::map<double, int> &schedule, double t)
+	{
+		int value = -1;
+		for (const auto &[from, v] : schedule)
+			if (from <= t + 1e-9)
+				value = v;
+		return value;
+	}
+	V Local(const Device &d, double t) const
+	{
+		V local = d.local;
+		for (const auto &[from, v] : d.jumps)
+			if (from <= t + 1e-9)
+				local = v;
+		return local;
+	}
+	Membership Classify(uint32_t id, double) const
+	{
+		const auto found = devices.find(id);
+		if (found == devices.end())
+			return Membership::Other;
+		return time + 1e-9 >= found->second.targetFrom ? Membership::Target : Membership::Waiting;
+	}
+
+	void Tick()
+	{
+		time += step;
+		for (const auto &[id, d] : devices)
+		{
+			if (time + 1e-9 < d.appears)
+				continue;
+			int index = At(d.frames, time);
+			for (const double change : d.lagged)
+				if (time + 1e-9 >= change && time - step < change - 1e-9)
+					index = At(d.frames, change - step);
+			const Frame &f = placements[static_cast<size_t>(index)];
+			protocol::DevicePoseSample s = Sample(id, time, Local(d, time), f.rotation, f.translation);
+			s.deviceIsConnected = true;
+			for (const auto &[from, until] : d.calibrating)
+				if (time >= from && time < until)
+					s.trackingResult = vr::TrackingResult_Calibrating_OutOfRange;
+			watch.Note(s, TickScale, false);
+		}
+		auto moves = watch.TakeMoves();
+		std::sort(moves.begin(), moves.end(), [](const auto &a, const auto &b) { return a.time < b.time; });
+		for (const auto &move : moves)
+		{
+			const Membership m = Classify(move.id, move.time);
+			if (m == Membership::Waiting)
+			{
+				++heldMoves;
+				watch.Hold(move);
+			}
+			else if (m == Membership::Target)
+			{
+				if (move.time < setupUntil)
+					++leftAlone;
+				else
+					followed += frames.Follow(move) ? 1 : 0;
+			}
+		}
+		const auto joined = frames.JoinSwitches(watch.TakeSwitches(), watch, vr::k_unTrackedDeviceIndexInvalid,
+			vr::k_unTrackedDeviceIndexInvalid,
+			[this](uint32_t id, double t) { return Classify(id, t); },
+			[this](uint32_t id) { return Classify(id, time) == Membership::Target; });
+		outcomes.insert(outcomes.end(), joined.begin(), joined.end());
+	}
+
+	void RunUntil(double until)
+	{
+		while (time < until - 1e-9)
+			Tick();
+	}
+
+	double Error(uint32_t id) const
+	{
+		const Device &d = devices.at(id);
+		const V local = Local(d, time);
+		const Frame &now = placements[static_cast<size_t>(At(d.frames, time))];
+		const Frame &start = placements[static_cast<size_t>(reference)];
+		const V raw = now.rotation * local + now.translation;
+		return (questcal::TrackerFrameCorrections::Apply(frames.Snapshot()[id], raw) -
+			(start.rotation * local + start.translation)).norm();
+	}
+
+	// The devices whose correction differs from device `first`'s.
+	std::string Disagreeing(uint32_t first) const
+	{
+		std::string out;
+		for (const auto &[id, d] : devices)
+			if (!questcal::TrackerFrameCorrections::Agree(frames.Snapshot()[id], frames.Snapshot()[first]))
+				out += (out.empty() ? "" : " ") + std::to_string(id);
+		return out.empty() ? "none" : out;
+	}
+};
+
+ReplayRig::Frame LoggedFrame(double w, double x, double y, double z, double tx, double ty, double tz)
+{
+	return { Q(w, x, y, z).normalized(), V(tx, ty, tz) };
+}
+
+// 2026-10-15 21:29 to 21:31 (1.2.2-rc.2), seconds after 21:29:00: SteamVR
+// kept re-placing base station D3D4E73B (S-5), the frame of every tracker,
+// for two minutes after it chose its universe at 28.35, between two
+// placements 5 to 10 deg apart, each time a device that had just come on
+// measured it against another station ("RELATIONSHIP bases D3D4E73B <->
+// f210fba6 ... Moving base D3D4E73B 466mm and 10.3 deg ... Moving the base
+// for tracking too"). The placements are the frames the session log printed.
+// Device 10 came on at 105, its samples a beat behind the others' at the move
+// of 116 and its own pose jumping with the moves of 116, 120.19 and 143.49;
+// its 116 move was lost and it ended 17 cm off the frame. Device 12 came on
+// at 126, about a second before it was known to be a target device; its
+// first-seen switch was dropped and it ended 8 deg off. Device 11 came on in
+// 170EE067's frame and changed into D3D4E73B's at 148 with its own pose
+// jumping; its join was refused because the frame disagreed.
+void StartupReplacements(Check check)
+{
+	ReplayRig rig;
+	rig.placements = {
+		LoggedFrame(0.838526, -0.139433, -0.515252, -0.109309, -2.0833, 1.5315, -0.2854),   // 0: 28.0
+		LoggedFrame(0.857096, -0.143400, -0.483732, -0.104051, -2.0782, 1.5325, -0.3831),   // 1: 29.0
+		LoggedFrame(0.854736, -0.142070, -0.490777, -0.091546, -2.1102, 1.4769, -0.4243),   // 2: 29.5
+		LoggedFrame(0.893663, -0.149395, -0.415694, -0.079029, -2.1086, 1.5182, -0.0488),   // 3: 30.9
+		LoggedFrame(0.860401, -0.143128, -0.480775, -0.089883, -2.1084, 1.4747, -0.3685),   // 4: 33.06
+		LoggedFrame(0.891414, -0.148968, -0.420495, -0.079832, -2.1035, 1.5265, -0.0879),   // 5: 86.8
+		LoggedFrame(0.859423, -0.142945, -0.482523, -0.090173, -2.1106, 1.4741, -0.3798),   // 6: 104.86
+		LoggedFrame(0.894962, -0.149642, -0.412891, -0.078560, -2.0970, 1.5280, -0.0432),   // 7: 105.06
+		LoggedFrame(0.892011, -0.149367, -0.419456, -0.077867, -2.1225, 1.5400, 0.0997),    // 8: 116.0
+		LoggedFrame(0.861378, -0.143311, -0.479024, -0.089591, -2.1025, 1.4684, -0.3612),   // 9: 118.3
+		LoggedFrame(0.890555, -0.148805, -0.422312, -0.080135, -2.1229, 1.5303, 0.0789),    // 10: 120.19
+		LoggedFrame(0.891574, -0.148998, -0.420157, -0.079775, -2.1126, 1.5461, -0.0614),   // 11: 120.39
+		LoggedFrame(0.893242, -0.149315, -0.416599, -0.079180, -2.0831, 1.5320, 0.1073),    // 12: 129.55
+		LoggedFrame(0.896883, -0.150008, -0.408702, -0.077860, -2.0705, 1.5079, -0.0197),   // 13: 129.95
+		LoggedFrame(0.864049, -0.143811, -0.474188, -0.088787, -2.0785, 1.4741, -0.3287),   // 14: 130.15
+		LoggedFrame(0.894993, -0.149481, -0.412543, -0.080322, -2.0837, 1.5326, -0.0351),   // 15: 143.49
+		// 170EE067's frame, device 11's until 148.
+		LoggedFrame(0.972073, 0.234025, 0.004101, -0.017033, 0, 0, 0),                      // 16: 124.0
+		LoggedFrame(0.973956, 0.226018, -0.004082, 0.017592, 0, 0, 0),                      // 17: 129.5
+		LoggedFrame(0.974391, 0.224024, 0.004345, -0.018899, 0, 0, 0),                      // 18: 130.0
+		LoggedFrame(0.978553, 0.205491, 0.002965, -0.014120, 0, 0, 0),                      // 19: 130.2
+	};
+	const std::map<double, int> station = { { 0.0, 0 }, { 29.0, 1 }, { 29.5, 2 }, { 30.9, 3 }, { 33.06, 4 },
+		{ 86.8, 5 }, { 104.86, 6 }, { 105.06, 7 }, { 116.0, 8 }, { 118.3, 9 }, { 120.19, 10 }, { 120.39, 11 },
+		{ 129.55, 12 }, { 129.95, 13 }, { 130.15, 14 }, { 143.49, 15 } };
+	// The universe was chosen at 28.35; the overlay leaves moves alone for ten
+	// seconds after, so the corrections start from the placement of 33.06.
+	rig.setupUntil = 38.35;
+	rig.reference = 4;
+	rig.time = 27.9;
+	const V locals[] = { V(0.64, -0.67, -2.67), V(0.38, -0.27, -2.44), V(0.38, -0.72, -2.55), V(0.51, 0.03, -2.38) };
+	for (uint32_t id = 1; id <= 4; ++id)
+		rig.devices[id] = { locals[id - 1], 28.0, 0.0, station, {}, {}, {} };
+	rig.devices[9] = { V(0.64, -0.25, -2.53), 103.0, 0.0, station, { { 105.06, V(0.66, -0.22, -2.48) } }, {}, {} };
+	rig.devices[10] = { V(0.59, 0.35, -2.18), 105.1, 0.0, station,
+		{ { 116.005, V(0.63, 0.33, -2.12) }, { 120.19, V(0.60, 0.38, -2.15) }, { 143.49, V(0.57, 0.36, -2.20) } },
+		{ 116.0 }, { { 112.0, 115.9 }, { 140.0, 143.3 } } };
+	rig.devices[12] = { V(0.76, 0.03, -2.54), 126.0, 127.0, station, { { 130.15, V(0.74, 0.05, -2.50) } }, {}, {} };
+	rig.devices[11] = { V(0.43, 0.09, -2.10), 124.0, 0.0, { { 0.0, 16 }, { 129.5, 17 }, { 130.0, 18 }, { 130.2, 19 }, { 148.0, 15 } },
+		{ { 148.0, V(0.45, 0.12, -2.05) } }, {}, {} };
+	rig.RunUntil(160.0);
+
+	double worst = 0.0;
+	uint32_t worstId = 0;
+	for (const auto &[id, d] : rig.devices)
+		if (rig.Error(id) > worst)
+		{
+			worst = rig.Error(id);
+			worstId = id;
+		}
+	size_t waited = 0, joined11 = 0, joined12 = 0;
+	for (const auto &o : rig.outcomes)
+	{
+		waited += o.kind == questcal::TrackerFrameCorrections::SwitchOutcome::Kind::Held ? 1 : 0;
+		const bool took = o.kind == questcal::TrackerFrameCorrections::SwitchOutcome::Kind::Joined;
+		joined11 += took && o.change.id == 11 ? 1 : 0;
+		joined12 += took && o.change.id == 12 ? 1 : 0;
+	}
+	char detail[320];
+	std::snprintf(detail, sizeof detail,
+		"disagreeing with device 1: %s; worst error %.2f mm (device %u); moves left alone %zu, followed %zu, "
+		"held %zu; switches that waited %zu; device 12 joined %zu, device 11 joined %zu",
+		rig.Disagreeing(1).c_str(), worst * 1000.0, worstId, rig.leftAlone, rig.followed, rig.heldMoves, waited,
+		joined12, joined11);
+	check("2026-10-15 startup: every device in D3D4E73B's frame ends with one correction, device 11 joins it",
+		rig.Disagreeing(1) == "none" && joined11 == 1, detail);
+	check("2026-10-15 startup: every corrected pose stays where it was when the setup window closed",
+		worst < 0.001, detail);
+	check("2026-10-15 startup: device 12's switch and moves wait until it is a target device, then it joins",
+		joined12 == 1 && waited >= 1, detail);
+}
+
+// A device whose old-frame samples outlast the lag tolerance cannot have the
+// move read off the others, and a later change of its frame comes while that
+// one still waits: the first is settled as a switch rather than dropped, and
+// the device takes the frame's correction.
+void SupersededInference(Check check)
+{
+	ReplayRig rig;
+	rig.placements = {
+		LoggedFrame(0.894962, -0.149642, -0.412891, -0.078560, -2.0970, 1.5280, -0.0432),
+		LoggedFrame(0.892011, -0.149367, -0.419456, -0.077867, -2.1225, 1.5400, 0.0997),
+		LoggedFrame(0.861378, -0.143311, -0.479024, -0.089591, -2.1025, 1.4684, -0.3612),
+	};
+	rig.time = 0.9;
+	rig.devices[1] = { V(0.64, -0.67, -2.67), 1.0, 0.0, { { 0.0, 0 }, { 5.0, 1 }, { 7.0, 2 } }, {}, {}, {} };
+	// Still in the old frame 1.5 s after the move, then in the new one with its
+	// own pose jumping, and jumping again with the next move.
+	rig.devices[10] = { V(0.59, 0.35, -2.18), 1.0, 0.0, { { 0.0, 0 }, { 6.5, 1 }, { 7.0, 2 } },
+		{ { 6.5, V(0.63, 0.33, -2.12) }, { 7.0, V(0.60, 0.38, -2.15) } }, {}, {} };
+	rig.RunUntil(9.0);
+	size_t jumped = 0;
+	for (const auto &o : rig.outcomes)
+		jumped += o.change.id == 10 && o.change.cause == LighthouseFrameWatch::Switch::Cause::OwnJump &&
+			o.kind == questcal::TrackerFrameCorrections::SwitchOutcome::Kind::Joined ? 1 : 0;
+	char detail[200];
+	std::snprintf(detail, sizeof detail, "disagreeing with device 1: %s; joins after an own jump %zu; error %.2f mm",
+		rig.Disagreeing(1).c_str(), jumped, rig.Error(10) * 1000.0);
+	check("frame watch: a change still waiting when the device changes again is settled as a switch and joined",
+		rig.Disagreeing(1) == "none" && jumped == 1 && rig.Error(10) < 0.001, detail);
+}
+
+// Moves and switches of a device not yet known to be a target one wait for
+// it, in order; a held switch of a device that turns out not to be ours is
+// dropped and said so.
+void HeldFrameChanges(Check check)
+{
+	using Membership = questcal::TrackerFrameCorrections::Membership;
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections frames;
+	const Q a = Q::Identity(), b(Eigen::AngleAxisd(0.1, V::UnitY()));
+	double time = 1.0;
+	auto note = [&](uint32_t id, const Q &frame) { auto s = Sample(id, time, V(1, 0, 0), frame, V(0, 1, 0)); s.deviceIsConnected = true; watch.Note(s, TickScale, false); };
+	note(3, a);
+	note(4, a);
+	time += 0.01;
+	note(3, b);
+	note(4, b);
+	auto moves = watch.TakeMoves();
+	for (const auto &m : moves)
+		watch.Hold(m);
+	const auto switches = watch.TakeSwitches();
+	auto membership = [](uint32_t id, double) { return id == 3 ? Membership::Waiting : Membership::Other; };
+	auto calibrated = [](uint32_t) { return false; };
+	auto first = frames.JoinSwitches(switches, watch, vr::k_unTrackedDeviceIndexInvalid,
+		vr::k_unTrackedDeviceIndexInvalid, membership, calibrated);
+	const auto again = watch.TakeMoves();
+	auto second = frames.JoinSwitches(watch.TakeSwitches(), watch, vr::k_unTrackedDeviceIndexInvalid,
+		vr::k_unTrackedDeviceIndexInvalid, [](uint32_t, double) { return Membership::Other; }, calibrated);
+	const bool heldThenDropped = first.size() == 1 && first[0].change.id == 3 &&
+		first[0].kind == questcal::TrackerFrameCorrections::SwitchOutcome::Kind::Held &&
+		second.size() == 1 && second[0].kind == questcal::TrackerFrameCorrections::SwitchOutcome::Kind::Dropped &&
+		watch.TakeSwitches().empty();
+	char detail[160];
+	std::snprintf(detail, sizeof detail, "moves handed %zu, given back and handed again %zu (held flag %d); switches first %zu, then %zu",
+		moves.size(), again.size(), again.empty() ? -1 : int(again.front().held), first.size(), second.size());
+	check("frame watch: held moves come back in order; a held switch waits, then is dropped for a device not ours",
+		moves.size() == 2 && again.size() == 2 && again.front().held && again[0].id == moves[0].id && heldThenDropped,
+		detail);
+}
+
 } // namespace
 
 // Where a calibration samples (CollectionSource.h): the raw channel when it
@@ -1171,6 +1465,9 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	RecoveryProtocolGate(check);
 	PausedMonitorAndRecalibration(check);
 	FrameJoins(check);
+	StartupReplacements(check);
+	SupersededInference(check);
+	HeldFrameChanges(check);
 	DeferredFrameLog(check);
 	CollectionFallback(check);
 }
