@@ -358,6 +358,14 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 			count == 0 && Has(log, "stream steady under 60 s"),
 			"a wake or a stream restart re-zeroes inside the first minute");
 
+		// Past the 30 cm solo floor the same early step applies at once, and the
+		// log must not say otherwise (2026-10-15: "not accepted alone" over a
+		// 0.72 m step it then compensated).
+		log.clear();
+		count = ReplaySolo(2300, [](int f) { return f >= 2000 ? .4 : 0.; }, none, false, -1, -1, &log);
+		check("headset-only: 40 cm step 20 s after the stream started applies, and says nothing else",
+			count == 1 && !Has(log, "not accepted alone"), "the solo floor, not the steady minute, decides it");
+
 		count = ReplaySolo(11600, [](int f) { return f >= 11300 ? .08 : 0.; }, none, false, 9000, 9300);
 		check("headset-only: 8 cm step 20 s after a stream gap is refused", count == 0, "3 s gap, then 20 s of stream");
 
