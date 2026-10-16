@@ -464,6 +464,11 @@ void JumpDetector::EvaluatePendingCandidates()
 				std::abs(dYaw) > config.soloSettledYawRad;
 			bool steady = resumeAge >= config.soloSettledSeconds;
 			c.settledSolo = aboveFloor && steady && !c.heldPosition && !c.driftCatchUp;
+			// Past the solo floor TryAccept applies it alone, steady or not
+			// (bigSolo): the note said "not accepted alone" over a 0.72 m step
+			// it then compensated (2026-10-15).
+			const bool soloSized = c.trans.norm() > config.soloPosThreshold ||
+				std::abs(dYaw) > config.soloYawThresholdRad;
 			if (c.heldPosition)
 				note += "; position was held before the step (3DoF), not accepted alone";
 			else if ((thresholdSized || turnAboutHead) && driftFollowed)
@@ -472,7 +477,7 @@ void JumpDetector::EvaluatePendingCandidates()
 				note += "; the size of the engine's reset threshold (a drift catch-up), not accepted alone";
 			else if (turnAboutHead)
 				note += "; a turn about the head (a drift catch-up), not accepted alone";
-			else if (aboveFloor && !steady)
+			else if (aboveFloor && !steady && !soloSized)
 				note += Format("; stream steady under %.0f s, not accepted alone", config.soloSettledSeconds);
 		}
 		notes.push_back(note);
