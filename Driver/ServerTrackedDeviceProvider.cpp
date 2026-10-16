@@ -45,10 +45,17 @@ double Distance(const vr::HmdVector3d_t &a, const vr::HmdVector3d_t &b)
 	return std::sqrt(sum);
 }
 
+// The angle of conj(a) * b, which neither quaternion's length changes: the
+// lighthouse driver's rotations are unit only to float precision, and
+// 2 acos(a . a) made a station whose |q|^2 fell 1e-8 short "turn" 3e-4 rad on
+// every pass, re-sending it ten times a second all session (2026-10-15).
 double Turn(const vr::HmdQuaternion_t &a, const vr::HmdQuaternion_t &b)
 {
-	const double dot = std::abs(a.w * b.w + a.x * b.x + a.y * b.y + a.z * b.z);
-	return 2.0 * std::acos(std::min(dot, 1.0));
+	const double scalar = a.w * b.w + a.x * b.x + a.y * b.y + a.z * b.z;
+	const double x = a.w * b.x - b.w * a.x - (a.y * b.z - a.z * b.y);
+	const double y = a.w * b.y - b.w * a.y - (a.z * b.x - a.x * b.z);
+	const double z = a.w * b.z - b.w * a.z - (a.x * b.y - a.y * b.x);
+	return 2.0 * std::atan2(std::sqrt(x * x + y * y + z * z), std::abs(scalar));
 }
 } // namespace
 

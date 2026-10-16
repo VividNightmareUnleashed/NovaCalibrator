@@ -100,15 +100,18 @@ void RequestHostInterface()
 
 // A tracking pose through the host's vtable slot, as a device driver sends it;
 // returns the world-from-driver origin the host received. `size` is the
-// DriverPose_t size the caller claims.
+// DriverPose_t size the caller claims; `worldRotation`, when given, replaces
+// the identity world-from-driver rotation.
 double SendPoseThroughHost(uint32_t device = 0, uint32_t size = sizeof(vr::DriverPose_t),
-	double positionX = 0.0)
+	double positionX = 0.0, const vr::HmdQuaternion_t *worldRotation = nullptr)
 {
 	vr::DriverPose_t pose{};
 	pose.vecPosition[0] = positionX;
 	pose.poseIsValid = pose.deviceIsConnected = true;
 	pose.result = vr::TrackingResult_Running_OK;
 	pose.qRotation.w = pose.qWorldFromDriverRotation.w = pose.qDriverFromHeadRotation.w = 1;
+	if (worldRotation)
+		pose.qWorldFromDriverRotation = *worldRotation;
 	void **vtable = *reinterpret_cast<void ***>(&Host);
 	auto fn = reinterpret_cast<PoseUpdateFn>(vtable[openvr_hook::PoseUpdateSlot]);
 	HostReceivedOriginX.store(0.0);
@@ -447,6 +450,56 @@ void QuietBaseStationScenario(Check check)
 		after.calls == 0 && trackerCalls == 1 && released, detail);
 }
 
+// A station whose rotation is unit only to float precision, as the lighthouse
+// driver sends them: |q|^2 1.4e-8 short, as LHB-170EE067's was on 2026-10-15.
+// Once its re-send carries the moved calibration, later passes have nothing
+// to send; measuring the turn as 2 acos(q . q) re-sent it every pass.
+void ShortRotationStationScenario(Check check)
+{
+	const char *name = "hooks: a station rotation short of unit length is not re-sent again";
+	auto provider = std::make_unique<ServerTrackedDeviceProvider>();
+	auto *context = reinterpret_cast<vr::IVRDriverContext *>(&Context);
+	provider->SetDeviceClassForTest(QuietStation, vr::TrackedDeviceClass_TrackingReference);
+	auto calibrate = [&](double x, uint32_t generation)
+	{
+		protocol::SetRuntimeState state;
+		state.enabledMask = uint64_t{ 1 } << QuietStation;
+		state.transform.translation.v[0] = x;
+		state.transform.generation = generation;
+		return provider->TrySetRuntimeState(state);
+	};
+	if (!calibrate(0.2, 1) || !InjectHooks(provider.get(), context))
+	{
+		check(name, false, "setup failed");
+		return;
+	}
+	RequestHostInterface();
+	const vr::HmdQuaternion_t rotation{ 0.9729632735, 0.2299866825, 0.004872145131, -0.02061170898 };
+	const double shortfall = 1.0 - (rotation.w * rotation.w + rotation.x * rotation.x +
+		rotation.y * rotation.y + rotation.z * rotation.z);
+	provider->SetPoseTimeForTest(20.0);
+	SendPoseThroughHost(QuietStation, sizeof(vr::DriverPose_t), 1.5, &rotation);
+	auto pass = [&](double time)
+	{
+		const int before = HostCallsByDevice[QuietStation].load();
+		provider->SetPoseTimeForTest(time);
+		provider->ResendQuietPosesForTest();
+		return HostCallsByDevice[QuietStation].load() - before;
+	};
+	const bool moved = calibrate(0.5, 2);
+	const int quiet = pass(20.6);
+	int later = 0;
+	for (int i = 1; i <= 10; ++i)
+		later += pass(20.6 + 0.15 * i);
+	const bool released = DisableHooks();
+	provider->SetPoseTimeForTest(-1.0);
+
+	char detail[128];
+	std::snprintf(detail, sizeof detail, "|q|^2 short by %.2e; quiet %d, later passes %d; released %d",
+		shortfall, quiet, later, released ? 1 : 0);
+	check(name, moved && shortfall > 1e-9 && quiet == 1 && later == 0 && released, detail);
+}
+
 // A target SteamVR tracks but the hook has not seen is reported once three
 // synchronizations in a row have missed it; one the hook has seen, an
 // untracked one and one that is not a target never are.
@@ -478,5 +531,6 @@ void RunHookInjectorScenarios(Check check)
 	CallbackWaitDeadlineScenario(check);
 	HookStatusScenario(check);
 	QuietBaseStationScenario(check);
+	ShortRotationStationScenario(check);
 	HookCoverageScenario(check);
 }
