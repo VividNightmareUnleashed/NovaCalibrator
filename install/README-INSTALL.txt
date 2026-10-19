@@ -2,132 +2,188 @@
 Nova Calibrator - Installation
 ================================================================================
 
-IMPORTANT: Close Steam completely before installing (not just SteamVR).
-Steam.exe itself locks the driver files. Check the system tray and exit Steam
-fully.
+CAUTION: Close Steam completely before you install or remove Nova Calibrator.
+Steam locks the driver files. If you close only SteamVR, the installation can
+fail.
 
-There are two ways to install: the script (easiest) or manually.
+NOTE: If SteamVR has not started on this PC before, start SteamVR one time.
+Then close Steam. The installer gets the SteamVR folder from the OpenVR
+runtime. The OpenVR runtime has this data only after SteamVR starts one time.
 
-
---------------------------------------------------------------------------------
-OPTION 1: Script install (recommended)
---------------------------------------------------------------------------------
-
-1. Extract this entire zip to a folder, e.g. Downloads\Nova Calibrator.
-   Keep the folder structure intact - Install.ps1 reads the "app" and "driver"
-   folders that sit next to it.
-
-2. Unblock the extracted files (Windows blocks scripts downloaded from the
-   internet):
-     - Select ALL files in the extracted folder, right-click -> Properties,
-       tick "Unblock" at the bottom, OK.
-     - Or open PowerShell in the folder and run:
-         Get-ChildItem -Recurse | Unblock-File
-
-3. Right-click Install.ps1 -> "Run with PowerShell".
-
-4. Click "Yes" when Windows asks for administrator permission.
-
-5. Answer the optional module question. The Lighthouse module adds base
-   station tools, starting with a tab showing each base station and which
-   lighthouse-tracked devices can see it; later versions add more. To add
-   or remove it later, run Install.ps1 again.
-
-6. Done. Start SteamVR - Nova Calibrator appears as a dashboard overlay and
-   starts automatically with SteamVR.
-
-Nova Calibrator was called QuestCalibrator before 1.2.0. If QuestCalibrator is
-installed, Install.ps1 removes it first and keeps your calibration and
-settings: Nova Calibrator brings them over the first time it starts.
-
-To uninstall: run Uninstall.ps1 the same way, or find "Nova Calibrator" in
-Windows Settings -> Apps.
+You can install Nova Calibrator in two ways: with the installer script, or
+manually without scripts. The installer script is the easier procedure.
 
 
 --------------------------------------------------------------------------------
-OPTION 2: Manual install (no scripts)
+OPTION 1: Install with the script (recommended)
 --------------------------------------------------------------------------------
 
-You need to know where SteamVR is installed. The default is:
+1.  Close Steam.
+2.  Make sure that the Steam icon is not in the system tray.
+3.  Extract all the files in this zip file to a folder, for example
+    Downloads\Nova Calibrator.
+4.  Do not move files out of the "app" and "driver" folders.
+
+    NOTE: Install.ps1 reads the "app" and "driver" folders next to it.
+
+5.  Unblock the extracted files. Windows blocks scripts that come from the
+    internet. Do one of these procedures:
+
+    a.  Select all the extracted files.
+    b.  Right-click the files and select "Properties".
+    c.  Select the "Unblock" check box.
+    d.  Click "OK".
+
+    or:
+
+    a.  Open PowerShell in the extracted folder.
+    b.  Type this command:
+
+            Get-ChildItem -Recurse | Unblock-File
+
+6.  Right-click Install.ps1 and select "Run with PowerShell".
+7.  When Windows asks for administrator permission, click "Yes".
+8.  When the installer shows "Install the Lighthouse module? [Y/N]", type Y
+    or N.
+
+    NOTE: The Lighthouse module adds a page that shows each base station and
+    the Lighthouse devices that can see it. Later versions add more base
+    station tools. To add or remove the module later, do this procedure
+    again.
+
+9.  If the installer shows "Uninstall it and continue? [Y/N]", type Y.
+
+    NOTE: The installer shows this question if OpenVR-SpaceCalibrator is
+    installed. If two calibrators operate together, they apply the
+    calibration two times.
+
+10. Start SteamVR.
+
+Nova Calibrator starts with SteamVR and shows in the SteamVR dashboard.
+
+The name of Nova Calibrator was QuestCalibrator before version 1.2.0. If
+QuestCalibrator is installed, Install.ps1 removes it first. Nova Calibrator
+keeps your calibration and settings. It copies them the first time that it
+starts.
+
+To remove Nova Calibrator:
+
+1.  Close Steam.
+2.  Make sure that the Steam icon is not in the system tray.
+3.  Right-click Uninstall.ps1 in the extracted folder and select
+    "Run with PowerShell".
+4.  When Windows asks for administrator permission, click "Yes".
+
+NOTE: You can also remove "Nova Calibrator" in Windows "Settings" > "Apps".
+
+
+--------------------------------------------------------------------------------
+OPTION 2: Install manually (no scripts)
+--------------------------------------------------------------------------------
+
+For this procedure, you must know the SteamVR folder. The default SteamVR
+folder is:
 
     C:\Program Files (x86)\Steam\steamapps\common\SteamVR
 
-If Steam is on another drive, look for
+If Steam is on a different drive, the SteamVR folder is usually:
+
     <drive>\SteamLibrary\steamapps\common\SteamVR
-If you use a custom Steam library folder, SteamVR is under
+
+If you use a custom Steam library folder, the SteamVR folder is:
+
     <that folder>\steamapps\common\SteamVR
 
-Steps:
+CAUTION: Do not start NovaCalibrator.exe from the Downloads folder. The app
+records its folder in SteamVR. If you move or delete that folder, SteamVR
+cannot start the app.
 
-1. Close Steam completely (not just SteamVR).
+1.  Close Steam.
+2.  Make sure that the Steam icon is not in the system tray.
+3.  Make a permanent folder for the app, for example
+    C:\Program Files\NovaCalibrator.
+4.  Copy the contents of the "app" folder in this package to the new folder.
 
-2. Create a permanent home for the app, e.g.
-       C:\Program Files\NovaCalibrator
-   and copy the contents of this package's "app" folder into it
-   (NovaCalibrator.exe, openvr_api.dll, manifest.vrmanifest, icon.png).
-   Don't run it straight out of Downloads - the app registers its own path
-   with SteamVR, so it needs a stable location.
+    NOTE: The "app" folder contains NovaCalibrator.exe, openvr_api.dll,
+    manifest.vrmanifest and icon.png.
 
-3. Remove conflicting drivers, if present. Inside the SteamVR folder, delete
-   these folders if they exist:
-       drivers\01spacecalibrator
-       drivers\000spacecalibrator
-       drivers\01questcalibrator
-   (OpenVR-SpaceCalibrator conflicts with Nova Calibrator, and so does
-   QuestCalibrator, its earlier name; two of them installed at once will
-   double-apply offsets. Your calibration and settings carry over by
-   themselves.)
+5.  In the SteamVR folder, delete these folders if they are there:
 
-4. Copy this package's "driver\01novacalibrator" folder into the SteamVR
-   "drivers" folder, so you end up with:
-       <SteamVR>\drivers\01novacalibrator\driver.vrdrivermanifest
-       <SteamVR>\drivers\01novacalibrator\bin\win64\driver_01novacalibrator.dll
-       <SteamVR>\drivers\01novacalibrator\resources\...
+        drivers\01spacecalibrator
+        drivers\000spacecalibrator
+        drivers\01questcalibrator
 
-5. Register the overlay with SteamVR (required for auto-start and the
-   dashboard listing). Open a Command Prompt in the folder from step 2 and
-   run:
-       NovaCalibrator.exe -installmanifest
+    NOTE: These folders contain the drivers of OpenVR-SpaceCalibrator and
+    QuestCalibrator. QuestCalibrator is the earlier name of Nova Calibrator.
+    If two calibrators operate together, they apply the calibration two
+    times. Nova Calibrator keeps your QuestCalibrator calibration and
+    settings.
 
-   A message box reports the result: either the manifest path that was
-   registered, or the reason it failed. Nova Calibrator is a windowed
-   application, so the Command Prompt returns immediately and any text it
-   prints there is unreliable - the dialog is the authoritative result.
+6.  Copy the "driver\01novacalibrator" folder in this package to the
+    "drivers" folder in the SteamVR folder.
+7.  Make sure that these files are in the SteamVR folder:
 
-   If you skip this step the driver still works, but you must launch
-   NovaCalibrator.exe by hand every session.
+        <SteamVR>\drivers\01novacalibrator\driver.vrdrivermanifest
+        <SteamVR>\drivers\01novacalibrator\bin\win64\driver_01novacalibrator.dll
+        <SteamVR>\drivers\01novacalibrator\resources\...
 
-6. Optional: enable the Lighthouse module. In an administrator Command
-   Prompt, run:
-       reg add HKLM\Software\NovaCalibrator\Modules /v Lighthouse /t REG_DWORD /d 1 /f
+8.  Open a Command Prompt in the app folder from step 3.
+9.  Type this command:
 
-7. Start SteamVR.
+        NovaCalibrator.exe -installmanifest
 
-Manual uninstall:
+    NOTE: This command registers Nova Calibrator with SteamVR. Then SteamVR
+    starts Nova Calibrator automatically and shows it in the dashboard.
+    A message box shows the result. The result is the registered manifest
+    path or the cause of the failure. Nova Calibrator is a windowed app.
+    Thus, the Command Prompt does not wait for it, and text in the Command
+    Prompt is not reliable. The message box shows the correct result.
 
-1. Close SteamVR.
-2. In a Command Prompt in the app folder, run:
-       NovaCalibrator.exe -removemanifest
-   Do this BEFORE deleting anything: the command finds the registration to
-   remove using the manifest file sitting next to the executable.
-3. Delete <SteamVR>\drivers\01novacalibrator
-4. Delete the app folder from step 2.
-5. If you enabled the Lighthouse module, run (as administrator):
-       reg delete HKLM\Software\NovaCalibrator /f
+    If you do not do steps 8 and 9, the driver operates. But you must start
+    NovaCalibrator.exe manually each time that you use SteamVR.
+
+10. Optional: To add the Lighthouse module, do these steps:
+
+    a.  Open a Command Prompt as administrator.
+    b.  Type this command:
+
+            reg add HKLM\Software\NovaCalibrator\Modules /v Lighthouse /t REG_DWORD /d 1 /f
+
+11. Start SteamVR.
+
+To remove a manual installation:
+
+CAUTION: Do steps 3 and 4 before you delete files. The command in step 4
+finds the SteamVR registration through the manifest file next to
+NovaCalibrator.exe.
+
+1.  Close Steam.
+2.  Make sure that the Steam icon is not in the system tray.
+3.  Open a Command Prompt in the app folder.
+4.  Type this command:
+
+        NovaCalibrator.exe -removemanifest
+
+5.  Delete the <SteamVR>\drivers\01novacalibrator folder.
+6.  Delete the app folder.
+7.  If you added the Lighthouse module, do these steps:
+
+    a.  Open a Command Prompt as administrator.
+    b.  Type this command:
+
+            reg delete HKLM\Software\NovaCalibrator /f
 
 
 --------------------------------------------------------------------------------
 Notes
 --------------------------------------------------------------------------------
 
-- Windows SmartScreen may warn about NovaCalibrator.exe because it isn't
-  code-signed. Click "More info" -> "Run anyway". This is expected.
-- Nova Calibrator requires SteamVR's "multiple drivers" support. The app turns
-  that setting on every time it starts, so both install methods are covered -
-  the script install simply does it up front. Uninstalling deliberately leaves
-  the setting enabled, because other OpenVR tools depend on it too.
-- If SteamVR has never been run on this PC, start it once and close it before
-  installing. Both the installer and -installmanifest ask the OpenVR runtime
-  where SteamVR lives, and that information doesn't exist until SteamVR has
-  run at least once.
+- NovaCalibrator.exe does not have a code signature. Thus, Windows
+  SmartScreen can show a warning for it. This is normal. To start the app,
+  click "More info". Then click "Run anyway".
+- Nova Calibrator needs the SteamVR option for multiple drivers. The app sets
+  this option to on each time that it starts. Thus, the two installation
+  procedures give the same result. The installer script also sets the option
+  before the first start. Removal does not set the option to off, because
+  other OpenVR tools also need it.
 ================================================================================

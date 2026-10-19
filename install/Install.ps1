@@ -20,7 +20,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'FilesystemPolicy.ps1')
 
 function Pause-ForUser {
-    if (-not $Unattended) { Read-Host "Press Enter to close" | Out-Null }
+    if (-not $Unattended) { Read-Host "Press Enter to close this window" | Out-Null }
 }
 
 # Ensure the window stays open on any failure so the user can read the error.
@@ -43,9 +43,9 @@ function Fail([string]$msg) {
 # --- Admin check ------------------------------------------------------------
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    if ($Unattended) { Fail "An unattended install must be run from an elevated shell." }
-    Write-Host "Nova Calibrator needs administrator rights to install (it writes into the SteamVR folder)." -ForegroundColor Yellow
-    Write-Host "Re-launching elevated..."
+    if ($Unattended) { Fail "An unattended installation needs administrator permission. Start it from an elevated shell." }
+    Write-Host "The installer needs administrator permission because it writes to the SteamVR folder." -ForegroundColor Yellow
+    Write-Host "The installer starts again with administrator permission."
     # Use -NoExit so the elevated window stays open to show output/errors
     $relaunchArgs = @(
         '-NoExit', '-NoProfile', '-ExecutionPolicy', 'Bypass',
@@ -62,7 +62,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 $steamProcesses = Get-Process -Name 'steam','vrserver','vrmonitor','vrcompositor' -ErrorAction SilentlyContinue
 if ($steamProcesses) {
     $names = ($steamProcesses | Select-Object -ExpandProperty Name) -join ', '
-    Fail "Steam is still running ($names). Please close Steam completely (check the system tray) and run this again."
+    Fail "Steam or SteamVR is open ($names). Close Steam completely. Make sure that the Steam icon is not in the system tray. Then start the installer again."
 }
 
 # --- Optional modules ---------------------------------------------------------
@@ -77,10 +77,9 @@ if (-not $Unattended -and -not $Lighthouse) {
     $hadLighthouse = $previousModules.Lighthouse -eq 1
     Write-Host ""
     Write-Host "Optional module: Lighthouse" -ForegroundColor Cyan
-    Write-Host "  Base station tools, starting with a Lighthouse tab that shows each"
-    Write-Host "  base station and which of your lighthouse-tracked devices can see it."
-    Write-Host "  More tools will come to it in later versions. It is not part of the"
-    Write-Host "  classic calibrator; leave it out if you only want calibration."
+    Write-Host "  The Lighthouse module adds a page that shows each base station and the"
+    Write-Host "  Lighthouse devices that can see it. Later versions add more base station"
+    Write-Host "  tools. Calibration does not need this module."
     $default = if ($hadLighthouse) { 'Y' } else { 'N' }
     $answer = Read-Host "Install the Lighthouse module? [Y/N] (default $default)"
     if (-not $answer) { $answer = $default }
@@ -92,7 +91,7 @@ $appSrc     = Join-Path $packageDir 'app'
 $driverSrc  = Join-Path $packageDir 'driver\01novacalibrator'
 
 foreach ($p in @($appSrc, $driverSrc)) {
-    if (-not (Test-Path $p)) { Fail "Package is incomplete: '$p' is missing. Re-extract the zip and try again." }
+    if (-not (Test-Path $p)) { Fail "The package is not complete. The installer cannot find '$p'. Extract the zip file again. Then start the installer again." }
 }
 
 # --- Locate the OpenVR/SteamVR runtime ---------------------------------------
@@ -146,7 +145,7 @@ function Find-VrPathReg {
 function Get-VrRuntimePath {
     $vrpathreg = Find-VrPathReg
     if ($vrpathreg) {
-        Write-Host "Using $vrpathreg"
+        Write-Host "SteamVR path tool: $vrpathreg"
         $out = & $vrpathreg show 2>&1 | Out-String
         if ($out -match 'Runtime path\s*=\s*(.+)') {
             $candidate = $Matches[1].Trim()
@@ -165,7 +164,7 @@ function Get-VrRuntimePath {
                 if ($rt -and (Test-Path $rt)) { return $rt }
             }
         } catch {
-            Write-Host "  (could not parse $vrpath)" -ForegroundColor Yellow
+            Write-Host "  The installer could not read $vrpath." -ForegroundColor Yellow
         }
     }
     return $null
@@ -173,9 +172,9 @@ function Get-VrRuntimePath {
 
 $vrRuntimePath = Get-VrRuntimePath
 if (-not $vrRuntimePath) {
-    Fail "Could not find the SteamVR runtime. Is SteamVR installed? If it has never been started on this PC, run it once, close it, and try again."
+    Fail "The installer could not find SteamVR. Make sure that SteamVR is installed. If SteamVR has not started on this PC before, start SteamVR one time. Close Steam. Then start the installer again."
 }
-Write-Host "VR runtime path: $vrRuntimePath"
+Write-Host "SteamVR folder: $vrRuntimePath"
 
 # --- Conflicting software: OpenVR-SpaceCalibrator ----------------------------
 # Its driver hooks the same vrserver internals; both installed at once
@@ -183,9 +182,9 @@ Write-Host "VR runtime path: $vrRuntimePath"
 $spaceCalUninstall = Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenVRSpaceCalibrator' -ErrorAction SilentlyContinue
 if ($spaceCalUninstall) {
     Write-Host ""
-    Write-Host "OpenVR-SpaceCalibrator is installed and conflicts with Nova Calibrator." -ForegroundColor Yellow
+    Write-Host "OpenVR-SpaceCalibrator is installed. If two calibrators operate together, they apply the calibration two times." -ForegroundColor Yellow
     $answer = if ($Unattended) { 'N' } else { Read-Host "Uninstall it and continue? [Y/N]" }
-    if ($answer -notmatch '^[Yy]') { Fail "Aborted. Uninstall OpenVR-SpaceCalibrator first, then re-run." }
+    if ($answer -notmatch '^[Yy]') { Fail "The installer stopped and made no changes to Nova Calibrator. Remove OpenVR-SpaceCalibrator. Then start the installer again." }
 
     $spaceCalDir = (Get-ItemProperty 'HKLM:\Software\OpenVR-SpaceCalibrator\Main' -ErrorAction SilentlyContinue).'(default)'
     if (-not $spaceCalDir) { $spaceCalDir = Join-Path ${env:ProgramFiles} 'OpenVR-SpaceCalibrator' }
@@ -193,9 +192,9 @@ if ($spaceCalUninstall) {
 
     $spaceCalUninstaller = Join-Path $spaceCalDir 'Uninstall.exe'
     if (Test-Path $spaceCalUninstaller) {
-        Write-Host "Uninstalling OpenVR-SpaceCalibrator..."
+        Write-Host "The installer removes OpenVR-SpaceCalibrator."
         $removedConflict = Start-Process -FilePath $spaceCalUninstaller -ArgumentList '/S', "_?=$spaceCalDir" -Wait -PassThru
-        if ($removedConflict.ExitCode -ne 0) { Fail "Conflicting uninstaller failed (exit code $($removedConflict.ExitCode))." }
+        if ($removedConflict.ExitCode -ne 0) { Fail "The installer could not remove OpenVR-SpaceCalibrator (exit code $($removedConflict.ExitCode)). The installer made no changes to Nova Calibrator." }
         Remove-Item $spaceCalUninstaller -Force -ErrorAction SilentlyContinue
         Remove-QuestcalTree $spaceCalDir 'OpenVR-SpaceCalibrator'
     } else {
@@ -217,13 +216,13 @@ $oldInstallDir = (Get-ItemProperty 'HKLM:\Software\QuestCalibrator\Main' -ErrorA
 if (-not $oldInstallDir) { $oldInstallDir = Join-Path ${env:ProgramFiles} 'QuestCalibrator' }
 Assert-QuestcalTree $oldInstallDir 'QuestCalibrator'
 if (Test-Path (Join-Path $oldInstallDir 'Uninstall.ps1')) {
-    Write-Host "QuestCalibrator found - replacing it with Nova Calibrator (your calibration is kept)..."
+    Write-Host "QuestCalibrator is installed. The installer replaces it with Nova Calibrator. Nova Calibrator keeps your calibration and settings."
     $oldRemoval = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + (Join-Path $oldInstallDir 'Uninstall.ps1') + '"'), '-Silent', '-UserLocalAppData', ('"' + $UserLocalAppData + '"')) -Wait -PassThru
-    if ($oldRemoval.ExitCode -ne 0) { Fail "Removing QuestCalibrator failed (exit code $($oldRemoval.ExitCode)). Nova Calibrator has not been installed." }
+    if ($oldRemoval.ExitCode -ne 0) { Fail "The installer could not remove QuestCalibrator (exit code $($oldRemoval.ExitCode)). The installer made no changes to Nova Calibrator." }
 } elseif (Test-Path (Join-Path $oldInstallDir 'Uninstall.exe')) {
-    Write-Host "QuestCalibrator (NSIS) found - removing it first..."
+    Write-Host "QuestCalibrator (NSIS) is installed. The installer removes it first."
     $oldRemoval = Start-Process -FilePath (Join-Path $oldInstallDir 'Uninstall.exe') -ArgumentList '/S', "_?=$oldInstallDir" -Wait -PassThru
-    if ($oldRemoval.ExitCode -ne 0) { Fail "Removing QuestCalibrator failed (exit code $($oldRemoval.ExitCode)). Nova Calibrator has not been installed." }
+    if ($oldRemoval.ExitCode -ne 0) { Fail "The installer could not remove QuestCalibrator (exit code $($oldRemoval.ExitCode)). The installer made no changes to Nova Calibrator." }
     Remove-Item (Join-Path $oldInstallDir 'Uninstall.exe') -Force -ErrorAction SilentlyContinue
 }
 # Traces an uninstaller left, or a hand install never had one to remove.
@@ -239,26 +238,26 @@ foreach ($conflict in @('01spacecalibrator', '000spacecalibrator', '01questcalib
     $driversRoot = [IO.Path]::GetFullPath((Join-Path $vrRuntimePath 'drivers'))
     $p = [IO.Path]::GetFullPath((Join-Path $driversRoot $conflict))
     if (-not $p.StartsWith($driversRoot.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
-        Fail 'Conflicting driver path is outside the SteamVR drivers directory.'
+        Fail 'The path of the other calibrator driver is not in the SteamVR "drivers" folder.'
     }
     Assert-QuestcalTree $p $conflict
     if (Test-Path -LiteralPath $p) {
-        Write-Host "Removing conflicting driver: $p"
+        Write-Host "The installer removes this other calibrator driver: $p"
         for ($i = 1; $i -le 3; $i++) {
             try {
                 Remove-QuestcalTree $p $conflict
                 break
             } catch {
                 if ($i -lt 3) {
-                    Write-Host "  Locked (attempt $i/3), waiting..."
+                    Write-Host "  The driver files are locked (attempt $i of 3). The installer tries again in 2 seconds."
                     Start-Sleep -Seconds 2
                 } else {
-                    Fail "Could not remove conflicting driver $p. Restart Windows, remove that driver, then re-run this installer. Nova Calibrator has not been installed or upgraded."
+                    Fail "The installer could not remove this other calibrator driver: $p. The installer made no changes to Nova Calibrator. Start Windows again. Delete that driver folder. Then start the installer again."
                 }
             }
         }
         if (Test-Path -LiteralPath $p) {
-            Fail "Conflicting driver still exists: $p. Remove it before installing Nova Calibrator."
+            Fail "This other calibrator driver is still there: $p. The installer made no changes to Nova Calibrator. Delete that driver folder. Then start the installer again."
         }
     }
 }
@@ -274,13 +273,13 @@ Assert-QuestcalTree $installDir 'NovaCalibrator'
 # shipped an NSIS installer, so Uninstall.exe has to be handled too - otherwise
 # it is orphaned in Program Files with its registry entry overwritten by ours.
 if (Test-Path (Join-Path $installDir 'Uninstall.ps1')) {
-    Write-Host "Existing installation found - upgrading..."
+    Write-Host "Nova Calibrator is already installed. The installer replaces it."
     $oldRemoval = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + (Join-Path $installDir 'Uninstall.ps1') + '"'), '-Silent', '-UserLocalAppData', ('"' + $UserLocalAppData + '"')) -Wait -PassThru
-    if ($oldRemoval.ExitCode -ne 0) { Fail "Existing uninstall failed (exit code $($oldRemoval.ExitCode))." }
+    if ($oldRemoval.ExitCode -ne 0) { Fail "The installer could not remove the earlier installation (exit code $($oldRemoval.ExitCode))." }
 } elseif (Test-Path (Join-Path $installDir 'Uninstall.exe')) {
-    Write-Host "Existing NSIS installation found - removing it first..."
+    Write-Host "Nova Calibrator (NSIS) is already installed. The installer removes it first."
     $oldRemoval = Start-Process -FilePath (Join-Path $installDir 'Uninstall.exe') -ArgumentList '/S', "_?=$installDir" -Wait -PassThru
-    if ($oldRemoval.ExitCode -ne 0) { Fail "Existing uninstall failed (exit code $($oldRemoval.ExitCode))." }
+    if ($oldRemoval.ExitCode -ne 0) { Fail "The installer could not remove the earlier installation (exit code $($oldRemoval.ExitCode))." }
     Remove-Item (Join-Path $installDir 'Uninstall.exe') -Force -ErrorAction SilentlyContinue
 }
 
@@ -294,7 +293,7 @@ Copy-Item (Join-Path $packageDir 'THIRD-PARTY-NOTICES.txt') -Destination $instal
 Copy-Item (Join-Path $packageDir 'THIRD-PARTY-NOTICES')     -Destination $installDir -Recurse -Force -ErrorAction SilentlyContinue
 
 $appExe = Join-Path $installDir 'NovaCalibrator.exe'
-if (-not (Test-Path $appExe)) { Fail "Copying the application to $installDir failed." }
+if (-not (Test-Path $appExe)) { Fail "The installer could not copy the app to $installDir." }
 
 $version = (Get-Item $appExe).VersionInfo.ProductVersion
 if (-not $version) { $version = 'unknown' }
@@ -313,19 +312,19 @@ if (Test-Path $driverDest) {
             break
         } catch {
             if ($i -lt 3) {
-                Write-Host "Driver files locked (attempt $i/3), waiting 2 seconds..."
+                Write-Host "The driver files are locked (attempt $i of 3). The installer tries again in 2 seconds."
                 Start-Sleep -Seconds 2
             }
         }
     }
     if (-not $removed) {
         Write-Host ""
-        Write-Host "Could not remove the old driver - the file is still locked." -ForegroundColor Yellow
-        Write-Host "This usually means SteamVR was recently running or an antivirus is scanning it." -ForegroundColor Yellow
+        Write-Host "The installer could not remove the earlier driver. Its files are still locked." -ForegroundColor Yellow
+        Write-Host "Usually, SteamVR stopped a short time ago, or an antivirus program examines the files." -ForegroundColor Yellow
         Write-Host ""
-        Write-Host "Please:" -ForegroundColor Cyan
-        Write-Host "  1. Reboot your PC (this releases all file locks)" -ForegroundColor Cyan
-        Write-Host "  2. Run this installer again immediately after logging in" -ForegroundColor Cyan
+        Write-Host "Do these steps:" -ForegroundColor Cyan
+        Write-Host "  1. Start Windows again. This releases all file locks." -ForegroundColor Cyan
+        Write-Host "  2. Immediately after Windows starts, start the installer again." -ForegroundColor Cyan
         Write-Host ""
         Pause-ForUser
         exit 1
@@ -333,9 +332,9 @@ if (Test-Path $driverDest) {
 }
 Copy-Item $driverSrc -Destination $driverDest -Recurse -Force
 if (-not (Test-Path (Join-Path $driverDest 'bin\win64\driver_01novacalibrator.dll'))) {
-    Fail "Copying the driver to $driverDest failed."
+    Fail "The installer could not copy the driver to $driverDest."
 }
-Write-Host "Installed driver to $driverDest"
+Write-Host "The installer copied the driver to $driverDest."
 
 # --- Register with SteamVR ----------------------------------------------------
 # NovaCalibrator.exe is a GUI binary: PowerShell's call operator does not wait
@@ -350,16 +349,16 @@ function Invoke-App([string]$appArgument) {
 
 $code = Invoke-App '-installmanifest'
 if ($code -ne 0) {
-    Fail "Failed to register the application manifest with SteamVR (exit code $code). Nova Calibrator will not appear in the dashboard or start automatically."
+    Fail "The installer could not register Nova Calibrator with SteamVR (exit code $code). Thus, Nova Calibrator does not start with SteamVR and does not show in the SteamVR dashboard."
 }
-Write-Host "Registered with SteamVR"
+Write-Host "The installer registered Nova Calibrator with SteamVR."
 
 # Not fatal: the app also enables this itself every time it starts, so a failure
 # here (usually SteamVR having never been run) heals on first launch.
 $code = Invoke-App '-activatemultipledrivers'
 if ($code -ne 0) {
-    Write-Host "Note: could not pre-enable SteamVR's multiple-driver setting (exit code $code)." -ForegroundColor Yellow
-    Write-Host "      Nova Calibrator will enable it itself the first time it runs." -ForegroundColor Yellow
+    Write-Host "NOTE: The installer could not set the SteamVR option for multiple drivers to on (exit code $code)." -ForegroundColor Yellow
+    Write-Host "      Nova Calibrator sets this option to on when it starts." -ForegroundColor Yellow
 }
 
 # --- Registry + shortcut ------------------------------------------------------
@@ -398,9 +397,10 @@ $shortcut.IconLocation = "$appExe,0"
 $shortcut.Save()
 
 Write-Host ""
-Write-Host "Nova Calibrator $version installed successfully." -ForegroundColor Green
-Write-Host ("Lighthouse module: " + $(if ($installLighthouse) { 'installed' } else { 'not installed (run this installer again to add it)' }))
-Write-Host "Start SteamVR to use it. A Start Menu shortcut was created."
+Write-Host "Nova Calibrator $version is installed." -ForegroundColor Green
+Write-Host ("Lighthouse module: " + $(if ($installLighthouse) { 'installed.' } else { 'not installed. To add it, start the installer again.' }))
+Write-Host "The installer added a Nova Calibrator shortcut to the Start menu."
+Write-Host "To use Nova Calibrator, start SteamVR."
 Write-Host ""
 Pause-ForUser
 exit 0

@@ -13,15 +13,15 @@ $ErrorActionPreference = 'Stop'
 function Fail([string]$msg) {
     Write-Host ""
     Write-Host "ERROR: $msg" -ForegroundColor Red
-    if (-not $Silent) { Read-Host "Press Enter to close" }
+    if (-not $Silent) { Read-Host "Press Enter to close this window" }
     exit 1
 }
 
 # --- Admin check --------------------------------------------------------------
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    if ($Silent) { Fail "Uninstall requires administrator rights." }
-    Write-Host "Re-launching elevated..."
+    if ($Silent) { Fail "The uninstaller needs administrator permission." }
+    Write-Host "The uninstaller starts again with administrator permission."
     # Use -NoExit so the elevated window stays open to show output/errors.
     # Only forward -Silent when it was actually asked for, otherwise an
     # interactive uninstall would silently swallow its own result.
@@ -40,7 +40,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 $steamProcesses = Get-Process -Name 'steam','vrserver','vrmonitor','vrcompositor' -ErrorAction SilentlyContinue
 if ($steamProcesses) {
     $names = ($steamProcesses | Select-Object -ExpandProperty Name) -join ', '
-    Fail "Steam is still running ($names). Please close Steam completely (check the system tray) and run this again."
+    Fail "Steam or SteamVR is open ($names). Close Steam completely. Make sure that the Steam icon is not in the system tray. Then start the uninstaller again."
 }
 
 $installDir = (Get-ItemProperty 'HKLM:\Software\NovaCalibrator\Main' -ErrorAction SilentlyContinue).'(default)'
@@ -55,9 +55,9 @@ if (Test-Path $appExe) {
     $proc = Start-Process -FilePath $appExe -ArgumentList @('-removemanifest', '-noui') `
         -WorkingDirectory $installDir -Wait -PassThru
     if ($proc.ExitCode -ne 0) {
-        Write-Host "Warning: could not deregister from SteamVR (exit code $($proc.ExitCode)). Continuing." -ForegroundColor Yellow
+        Write-Host "WARNING: The uninstaller could not remove the SteamVR registration (exit code $($proc.ExitCode)). The uninstaller continues." -ForegroundColor Yellow
     } else {
-        Write-Host "Deregistered from SteamVR"
+        Write-Host "The uninstaller removed the SteamVR registration."
     }
 }
 
@@ -124,22 +124,22 @@ if ($vrRuntimePath) {
     if (Test-Path $driverDir) {
         Remove-QuestcalTree $driverDir '01novacalibrator'
         if (Test-Path $driverDir) {
-            Write-Host "Warning: could not fully remove $driverDir - delete it manually after a reboot." -ForegroundColor Yellow
+            Write-Host "WARNING: The uninstaller could not remove all of $driverDir. Start Windows again. Then delete that folder." -ForegroundColor Yellow
         } else {
-            Write-Host "Removed driver: $driverDir"
+            Write-Host "The uninstaller removed the driver: $driverDir"
         }
     }
 } else {
-    Write-Host "Warning: could not locate the SteamVR runtime; the driver folder may still be present." -ForegroundColor Yellow
+    Write-Host "WARNING: The uninstaller could not find SteamVR. The driver folder is possibly still there." -ForegroundColor Yellow
 }
 
 # --- Remove installed files ------------------------------------------------------
 if (Test-Path $installDir) {
     Remove-QuestcalTree $installDir 'NovaCalibrator'
     if (Test-Path $installDir) {
-        Write-Host "Warning: could not fully remove $installDir - delete it manually after a reboot." -ForegroundColor Yellow
+        Write-Host "WARNING: The uninstaller could not remove all of $installDir. Start Windows again. Then delete that folder." -ForegroundColor Yellow
     } else {
-        Write-Host "Removed $installDir"
+        Write-Host "The uninstaller removed $installDir."
     }
 }
 
@@ -150,11 +150,11 @@ foreach ($path in @('HKLM:\Software\NovaCalibrator',
     'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\NovaCalibrator',
     (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Nova Calibrator.lnk'))) {
     if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop }
-    if (Test-Path -LiteralPath $path) { Fail "Cleanup did not complete: $path" }
+    if (Test-Path -LiteralPath $path) { Fail "The uninstaller could not remove $path." }
 }
 
 if (-not $Silent) {
     Write-Host ""
-    Write-Host "Nova Calibrator uninstalled." -ForegroundColor Green
-    Read-Host "Press Enter to close"
+    Write-Host "Nova Calibrator is removed." -ForegroundColor Green
+    Read-Host "Press Enter to close this window"
 }
