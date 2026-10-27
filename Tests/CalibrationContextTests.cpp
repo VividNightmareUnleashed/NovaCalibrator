@@ -1,5 +1,6 @@
 #include "../Overlay/Calibration.h"
 #include "../Overlay/CalibrationDriver.h"
+#include "../Overlay/DriverWorker.h"
 #include "../Overlay/Diagnostics.h"
 #include "../Overlay/DiagnosticsPolicy.h"
 #include "../Overlay/SessionLogTrim.h"
@@ -497,4 +498,32 @@ bool SessionLogTrimScenario()
 	return compacted && file.rfind("line 0\nline 1\nline 2\nline 3\nline 4\n", 0) == 0 &&
 		file.find(" lines left out]\n") != std::string::npos &&
 		file.size() >= 8 && file.compare(file.size() - 8, 8, "line 39\n") == 0;
+}
+
+// A verdict that did not synchronize (the driver unreachable, a refused state,
+// or a state answered on a reconnected pipe) leaves the hook mask the last
+// synchronized verdict reported: its own comes from its handshake, which may
+// have reached another driver instance than the one that answered, or none.
+bool HookMaskFromSynchronizedVerdictsScenario()
+{
+	CalibrationContext ctx;
+	questcal::DriverCompletion done;
+	done.result.synchronized = true;
+	done.result.poseHookMask = protocol::PoseHook006;
+	questcal::ApplyCompletion(ctx, done);
+	const bool taken = ctx.driverPoseHookMask == protocol::PoseHook006;
+
+	done.result.synchronized = false;
+	done.result.poseHookMask = 0;
+	questcal::ApplyCompletion(ctx, done);
+	const bool keptOverFailedHandshake = ctx.driverPoseHookMask == protocol::PoseHook006;
+
+	done.result.poseHookMask = protocol::PoseHook005;
+	questcal::ApplyCompletion(ctx, done);
+	const bool keptOverOtherInstance = ctx.driverPoseHookMask == protocol::PoseHook006;
+
+	done.result.synchronized = true;
+	questcal::ApplyCompletion(ctx, done);
+	return taken && keptOverFailedHandshake && keptOverOtherInstance &&
+		ctx.driverPoseHookMask == protocol::PoseHook005;
 }

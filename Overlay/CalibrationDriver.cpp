@@ -103,6 +103,8 @@ void ClearDeviceIdentities(CalibrationContext &ctx)
 	AssignDeviceIdentities(ctx, vr::k_unTrackedDeviceIndexInvalid, none, none);
 }
 
+} // namespace
+
 void ApplyCompletion(CalibrationContext &ctx,
 	const DriverCompletion &completion)
 {
@@ -138,9 +140,13 @@ void ApplyCompletion(CalibrationContext &ctx,
 		}
 	}
 	ctx.enabled = result.enabled;
-	ctx.driverPoseHookMask = result.poseHookMask;
+	// The hook state of the driver that applied the state, as for the rest of
+	// its status below. A verdict that did not synchronize carries the mask of
+	// its handshake, which may have reached another driver instance than the
+	// one that answered the state, or none (0, read as "not found").
 	if (result.synchronized)
 	{
+		ctx.driverPoseHookMask = result.poseHookMask;
 		ctx.driverHookedDevices = result.hookStatus.hookedDevices;
 		ctx.driverMismatchedPoseUpdates = result.hookStatus.mismatchedPoseUpdates;
 		ctx.driverReentrantPoseUpdates = result.hookStatus.reentrantPoseUpdates;
@@ -193,8 +199,6 @@ void ApplyCompletion(CalibrationContext &ctx,
 	AssignDeviceIdentities(ctx, result.continuousTrackerId,
 		result.referenceDeviceMask, result.targetDeviceMask);
 }
-
-} // namespace
 
 bool ReadTrackedDeviceString(uint32_t id,
 	vr::ETrackedDeviceProperty property, std::string &value)

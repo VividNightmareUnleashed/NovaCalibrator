@@ -13,6 +13,8 @@ struct CalibrationContext;
 namespace questcal
 {
 
+struct DriverCompletion;
+
 struct DriverNeutralizationResult
 {
 	uint64_t sequence = 0;
@@ -23,6 +25,10 @@ void StartCalibrationDriver();
 void StopCalibrationDriver();
 void SynchronizeCalibrationDriver(CalibrationContext &ctx);
 void PollCalibrationDriver(CalibrationContext &ctx);
+// Folds one driver verdict into the context: the enabled state, the reason it
+// is disabled, the device identities and, from a synchronized verdict, the
+// driver's hook status. PollCalibrationDriver calls it for the verdicts it takes.
+void ApplyCompletion(CalibrationContext &ctx, const DriverCompletion &completion);
 DriverSyncTracker CaptureDriverSyncDiagnostics();
 std::optional<DriverNeutralizationResult> TakeCalibrationNeutralization(
 	uint64_t sequence);

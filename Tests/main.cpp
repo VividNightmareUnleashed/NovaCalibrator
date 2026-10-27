@@ -80,6 +80,7 @@ bool DiagnosticsSlotRangesScenario();
 bool SessionLogTrimScenario();
 bool ContinuousWindowDiagnosticsScenario();
 bool ContinuousPairingDiagnosticsScenario();
+bool HookMaskFromSynchronizedVerdictsScenario();
 void RunReviewRegressionScenarios(void (*check)(const char *, bool, const char *));
 void RunTrackerFrameCorrectionScenarios(void (*check)(const char *, bool, const char *));
 void RunHookInjectorScenarios(void (*check)(const char *, bool, const char *));
@@ -1489,6 +1490,8 @@ void RunPoseSampleScenarios()
 		"format line, enum names, build hash, driver status, scale confidence, mount and raw poses "
 		"reach the on-disk report; a report written at exit (SteamVR quit or crash, window closed, fatal error) "
 		"says why in its name and first line, and each kind keeps its own newest ten");
+	Check("driver sync: the hook mask comes from a synchronized verdict", HookMaskFromSynchronizedVerdictsScenario(),
+		"an unsynchronized verdict's handshake may belong to another driver instance, or none");
 	Check("diagnostics: names are anonymised as whole words", DiagnosticsAnonymisationScenario(),
 		"a short account or computer name never rewrites the words it occurs in");
 	Check("diagnostics: empty device slots are listed as ranges", DiagnosticsSlotRangesScenario(),
