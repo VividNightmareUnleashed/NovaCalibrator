@@ -198,6 +198,9 @@
     <ClInclude Include="RecordGates.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="RegistryImport.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="PersistenceState.h">
       <Filter>Header Files</Filter>
     </ClInclude>

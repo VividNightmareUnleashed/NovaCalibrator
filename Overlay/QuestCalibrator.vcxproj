@@ -136,6 +136,7 @@
     <ClInclude Include="PersistencePlan.h" />
     <ClInclude Include="ProfileRecord.h" />
     <ClInclude Include="RecordGates.h" />
+    <ClInclude Include="RegistryImport.h" />
     <ClInclude Include="RingPoseMath.h" />
     <ClInclude Include="RingSampleGate.h" />
     <ClInclude Include="ContinuousAlignment.h" />

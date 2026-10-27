@@ -3,6 +3,7 @@
 #include "ChaperoneMath.h"
 #include "ProfileValidation.h"
 #include "RecordBounds.h"
+#include "RegistryImport.h"
 #include "SettingsRecordJson.h"
 #include "UserInterface.h"
 #include "../common/Protocol.h"
@@ -264,30 +265,15 @@ static const char *RegistryKeyDisplayPath =
 
 // The first start under the new name copies the records QuestCalibrator saved
 // (the calibration, the settings and their history) to the new key. The old
-// key stays as it was, so a QuestCalibrator build still finds its own. A copy
-// that fails leaves no new key behind, and the next start tries again.
+// key stays as it was, so a QuestCalibrator build still finds its own. The new
+// key appears only complete (ImportRegistryTree): a copy that fails, or a start
+// that dies part-way, leaves no new key behind, and the next start tries again.
 static void ImportPreviousNameRecords(CalibrationContext &ctx)
 {
-	HKEY current = nullptr;
-	if (RegOpenKeyExA(HKEY_CURRENT_USER_LOCAL_SETTINGS, RegistryKey, 0, KEY_READ, &current) == ERROR_SUCCESS)
-	{
-		RegCloseKey(current);
+	const LSTATUS result = questcal::ImportRegistryTree(HKEY_CURRENT_USER_LOCAL_SETTINGS,
+		PreviousRegistryKey, RegistryKey, "Software\\NovaCalibrator.import", L"NovaCalibrator");
+	if (result == ERROR_ALREADY_EXISTS || result == ERROR_FILE_NOT_FOUND)
 		return;
-	}
-	HKEY previous = nullptr;
-	if (RegOpenKeyExA(HKEY_CURRENT_USER_LOCAL_SETTINGS, PreviousRegistryKey, 0, KEY_READ, &previous) != ERROR_SUCCESS)
-		return;
-	HKEY created = nullptr;
-	LSTATUS result = RegCreateKeyExA(HKEY_CURRENT_USER_LOCAL_SETTINGS, RegistryKey, 0, nullptr, 0,
-		KEY_ALL_ACCESS, nullptr, &created, nullptr);
-	if (result == ERROR_SUCCESS)
-	{
-		result = RegCopyTreeA(previous, nullptr, created);
-		RegCloseKey(created);
-		if (result != ERROR_SUCCESS)
-			RegDeleteTreeA(HKEY_CURRENT_USER_LOCAL_SETTINGS, RegistryKey);
-	}
-	RegCloseKey(previous);
 	if (result == ERROR_SUCCESS)
 		ctx.Log("Imported the calibration and settings saved under the QuestCalibrator name\n");
 	else

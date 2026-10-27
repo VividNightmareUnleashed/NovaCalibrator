@@ -2,6 +2,7 @@
 #include "../Overlay/ContinuousCorrectionGate.h"
 #include "../Overlay/FieldMath.h"
 #include "../Overlay/PersistenceState.h"
+#include "../Overlay/RegistryImport.h"
 #include "../Overlay/RingPoseMath.h"
 #include "../Overlay/Updater.h"
 #include "../common/MathConstants.h"
@@ -13,6 +14,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
 
 namespace
@@ -772,8 +774,68 @@ void RunOpenVRLayoutScenarios(Check check);
 void RunImGuiInputScenarios(Check check);
 bool CalibrationEulerRoundTripScenario();
 
+// The registry import of the rename to Nova Calibrator: the new key appears
+// only complete. An import that died part-way left its staging key half
+// copied; the next one deletes it and copies everything. An existing new key
+// is never touched, and with nothing to import nothing is left behind.
+void RegistryImportScenario(Check check)
+{
+	const std::string base = "Software\\NovaCalibratorTests\\Import" + std::to_string(GetCurrentProcessId());
+	const std::string from = base + "\\Old", to = base + "\\New", staging = base + "\\New.import";
+	const auto write = [](const std::string &key, const char *name, DWORD value)
+	{
+		HKEY k = nullptr;
+		if (RegCreateKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, nullptr, 0, KEY_ALL_ACCESS, nullptr, &k, nullptr) !=
+			ERROR_SUCCESS)
+			return false;
+		const bool ok = RegSetValueExA(k, name, 0, REG_DWORD, reinterpret_cast<const BYTE *>(&value), sizeof value) ==
+			ERROR_SUCCESS;
+		RegCloseKey(k);
+		return ok;
+	};
+	const auto read = [](const std::string &key, const char *name)
+	{
+		DWORD value = 0, size = sizeof value;
+		return RegGetValueA(HKEY_CURRENT_USER, key.c_str(), name, RRF_RT_REG_DWORD, nullptr, &value, &size) ==
+			ERROR_SUCCESS ? static_cast<long>(value) : -1L;
+	};
+	const auto exists = [](const std::string &key)
+	{
+		HKEY k = nullptr;
+		if (RegOpenKeyExA(HKEY_CURRENT_USER, key.c_str(), 0, KEY_READ, &k) != ERROR_SUCCESS)
+			return false;
+		RegCloseKey(k);
+		return true;
+	};
+	const auto import = [&]
+	{
+		return questcal::ImportRegistryTree(HKEY_CURRENT_USER, from.c_str(), to.c_str(), staging.c_str(), L"New");
+	};
+	RegDeleteTreeA(HKEY_CURRENT_USER, base.c_str());
+	const bool seeded = write(from, "calibration", 1) && write(from + "\\history", "revision", 3) &&
+		write(staging, "calibration", 1);
+	const LSTATUS first = import();
+	const bool complete = first == ERROR_SUCCESS && read(to, "calibration") == 1 &&
+		read(to + "\\history", "revision") == 3 && !exists(staging);
+	write(from, "calibration", 2);
+	const LSTATUS second = import();
+	const bool kept = second == ERROR_ALREADY_EXISTS && read(to, "calibration") == 1;
+	RegDeleteTreeA(HKEY_CURRENT_USER, to.c_str());
+	RegDeleteTreeA(HKEY_CURRENT_USER, from.c_str());
+	const LSTATUS third = import();
+	const bool none = third == ERROR_FILE_NOT_FOUND && !exists(to) && !exists(staging);
+	RegDeleteTreeA(HKEY_CURRENT_USER, base.c_str());
+
+	char detail[160];
+	std::snprintf(detail, sizeof detail, "seeded %d; first %ld complete %d; second %ld kept %d; third %ld none %d",
+		seeded, static_cast<long>(first), complete, static_cast<long>(second), kept, static_cast<long>(third), none);
+	check("persistence: the rename's registry import appears only complete", seeded && complete && kept && none,
+		detail);
+}
+
 void RunReviewRegressionScenarios(Check check)
 {
+	RegistryImportScenario(check);
 	RunOpenVRLayoutScenarios(check);
 	RunImGuiInputScenarios(check);
 	check("Eigen: manual Euler round trip", CalibrationEulerRoundTripScenario(), "");

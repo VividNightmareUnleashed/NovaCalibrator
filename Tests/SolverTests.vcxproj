@@ -210,6 +210,7 @@
     <ClInclude Include="..\Overlay\PersistencePlan.h" />
     <ClInclude Include="..\Overlay\ProfileRecord.h" />
     <ClInclude Include="..\Overlay\RecordGates.h" />
+    <ClInclude Include="..\Overlay\RegistryImport.h" />
     <ClInclude Include="..\Overlay\LocalPoseContinuity.h" />
     <ClInclude Include="..\Overlay\RingPoseMath.h" />
     <ClInclude Include="..\Overlay\RingSampleGate.h" />
