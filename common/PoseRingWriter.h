@@ -471,13 +471,18 @@ namespace protocol
 				// Publish dequeue advancement and its complete positional loss as
 				// one seqlock generation. The failed-drop marker belongs before this
 				// discarded sample and would otherwise disappear with its slot.
+				// Both payload writes are releases: a reader whose acquire load
+				// sees either one then sees the odd count before it, so its second
+				// load of the sequence cannot match the first. Relaxed writes would
+				// let it pair the new position with the old loss and accept that
+				// (x64 orders them anyway; the C++ memory model does not).
 				ring->discardSequence.fetch_add(1, std::memory_order_acq_rel);
 				if (ring->dequeuePos.compare_exchange_weak(pos, pos + 1,
-					std::memory_order_relaxed, std::memory_order_relaxed))
+					std::memory_order_release, std::memory_order_relaxed))
 				{
 					uint64_t positionalLoss = 1 + slot.failedDropsBefore;
 					ring->discardedLossCount.fetch_add(positionalLoss,
-						std::memory_order_relaxed);
+						std::memory_order_release);
 					slot.seq.store(pos + PoseRing::Capacity, std::memory_order_release);
 					ring->discardSequence.fetch_add(1, std::memory_order_release);
 					return true;
