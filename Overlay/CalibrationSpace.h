@@ -12,6 +12,8 @@ namespace protocol { struct DevicePoseSample; }
 namespace questcal
 {
 
+struct WorldFromDriver;
+
 void StartCalibrationSpace(PoseStreamHub &poseHub, double qpcToSeconds);
 void StopCalibrationSpace();
 
@@ -40,5 +42,10 @@ bool ApplyCalibrationDelta(CalibrationContext &ctx,
 // calibration and disarms a room snapshot that no longer belongs to it.
 void RebindCalibrationUniverse(CalibrationContext &ctx,
 	const std::string &hmdSerial, bool priorUniverseUnsafe);
+
+// The profile-universe verdict found the profile's WFD change followed: the
+// profile and the protected chaperone take on `adopted` as their WFD, saved
+// at once.
+void AdoptProfileUniverse(CalibrationContext &ctx, const WorldFromDriver &adopted, double now);
 
 } // namespace questcal

@@ -629,14 +629,7 @@ bool ApplyCalibrationDelta(CalibrationContext &ctx,
 	return true;
 }
 
-} // namespace questcal
-
-namespace
-{
-
-// The verdict found the profile's WFD change followed: take it on.
-void AdoptProfileUniverse(CalibrationContext &ctx, const questcal::WorldFromDriver &adopted,
-	double now)
+void AdoptProfileUniverse(CalibrationContext &ctx, const WorldFromDriver &adopted, double now)
 {
 	ctx.profileWorldFromDriverRotation = adopted.rotation;
 	ctx.profileWorldFromDriverTranslation = adopted.translation;
@@ -650,7 +643,17 @@ void AdoptProfileUniverse(CalibrationContext &ctx, const questcal::WorldFromDriv
 		ctx.chaperone.baselineVerifiedThisSession = true;
 		ctx.persistence.MarkSettings(now);
 	}
+	// Saved at once, not after the quiet period. A session starts with no WFD
+	// transitions to follow, so the next start can tell this followed change
+	// from a missed one only by the WFD saved here. Lost to a crash, it would
+	// make that start turn off a calibration that still fits.
+	SavePendingChanges(ctx);
 }
+
+} // namespace questcal
+
+namespace
+{
 
 bool ApplyUniverseDelta(CalibrationContext &ctx,
 	const JumpDetector::UniverseDelta &delta, double now)
@@ -772,7 +775,7 @@ void ProfileUniverseTick(CalibrationContext &ctx, double now)
 		{ Space.hmd.rotation, Space.hmd.translation },
 		[](int64_t sample) { return Space.jumps->HasLiveHeadsetCandidate(sample); });
 	if (decision.adopt)
-		AdoptProfileUniverse(ctx, decision.adopted, now);
+		questcal::AdoptProfileUniverse(ctx, decision.adopted, now);
 	if (!decision.latch)
 	{
 		if (Space.VerdictPending())

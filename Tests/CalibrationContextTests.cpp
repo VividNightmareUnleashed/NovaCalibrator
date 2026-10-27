@@ -1,9 +1,11 @@
 #include "../Overlay/Calibration.h"
 #include "../Overlay/CalibrationDriver.h"
+#include "../Overlay/CalibrationSpace.h"
 #include "../Overlay/DriverWorker.h"
 #include "../Overlay/Diagnostics.h"
 #include "../Overlay/DiagnosticsPolicy.h"
 #include "../Overlay/SessionLogTrim.h"
+#include "../Overlay/UniverseVerdict.h"
 
 #include <windows.h>
 
@@ -542,4 +544,29 @@ bool CalibrationEditOrClearOnlyIdleScenario()
 	}
 	ctx.state = CalibrationState::None;
 	return allowed && ctx.CanEditOrClear();
+}
+
+// OverlayStubs.cpp's stand-in counts its calls.
+extern int SavePendingChangesCalls;
+
+// A session starts with no WFD transitions to follow, so the next start tells
+// a change that was followed from one that was missed only by the WFD saved
+// with the profile. An adoption that waited for the debounced save would be
+// lost to a crash or a SteamVR kill in the seconds after it, and the next start
+// would turn off a calibration that still fits: it is saved at once.
+bool AdoptionSavedAtOnceScenario()
+{
+	CalibrationContext ctx;
+	ctx.validProfile = true;
+	ctx.chaperone.valid = true;
+	questcal::WorldFromDriver adopted;
+	adopted.rotation = Eigen::Quaterniond(Eigen::AngleAxisd(0.3, Eigen::Vector3d::UnitY()));
+	adopted.translation = Eigen::Vector3d(0.4, 0.0, -0.2);
+	const int before = SavePendingChangesCalls;
+	questcal::AdoptProfileUniverse(ctx, adopted, 12.0);
+	return SavePendingChangesCalls == before + 1 && ctx.profileUniverseValid &&
+		ctx.profileWorldFromDriverTranslation.isApprox(adopted.translation) &&
+		ctx.chaperone.worldFromDriverValid &&
+		ctx.chaperone.worldFromDriverTranslation.isApprox(adopted.translation) &&
+		ctx.persistence.profileDirty && ctx.persistence.settingsDirty;
 }

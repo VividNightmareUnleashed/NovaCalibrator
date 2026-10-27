@@ -82,6 +82,7 @@ bool ContinuousWindowDiagnosticsScenario();
 bool ContinuousPairingDiagnosticsScenario();
 bool HookMaskFromSynchronizedVerdictsScenario();
 bool CalibrationEditOrClearOnlyIdleScenario();
+bool AdoptionSavedAtOnceScenario();
 void RunReviewRegressionScenarios(void (*check)(const char *, bool, const char *));
 void RunTrackerFrameCorrectionScenarios(void (*check)(const char *, bool, const char *));
 void RunHookInjectorScenarios(void (*check)(const char *, bool, const char *));
@@ -1495,6 +1496,8 @@ void RunPoseSampleScenarios()
 		"a run's neutralization hold is released only by the run's own end");
 	Check("driver sync: the hook mask comes from a synchronized verdict", HookMaskFromSynchronizedVerdictsScenario(),
 		"an unsynchronized verdict's handshake may belong to another driver instance, or none");
+	Check("universe: a followed headset change is saved at once", AdoptionSavedAtOnceScenario(),
+		"a crash before a debounced save would leave the next start a profile WFD behind a calibration that fits");
 	Check("diagnostics: names are anonymised as whole words", DiagnosticsAnonymisationScenario(),
 		"a short account or computer name never rewrites the words it occurs in");
 	Check("diagnostics: empty device slots are listed as ranges", DiagnosticsSlotRangesScenario(),

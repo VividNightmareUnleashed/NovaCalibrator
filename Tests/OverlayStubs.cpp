@@ -37,7 +37,10 @@ bool SaveSettings(CalibrationContext &)
 	return true;
 }
 
+int SavePendingChangesCalls = 0;
+
 bool SavePendingChanges(CalibrationContext &)
 {
+	++SavePendingChangesCalls;
 	return true;
 }
