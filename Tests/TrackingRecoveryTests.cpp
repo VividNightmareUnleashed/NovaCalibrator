@@ -119,6 +119,63 @@ int ReplaySolo(int frames, const std::function<double(int)> &shift,
 	return count;
 }
 
+// The headset step applied alone at 22:34:13 on 2026-10-24, as the detailed
+// log printed the samples around it (ms from the step, x y z m, yaw deg).
+// Its frame came 43.9 ms after the one before, in a stream near 76 Hz, inside
+// a Virtual Desktop hand-off stall; the recalibration 26 s later moved the
+// base stations 18.1 cm, about the 15.5 cm this step had moved them.
+struct LoggedSample
+{
+	double ms, x, y, z, yawDeg;
+};
+const LoggedSample LateFrameStep[] = {
+	{ -174.9, -0.4142, 1.6880, 0.7100, 11.536 }, { -92.8, -0.4145, 1.6867, 0.7111, 13.191 },
+	{ -77.3, -0.4142, 1.6863, 0.7153, 13.795 }, { -66.1, -0.4150, 1.6866, 0.7167, 13.889 },
+	{ -55.0, -0.4160, 1.6866, 0.7177, 13.925 }, { -43.9, -0.4180, 1.6866, 0.7185, 13.877 },
+	{ 0.0, -0.4626, 1.6921, 0.7234, 11.439 }, { 47.5, -0.4837, 1.6963, 0.7212, 10.375 },
+	{ 69.7, -0.4872, 1.6965, 0.7207, 10.210 }, { 91.9, -0.4903, 1.6975, 0.7203, 10.033 },
+	{ 142.8, -0.4997, 1.6988, 0.7187, 9.579 }, { 165.1, -0.5028, 1.6997, 0.7179, 9.485 },
+	{ 187.8, -0.5063, 1.7003, 0.7168, 9.406 },
+};
+
+// Replays LateFrameStep after 70 s of steady 13 ms frames at its first pose,
+// ending before the 0.2 s pre-window so the fit sees only logged samples,
+// then carries the last logged motion on until the post-step window closes.
+// Returns the deltas applied; notes are drained into `log`.
+int ReplayLoggedLateStep(std::vector<std::string> &log)
+{
+	JumpDetector detector(QpcSeconds);
+	const double step = 72.0;
+	int count = 0;
+	auto push = [&](double time, double x, double y, double z, double yawDeg)
+	{
+		auto s = Sample(0, time, x);
+		s.position[1] = y;
+		s.position[2] = z;
+		const double yaw = yawDeg * questcal::Pi / 180.0;
+		s.rotation = { std::cos(yaw / 2), 0, std::sin(yaw / 2), 0 };
+		detector.Push(s);
+		JumpDetector::UniverseDelta delta;
+		while (detector.PollDelta(delta))
+			++count;
+		std::string note;
+		while (detector.PollNote(note))
+			log.push_back(note);
+	};
+	const LoggedSample &first = LateFrameStep[0];
+	for (double t = 1.0; t < step - 0.205; t += 0.013)
+		push(t, first.x + 1e-5 * std::sin(t * 700.0), first.y, first.z, first.yawDeg + 0.2 * std::sin(t));
+	for (const auto &l : LateFrameStep)
+		push(step + l.ms / 1000.0, l.x, l.y, l.z, l.yawDeg);
+	const size_t n = sizeof LateFrameStep / sizeof LateFrameStep[0];
+	const LoggedSample &a = LateFrameStep[n - 2], &b = LateFrameStep[n - 1];
+	const double span = (b.ms - a.ms) / 1000.0;
+	for (double after = 0.022; after < 0.4; after += 0.022)
+		push(step + b.ms / 1000.0 + after, b.x + (b.x - a.x) / span * after, b.y + (b.y - a.y) / span * after,
+			b.z + (b.z - a.z) / span * after, b.yawDeg + (b.yawDeg - a.yawDeg) / span * after);
+	return count;
+}
+
 // The last line containing `text`, or "" when none does.
 std::string LastWith(const std::vector<std::string> &lines, const char *text)
 {
@@ -440,6 +497,25 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 			!ringpose::MonitorGapTolerable(ringpose::MaxToleratedMonitorGap + 1, false) &&
 			!ringpose::MonitorGapTolerable(1, true),
 			"a larger hole or a session boundary resets them");
+
+		// The stream itself can stall without a driver queue drop: Virtual
+		// Desktop's frame hand-off stalls deliver the headset's next pose late.
+		// A step on such a frame straddles the stall and is never applied alone.
+		log.clear();
+		count = ReplaySolo(9200, lateStep, none, false, 8999, 9000, &log);
+		check("late frame: 8 cm step on a frame that came late is not applied alone",
+			count == 0 && Has(log, "its frame came late (20.0 ms, usually 10.0 ms)"),
+			"one frame missing right before the step, no driver drop reported");
+		count = ReplaySolo(9200, lateStep, none, false, 8000, 8001);
+		check("late frame: a late frame a second before the step changes nothing", count == 1,
+			"only the frame carrying the step is judged");
+
+		log.clear();
+		count = ReplayLoggedLateStep(log);
+		check("late frame: the step of 2026-10-24 22:34:13 replays as logged",
+			Has(log, "yaw -3.94 deg, shift 0.034 m, device moved 0.053 m"), LastWith(log, "pose discontinuity").c_str());
+		check("late frame: and is no longer applied alone",
+			count == 0 && Has(log, "its frame came late (43.9 ms"), LastWith(log, "pose discontinuity").c_str());
 	}
 	// A held headset step has both fit windows behind it, so a hole during the
 	// wait for the controller says nothing about it; an invalid headset frame

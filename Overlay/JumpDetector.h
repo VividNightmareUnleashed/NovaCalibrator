@@ -84,6 +84,11 @@ public:
 		// reconnect re-zeroing all fall inside the first minute) and the
 		// pre-window shows no held position: the 3DoF fallback holds position
 		// bit for bit, which 6DoF never did (0 of 4,331 frames, 2026-09-11).
+		// Nor when the frame carrying the step came late (holeIntervalFactor
+		// times the usual interval): a stalled stream, whose fit straddles the
+		// stall. Live 2026-10-24, Virtual Desktop: a -3.94 deg step on a 43.9 ms
+		// frame of a ~13 ms stream, inside a compositor hand-off stall, was
+		// applied alone and undone by the recalibration 26 s later.
 		double soloSettledPos = 0.05;
 		double soloSettledYawRad = 2.0 * 3.14159265358979 / 180.0;
 		double soloSettledSeconds = 60.0;
@@ -256,6 +261,9 @@ private:
 		// the candidate. Against the fitted step it shows whether the pose
 		// overshot within a frame and settled back.
 		double frameJumpPos = 0.0, frameJumpYawRad = 0.0;
+		// The interval between those two frames, and the device's usual one
+		// before it (0 while unknown): a late frame is a stalled stream.
+		double frameInterval = 0.0, usualInterval = 0.0;
 		bool needsCorroboration = false;
 		bool held = false;   // HMD heuristic: past agreeWindow, awaiting a controller follow-up
 		// HMD heuristic: when the follow-up wait ends, pushed out while the
@@ -325,7 +333,8 @@ private:
 
 	void DetectWfdRebase(uint32_t id, DeviceState &dev, double t, int64_t sample,
 	                     const Eigen::Quaterniond &newRot, const Eigen::Vector3d &newTrans);
-	void DetectDiscontinuity(uint32_t id, DeviceState &dev, const Hist &incoming);
+	// `usualInterval` is the device's usual interval before `incoming` arrived.
+	void DetectDiscontinuity(uint32_t id, DeviceState &dev, const Hist &incoming, double usualInterval);
 	void EvaluatePendingCandidates();
 	void TryAccept();
 	int ActiveDeviceCount(double now) const;

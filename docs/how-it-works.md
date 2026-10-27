@@ -237,8 +237,12 @@ so the headset's small tracking corrections used to be detected and then
 discarded, and the alignment drifted by their sum. A clean headset step of at
 least 5 cm or 2 degrees is now applied on its own once the headset's stream
 has been continuous for a minute (a wake or a stream restart re-zeroes inside
-that minute) and its position was not being held before the step (the
-headset's 3DoF fallback). A step of any size that follows a held position is
+that minute), its position was not being held before the step (the
+headset's 3DoF fallback), and the frame carrying the step did not come late.
+A late frame is a stalled stream: on 2026-10-24 a 3.9 degree step on a frame
+that came 44 ms after the one before, in a stream running near 76 Hz and
+inside a Virtual Desktop hand-off stall, was applied, and the recalibration
+26 s later took it back out. A step of any size that follows a held position is
 never applied on its own: it is the headset catching up onto resumed
 tracking, not a change of frame. Steps that are still discarded are totalled
 in the log, so a session's ignored corrections can be compared with what the

@@ -146,6 +146,7 @@ void JumpDetector::Push(const protocol::DevicePoseSample &s)
 					Drop(candidate, "a driver queue drop inside its fit windows");
 		}
 	}
+	const double usualBefore = dev.usualInterval;
 	if (dev.lastValidTime >= 0.0 && t - dev.lastValidTime < config.maxFrameGap)
 	{
 		const double interval = t - dev.lastValidTime;
@@ -233,7 +234,7 @@ void JumpDetector::Push(const protocol::DevicePoseSample &s)
 	}
 	else if (!dev.hist.empty())
 	{
-		DetectDiscontinuity(s.deviceId, dev, h);
+		DetectDiscontinuity(s.deviceId, dev, h, usualBefore);
 	}
 
 	if (!dev.hist.empty() && dev.hist.back().pos == h.pos)
@@ -292,7 +293,8 @@ void JumpDetector::DetectWfdRebase(uint32_t id, DeviceState &dev, double t, int6
 		id, yaw * 180.0 / questcal::Pi, dTrans.norm(), tilt * 180.0 / questcal::Pi));
 }
 
-void JumpDetector::DetectDiscontinuity(uint32_t id, DeviceState &dev, const Hist &incoming)
+void JumpDetector::DetectDiscontinuity(uint32_t id, DeviceState &dev, const Hist &incoming,
+                                       double usualInterval)
 {
 	const Hist &prev = dev.hist.back();
 	double dt = incoming.t - prev.t;   // > 0: Push rejects out-of-order samples
@@ -324,6 +326,8 @@ void JumpDetector::DetectDiscontinuity(uint32_t id, DeviceState &dev, const Hist
 	c.life = Life::Pending;
 	c.frameJumpPos = posErr;
 	c.frameJumpYawRad = yawErr;
+	c.frameInterval = dt;
+	c.usualInterval = usualInterval;
 	c.needsCorroboration = posErr < config.discontinuityPos && yawErr < config.discontinuityYawRad;
 	c.followDeadline = c.t + config.window + config.controllerFollowSeconds;
 	c.lastHoldCheck = c.t;
@@ -463,7 +467,11 @@ void JumpDetector::EvaluatePendingCandidates()
 			bool aboveFloor = c.trans.norm() > config.soloSettledPos ||
 				std::abs(dYaw) > config.soloSettledYawRad;
 			bool steady = resumeAge >= config.soloSettledSeconds;
-			c.settledSolo = aboveFloor && steady && !c.heldPosition && !c.driftCatchUp;
+			// The frame carrying the step came late: the stream stalled across
+			// it (see soloSettled* in Config).
+			const bool lateFrame = c.usualInterval > 0.0 &&
+				c.frameInterval > config.holeIntervalFactor * c.usualInterval;
+			c.settledSolo = aboveFloor && steady && !c.heldPosition && !c.driftCatchUp && !lateFrame;
 			// Past the solo floor TryAccept applies it alone, steady or not
 			// (bigSolo): the note said "not accepted alone" over a 0.72 m step
 			// it then compensated (2026-10-15).
@@ -479,6 +487,9 @@ void JumpDetector::EvaluatePendingCandidates()
 				note += "; a turn about the head (a drift catch-up), not accepted alone";
 			else if (aboveFloor && !steady && !soloSized)
 				note += Format("; stream steady under %.0f s, not accepted alone", config.soloSettledSeconds);
+			else if (aboveFloor && lateFrame && !soloSized)
+				note += Format("; its frame came late (%.1f ms, usually %.1f ms), not accepted alone",
+					c.frameInterval * 1000.0, c.usualInterval * 1000.0);
 		}
 		notes.push_back(note);
 	}
