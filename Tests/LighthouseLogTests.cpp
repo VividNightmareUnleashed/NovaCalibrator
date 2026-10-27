@@ -453,7 +453,7 @@ void VisibilityScenarios(Check check)
 		std::string lostIt = reset.Apply(e, 505.0);
 		const LighthouseVisibility::Device *d = reset.Find("LHR-9");
 		check("lighthouse state: a tracking reset counts a loss and disturbs",
-			lostIt == "lost its tracking (no optical samples for 2002ms)" && d && d->losses == 1 &&
+			lostIt == "lost its tracking (no optical samples for 2002ms)" && d->losses == 1 &&
 			d->visible.empty() && d->degraded && reset.Disturbed("LHR-9", 506.0) &&
 			reset.Settling("LHR-9", 506.0), lostIt.c_str());
 
