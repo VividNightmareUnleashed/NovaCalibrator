@@ -349,6 +349,22 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 		Replay([](int f, uint32_t id) { return f >= (id == 0 ? 150 : 3300) ? .4 : 0.; }, {0, 1}, 3600, true).count == 0,
 		"tracking controller, 31.5 s later");
 
+	// Two headset map switches 3 s apart. The first controller follows the
+	// first switch late (5.4 s); the second controller's follow-up of the
+	// first switch was lost (a fit spoilt by motion), so its next step, the
+	// second switch's, leads that switch by 0.5 s. Accepting the first switch
+	// must leave the second its confirmation: it was not evidence of the
+	// first, even though it came before the step that confirmed it.
+	r = Replay([](int f, uint32_t id)
+	{
+		if (id == 0) return (f >= 150 ? .4 : 0.) + (f >= 450 ? .25 : 0.);
+		if (id == 1) return f >= 440 ? .4 : 0.;
+		return f >= 400 ? .25 : 0.;
+	}, {0, 1, 2}, 900, true);
+	check("recovery: accepting one map switch keeps the next switch's confirmation",
+		r.count == 2 && std::abs(r.total - .65) < 1e-8 && std::abs(r.last.translation.x() - .25) < 1e-8,
+		"first switch confirmed 2.9 s late by one controller, second confirmed 0.5 s early by the other");
+
 	// A controller lying still is locked by the engine's static prior and
 	// cannot step until the hand moves. The follow-up clock pauses while every
 	// other device is locked, so the same 31.5 s step confirms, and a locked

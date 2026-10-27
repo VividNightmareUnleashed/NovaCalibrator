@@ -5,10 +5,12 @@
 #include "../common/MathConstants.h"
 
 #include <algorithm>
+#include <array>
 #include <bitset>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <limits>
 
 // vr:: constants come from whichever OpenVR header Protocol.h resolved
 // (openvr.h when it is already loaded, openvr_driver.h otherwise) — both
@@ -645,21 +647,32 @@ void JumpDetector::TryAccept()
 
 			accepted.push_back(d);
 			lastAcceptTime = c0.t;
-			// Discard this step's evidence: its headset candidates and every
-			// other device's steps up to the last confirmation it used. A later
-			// headset step still waiting for its own confirmation stays, and so
-			// does a later step of another device that may confirm it; clearing
-			// everything lost the second of two held map switches.
+			// Discard this step's evidence: its headset candidates, each
+			// confirming device's steps up to the one it confirmed with (the same
+			// event in adjacent fit windows), and another device's step that
+			// matches this one (the same event, from a device that did not vote).
+			// Every other step stays, whatever its time: it may confirm a later
+			// headset step still waiting for its own confirmation. Clearing
+			// everything lost the second of two held map switches; clearing by
+			// time lost it too when the second switch's confirmation came before
+			// the step that confirmed the first.
 			const double stepTime = c0.t;
-			double evidenceEnd = stepTime;
+			const double followDeadline = c0.followDeadline;
+			std::array<double, vr::k_unMaxTrackedDeviceCount> usedUntil;
+			usedUntil.fill(-std::numeric_limits<double>::infinity());
 			for (const auto *a : agree)
-				evidenceEnd = std::max(evidenceEnd, a->t);
+				usedUntil[a->deviceId] = std::max(usedUntil[a->deviceId], a->t);
+			const double acceptedYaw = YawOf(d.rotation);
 			candidates.erase(
 				std::remove_if(candidates.begin(), candidates.end(),
 					[&](const Candidate &c) {
 						if (c.deviceId == vr::k_unTrackedDeviceIndex_Hmd)
 							return c.kind != Kind::Heuristic || c.t <= stepTime;
-						return c.t <= evidenceEnd;
+						if (c.t <= usedUntil[c.deviceId])
+							return true;
+						return c.t - stepTime >= -config.controllerLeadSeconds && c.t <= followDeadline &&
+							(c.trans - d.translation).norm() < config.agreePosTol &&
+							std::abs(WrapAngle(YawOf(c.rot) - acceptedYaw)) < config.agreeYawTolRad;
 					}),
 				candidates.end());
 			return;
