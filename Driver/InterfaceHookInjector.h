@@ -15,6 +15,13 @@ struct PoseHostCall
 	void (*original)(void *, uint32_t, const vr::DriverPose_t &, uint32_t) = nullptr;
 };
 
+// True while a pose of `device` that the driver has handled is still on its way
+// to the host: a re-send sent now could reach the runtime ahead of it, and it
+// would then land under the calibration it was handled with. A pose is counted
+// before it takes the device's pose mutex, so a caller holding that mutex sees
+// every pose that went through it before.
+bool IsPoseInFlight(uint32_t device);
+
 // Re-sends `pose` for `device` through `call`, marked as already handled for
 // this thread: a host that forwards one interface version to another hooked one
 // passes it on untouched instead of handing it back as a new raw pose.
@@ -54,4 +61,7 @@ extern void (*BeforeDriverWaitForTest)();
 // Called inside an observation hook once it has recorded or skipped the pose,
 // before it passes the pose on.
 extern void (*InsideObserverForTest)();
+// Called inside a pose detour once the driver has handled the pose, before the
+// detour hands it to the host.
+extern void (*AfterDriverCallbackForTest)();
 #endif

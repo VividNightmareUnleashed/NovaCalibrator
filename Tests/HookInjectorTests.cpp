@@ -507,6 +507,88 @@ void ShortRotationStationScenario(Check check)
 	check(name, moved && shortfall > 1e-9 && quiet == 1 && later == 0 && released, detail);
 }
 
+ServerTrackedDeviceProvider *StalledStationProvider = nullptr;
+std::atomic<bool> StallArmed{ false };
+std::atomic<bool> StallMoved{ false };
+std::atomic<int> StallPassCalls{ -1 };
+
+// While the station's pose waits between the driver and the host, the
+// calibration moves and RunFrame's pass runs on its own thread.
+void PassWhileStationPoseStalls()
+{
+	if (!StallArmed.exchange(false))
+		return;
+	protocol::SetRuntimeState state;
+	state.enabledMask = uint64_t{ 1 } << QuietStation;
+	state.transform.translation.v[0] = 0.5;
+	state.transform.generation = 2;
+	StallMoved.store(StalledStationProvider->TrySetRuntimeState(state));
+	const int before = HostCallsByDevice[QuietStation].load();
+	std::thread pass([] {
+		StalledStationProvider->SetPoseTimeForTest(30.6);
+		StalledStationProvider->ResendQuietPosesForTest();
+	});
+	pass.join();
+	StallPassCalls.store(HostCallsByDevice[QuietStation].load() - before);
+}
+
+// A station's pose thread can stop between handing its pose to the driver and
+// handing it to the host (preempted, say) while a re-send pass runs. A re-send
+// sent then can reach the host first, and the pose it overtook lands after it
+// under the calibration it was handled with; the host must still end up with
+// the station under the calibration as it stands.
+void StalledStationPoseScenario(Check check)
+{
+	const char *name = "hooks: a station pose that reaches the host after a re-send is re-sent";
+	auto provider = std::make_unique<ServerTrackedDeviceProvider>();
+	auto *context = reinterpret_cast<vr::IVRDriverContext *>(&Context);
+	provider->SetDeviceClassForTest(QuietStation, vr::TrackedDeviceClass_TrackingReference);
+	protocol::SetRuntimeState state;
+	state.enabledMask = uint64_t{ 1 } << QuietStation;
+	state.transform.translation.v[0] = 0.2;
+	state.transform.generation = 1;
+	if (!provider->TrySetRuntimeState(state) || !InjectHooks(provider.get(), context))
+	{
+		check(name, false, "setup failed");
+		return;
+	}
+	RequestHostInterface();
+	StalledStationProvider = provider.get();
+	StallMoved.store(false);
+	StallPassCalls.store(-1);
+	StallArmed.store(true);
+	AfterDriverCallbackForTest = &PassWhileStationPoseStalls;
+	provider->SetPoseTimeForTest(30.0);
+	const double landed = SendPoseThroughHost(QuietStation, sizeof(vr::DriverPose_t), 1.5);
+	AfterDriverCallbackForTest = nullptr;
+
+	// Later passes: the station's host calls in each, and the origin the host
+	// last received for it (the station is the only device sending).
+	auto pass = [&](double time)
+	{
+		const int before = HostCallsByDevice[QuietStation].load();
+		provider->SetPoseTimeForTest(time);
+		provider->ResendQuietPosesForTest();
+		return HostCallsByDevice[QuietStation].load() - before;
+	};
+	const int next = pass(30.8);
+	const int settled = pass(31.0);
+	const double host = HostReceivedOriginX.load();
+	const bool released = DisableHooks();
+	provider->SetPoseTimeForTest(-1.0);
+	StalledStationProvider = nullptr;
+
+	char detail[160];
+	std::snprintf(detail, sizeof detail,
+		"moved %d; stalled pass %d, pose landed with origin %.2f; next %d, settled %d; "
+		"host origin %.2f; released %d",
+		StallMoved.load() ? 1 : 0, StallPassCalls.load(), landed, next, settled, host,
+		released ? 1 : 0);
+	auto equal = [](double a, double b) { return std::abs(a - b) < 1e-9; };
+	check(name, StallMoved.load() && StallPassCalls.load() >= 0 && equal(landed, 0.2) &&
+		next == 1 && settled == 0 && equal(host, 0.5) && released, detail);
+}
+
 // A target SteamVR tracks but the hook has not seen is reported once three
 // synchronizations in a row have missed it; one the hook has seen, an
 // untracked one and one that is not a target never are.
@@ -977,6 +1059,7 @@ void RunHookInjectorScenarios(Check check)
 	HookStatusScenario(check);
 	QuietBaseStationScenario(check);
 	ShortRotationStationScenario(check);
+	StalledStationPoseScenario(check);
 	HookCoverageScenario(check);
 	HookChainOwnScenario(check);
 	HookChainForeignScenario(check);

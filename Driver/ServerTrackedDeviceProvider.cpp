@@ -284,6 +284,12 @@ void ServerTrackedDeviceProvider::ResendQuietPoses()
 				!record.raw.poseIsValid || !record.raw.deviceIsConnected ||
 				(!resendOwed[id] && now - record.receivedAt < ResendQuietSeconds))
 				continue;
+			// Its own pose went through here but has not reached the runtime yet,
+			// under the calibration it was handled with. A re-send now could get
+			// there first and be overwritten by it, and would still count as
+			// sent: wait for a pass after it has landed.
+			if (IsPoseInFlight(id))
+				continue;
 
 			// As HandleDevicePoseUpdated transforms it, from the device's own
 			// newest pose; nothing goes to the pose ring.

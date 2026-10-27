@@ -16,6 +16,7 @@ void (*TryInstallAfterAcceptCheckForTest)() = nullptr;
 void (*InsideDriverCallbackForTest)() = nullptr;
 void (*BeforeDriverWaitForTest)() = nullptr;
 void (*InsideObserverForTest)() = nullptr;
+void (*AfterDriverCallbackForTest)() = nullptr;
 #endif
 
 namespace
@@ -33,6 +34,10 @@ std::atomic<uint32_t> MismatchedPoseUpdates{ 0 };
 std::atomic<uint32_t> ReentrantPoseUpdates{ 0 };
 std::atomic<uint32_t> ObservedPoseUpdates{ 0 };
 std::atomic<uint32_t> UnobservedPoseUpdates{ 0 };
+// Per device, poses a pose detour has handed the driver and not yet the host:
+// counted from before HandleDevicePoseUpdated records one as sent until the
+// host's original returns (IsPoseInFlight).
+std::atomic<uint32_t> PosesInFlight[vr::k_unMaxTrackedDeviceCount] = {};
 // What RefreshPoseHookOrder found, protected by StatusMutex.
 std::mutex StatusMutex;
 uint32_t OrderChecks = 0;
@@ -174,6 +179,15 @@ void ForwardPoseUpdate(PoseUpdateHook &hook, const ObserverHook &observer, void 
 		UnobservedPoseUpdates.fetch_add(1, std::memory_order_relaxed);
 
 	auto pose = newPose;
+	struct InFlight
+	{
+		std::atomic<uint32_t> *count = nullptr;
+		~InFlight()
+		{
+			if (count)
+				count->fetch_sub(1, std::memory_order_release);
+		}
+	} inFlight;
 	{
 		// Counted from before Driver is read until the driver is done. The count
 		// and this load are sequentially consistent with DisableHooks' store, so
@@ -185,10 +199,21 @@ void ForwardPoseUpdate(PoseUpdateHook &hook, const ObserverHook &observer, void 
 			if (InsideDriverCallbackForTest)
 				InsideDriverCallbackForTest();
 #endif
+			// Before the driver takes the device's pose mutex, so a re-send pass
+			// that takes it after sees this pose until the host has it.
+			if (unWhichDevice < vr::k_unMaxTrackedDeviceCount)
+			{
+				inFlight.count = &PosesInFlight[unWhichDevice];
+				inFlight.count->fetch_add(1, std::memory_order_relaxed);
+			}
 			driver->HandleDevicePoseUpdated(unWhichDevice, pose, PoseHostCall{ _this, original },
 				publish);
 		}
 	}
+#ifdef QUESTCAL_HOOK_INJECTOR_TEST_SEAM
+	if (AfterDriverCallbackForTest)
+		AfterDriverCallbackForTest();
+#endif
 	if (original)
 		original(_this, unWhichDevice, pose, unPoseStructSize);
 }
@@ -414,6 +439,12 @@ void *DetourGetGenericInterface(vr::IVRDriverContext *_this,
 }
 
 } // namespace
+
+bool IsPoseInFlight(uint32_t device)
+{
+	return device < vr::k_unMaxTrackedDeviceCount &&
+		PosesInFlight[device].load(std::memory_order_acquire) != 0;
+}
 
 void ResendPose(const PoseHostCall &call, uint32_t device, const vr::DriverPose_t &pose)
 {
