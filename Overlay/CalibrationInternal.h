@@ -77,7 +77,7 @@ extern std::unique_ptr<questcal::ContinuousAlignment> Continuous;
 extern int ContinuousConsumer;
 extern std::vector<protocol::DevicePoseSample> ContinuousPending;
 extern int64_t FrameObservedThrough[vr::k_unMaxTrackedDeviceCount];
-// A failure capture a notable frame move asked for (detailed logging only).
+// A snapshot a notable frame move asked for (detailed logging only).
 extern bool FrameCapturePending;
 extern double FrameCaptureDue;
 extern double LastFrameCapture;

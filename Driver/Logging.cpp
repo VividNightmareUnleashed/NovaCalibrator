@@ -35,7 +35,7 @@ static std::string LogFilePath()
 	return dir.substr(0, slash + 1) + "nova_calibrator_driver.log";
 }
 
-// A log past this size is set aside as quest_calibrator_driver.old.log when
+// A log past this size is set aside as nova_calibrator_driver.old.log when
 // the driver next loads, replacing the previous one, so the two stay bounded.
 static constexpr unsigned long long MaxLogBytes = 4ull * 1024 * 1024;
 

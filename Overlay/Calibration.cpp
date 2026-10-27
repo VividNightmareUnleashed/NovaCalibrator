@@ -609,7 +609,7 @@ void CalibrationTick(double time)
 	{
 		FrameCapturePending = false;
 		LastFrameCapture = time;
-		ctx.Diag(DescribeFrameFailureCapture(ctx, vr::VRSystem(), CaptureCalibrationDiagnostics(), QpcToSeconds));
+		ctx.Diag(DescribeFrameMoveSnapshot(ctx, vr::VRSystem(), CaptureCalibrationDiagnostics(), QpcToSeconds));
 	}
 	static double lastInputDiagTime = -1e9;
 	if (ctx.detailedLogging && ctx.continuousEnabled && time - lastInputDiagTime >= 10.0)

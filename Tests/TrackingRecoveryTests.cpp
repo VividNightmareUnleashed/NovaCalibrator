@@ -516,6 +516,17 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 			Has(log, "yaw -3.94 deg, shift 0.034 m, device moved 0.053 m"), LastWith(log, "pose discontinuity").c_str());
 		check("late frame: and is no longer applied alone",
 			count == 0 && Has(log, "its frame came late (43.9 ms"), LastWith(log, "pose discontinuity").c_str());
+
+		// A step whose heading barely moved is no turn about the head: it is a
+		// small displacement and joins the ignored total. A one-frame 2.2 deg
+		// spike raises the candidate; the fit then finds 8 mm and 0.08 deg.
+		log.clear();
+		count = ReplaySolo(1800, [](int f) { return f >= 500 ? .008 : 0.; },
+			[](int f) { return f == 500 ? 2.2 * questcal::Pi / 180.0 : f > 500 ? -.08 * questcal::Pi / 180.0 : 0.; },
+			false, -1, -1, &log);
+		check("headset-only: a step that barely turned is totalled, not called a drift catch-up",
+			count == 0 && !Has(log, "a turn about the head") && Has(log, "1 ignored this session"),
+			LastWith(log, "pose discontinuity").c_str());
 	}
 	// A held headset step has both fit windows behind it, so a hole during the
 	// wait for the controller says nothing about it; an invalid headset frame

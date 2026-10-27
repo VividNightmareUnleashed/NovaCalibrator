@@ -356,11 +356,11 @@ void DescribeRuntimePoses(std::ostream &out, const CalibrationContext &ctx, vr::
 
 } // namespace
 
-std::string DescribeFrameFailureCapture(const CalibrationContext &ctx, vr::IVRSystem *system,
+std::string DescribeFrameMoveSnapshot(const CalibrationContext &ctx, vr::IVRSystem *system,
 	const DiagnosticCapture &capture, double qpcToSeconds)
 {
 	std::ostringstream out;
-	out << std::setprecision(10) << "frame failure capture at QPC seconds " << capture.sampleClock
+	out << std::setprecision(10) << "frame move snapshot at QPC seconds " << capture.sampleClock
 		<< ", driver session " << ctx.frameDriverSession << ", calibration state "
 		<< EnumName(ctx.state, CalibrationStateNames)
 		<< "\nRaw and runtime samples have different capture/prediction times; they are not an exact pose pair.\n";

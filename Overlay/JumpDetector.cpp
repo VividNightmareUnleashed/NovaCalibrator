@@ -460,7 +460,12 @@ void JumpDetector::EvaluatePendingCandidates()
 			const bool thresholdSized =
 				std::abs(c.trans.norm() - config.driftCatchUpPos) <= config.driftCatchUpPosBand ||
 				std::abs(std::abs(dYaw) - config.driftCatchUpYawRad) <= config.driftCatchUpYawBandRad;
+			// A heading that moved less than the fit can resolve did not turn:
+			// that step is a small displacement, ignored and totalled like any
+			// other (live 2026-10-24: a -0.08 deg, 8 mm step was called a turn
+			// about the head and left out of the ignored total).
 			const bool turnAboutHead =
+				std::abs(dYaw) >= config.fitYawRmsRad &&
 				std::abs(dYaw) <= config.driftCatchUpYawRad + config.driftCatchUpYawBandRad &&
 				moved <= config.driftCatchUpHeadShift;
 			c.driftCatchUp = (thresholdSized || turnAboutHead) && !driftFollowed;

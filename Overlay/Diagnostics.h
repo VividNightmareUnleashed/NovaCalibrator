@@ -38,7 +38,7 @@ struct DiagnosticCapture
 // queryRuntime false leaves out what only SteamVR can answer (its world scale
 // setting), for a SteamVR that is gone.
 DiagnosticCapture CaptureCalibrationDiagnostics(bool queryRuntime = true);
-std::string DescribeFrameFailureCapture(const CalibrationContext &ctx, vr::IVRSystem *system,
+std::string DescribeFrameMoveSnapshot(const CalibrationContext &ctx, vr::IVRSystem *system,
 	const DiagnosticCapture &capture, double qpcToSeconds);
 
 // Why a file is written. Every kind but a request ends its file name in its
