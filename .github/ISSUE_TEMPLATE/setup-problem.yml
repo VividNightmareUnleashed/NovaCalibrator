@@ -1,0 +1,117 @@
+# tools/ci/issue-logs.py reads the "Where is the problem?" answer to decide
+# which files the report must have; keep its options and AREA_NEEDS together.
+name: Setup or program problem
+description: The installer, updates, the Nova Calibrator window or settings, or Nova Calibrator does not start.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The files that this report must have depend on the location of the problem. Each box below tells you which file to attach.
+        Attach each file as it is. Do not put the files in a .zip file.
+        A report without the necessary files gets the "needs logs" label until you attach them.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where is the problem?
+      options:
+        - The installer or the uninstaller
+        - Nova Calibrator does not start
+        - SteamVR shows an error or does not load the Nova Calibrator driver
+        - Updates
+        - The Nova Calibrator window, its settings or its text
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is the problem?
+      description: Tell us what you saw and what you did before the problem occurred.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: headset
+    attributes:
+      label: Headset
+      description: If you select "Other", write its name in "Name of the other headset".
+      options:
+        - Quest 2
+        - Quest 3
+        - Quest 3S
+        - Quest Pro
+        - Steam Frame
+        - Samsung Galaxy XR
+        - Other
+    validations:
+      required: false
+
+  - type: input
+    id: other-headset
+    attributes:
+      label: Name of the other headset
+      description: Necessary if you selected "Other" in "Headset".
+    validations:
+      required: false
+
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Connection to the PC
+      description: If you select "Other", write its name in "Name of the other connection".
+      options:
+        - Virtual Desktop
+        - Steam Link
+        - Air Link
+        - Quest Link (cable)
+        - ALVR
+        - Other
+    validations:
+      required: false
+
+  - type: input
+    id: other-connection
+    attributes:
+      label: Name of the other connection
+      description: Necessary if you selected "Other" in "Connection to the PC".
+    validations:
+      required: false
+
+  - type: textarea
+    id: window-text
+    attributes:
+      label: Text in the installer window or the error message
+      description: |
+        Necessary for "The installer or the uninstaller" and for "Nova Calibrator does not start".
+        The installer does not write a log file. Copy all of the text in its window into this box, or attach a screenshot.
+        If Windows or Nova Calibrator showed an error message, copy its text into this box.
+    validations:
+      required: false
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Nova Calibrator diagnostics file
+      description: |
+        Necessary for all problems except "The installer or the uninstaller" and "Nova Calibrator does not start". Attach one for these problems too, if you have one.
+        In Nova Calibrator, open "Settings" and select "Save diagnostics file". Explorer then shows the file.
+        If Nova Calibrator does not open, attach the newest file in `%LOCALAPPDATA%\NovaCalibrator\diagnostics`.
+        The diagnostics file does not include your name or folder paths.
+      placeholder: Drag the NovaCalibrator-diagnostics file into this box.
+    validations:
+      required: false
+
+  - type: textarea
+    id: vrserver
+    attributes:
+      label: SteamVR server log (vrserver.txt)
+      description: |
+        Necessary for "SteamVR shows an error or does not load the Nova Calibrator driver".
+        The file is in the "logs" folder of Steam, usually `C:\Program Files (x86)\Steam\logs\vrserver.txt`.
+        Attach the file before you start SteamVR again.
+      placeholder: Drag vrserver.txt into this box.
+    validations:
+      required: false

@@ -133,10 +133,12 @@ quickest way to find a badly placed station.
 
 ## Something wrong?
 
-[Open an issue](https://github.com/VividNightmareUnleashed/NovaCalibrator/issues)
-and attach both log files from `%LOCALAPPDATA%\NovaCalibrator\`: `NovaCalibrator.log`
-and `NovaCalibrator.prev.log`. They record every calibration and correction, with the
-numbers behind it. (QuestCalibrator's logs stay in `%LOCALAPPDATA%\QuestCalibrator\`.)
+[Open an issue](https://github.com/VividNightmareUnleashed/NovaCalibrator/issues/new/choose)
+with the form that fits. A tracking or calibration problem needs SteamVR's
+`vrserver.txt` (in Steam's `logs` folder) and a diagnostics file, which holds both
+session logs. A setup problem needs what its form asks for: the installer's window
+text, or a diagnostics file. A report without them is labelled "needs logs" until it
+has them. (QuestCalibrator's logs stay in `%LOCALAPPDATA%\QuestCalibrator\`.)
 
 If the alignment goes wrong during play, turn on **Detailed calibration logging** in
 Settings. Then press **Save diagnostics file** once while things look right, and again

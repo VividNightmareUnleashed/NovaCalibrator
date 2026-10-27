@@ -1,0 +1,38 @@
+# The "Text on the screen now" heading tells tools/ci/issue-logs.py that a
+# report needs no logs; change both together.
+name: Translation correction
+description: Tell us about text that is not correct in Japanese or Italian.
+labels: ["translation"]
+body:
+  - type: dropdown
+    id: language
+    attributes:
+      label: Language
+      options:
+        - Japanese
+        - Italian
+    validations:
+      required: true
+
+  - type: input
+    id: screen
+    attributes:
+      label: Screen
+      description: The page or message that shows the text, for example "Settings".
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Text on the screen now
+      description: Copy the text as it shows, or attach a screenshot.
+    validations:
+      required: true
+
+  - type: textarea
+    id: correct
+    attributes:
+      label: Correct text
+    validations:
+      required: true

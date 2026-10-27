@@ -1,0 +1,144 @@
+# tools/ci/issue-logs.py checks this form's uploads; a report with no "Where is
+# the problem?" heading is held to this form's rules.
+name: Tracking or calibration problem
+description: Devices are in the wrong position, or a calibration or correction fails. The report must have vrserver.txt and a diagnostics file.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This report must have two files: the SteamVR server log ("vrserver.txt") and a Nova Calibrator diagnostics file.
+        Drag each file into its box below.
+        Attach each file as it is. Do not put the files in a .zip file and do not paste their text.
+        A report without the two files gets the "needs logs" label until you attach them.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is the problem?
+      description: |
+        Tell us what you saw and when it occurred.
+        Tell us if the problem shows in SteamVR or only in the game.
+        Tell us which devices are in the wrong position.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: What did you do before the problem occurred?
+      placeholder: |
+        1. I started SteamVR.
+        2. I calibrated.
+        3. ...
+    validations:
+      required: false
+
+  - type: dropdown
+    id: headset
+    attributes:
+      label: Headset
+      description: If you select "Other", write its name in "Name of the other headset".
+      options:
+        - Quest 2
+        - Quest 3
+        - Quest 3S
+        - Quest Pro
+        - Steam Frame
+        - Samsung Galaxy XR
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: other-headset
+    attributes:
+      label: Name of the other headset
+      description: Necessary if you selected "Other" in "Headset".
+    validations:
+      required: false
+
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Connection to the PC
+      description: If you select "Other", write its name in "Name of the other connection".
+      options:
+        - Virtual Desktop
+        - Steam Link
+        - Air Link
+        - Quest Link (cable)
+        - ALVR
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: other-connection
+    attributes:
+      label: Name of the other connection
+      description: Necessary if you selected "Other" in "Connection to the PC".
+    validations:
+      required: false
+
+  - type: textarea
+    id: headset-tracker
+    attributes:
+      label: Tracker on the headset
+      description: Write the type of tracker and how it is attached to the headset.
+      placeholder: Vive Tracker 3.0, attached to the top strap with a 3D-printed mount.
+    validations:
+      required: true
+
+  - type: textarea
+    id: other-devices
+    attributes:
+      label: Other devices
+      description: Write the body trackers and the controllers that you use.
+      placeholder: Three Tundra Trackers and two Valve Index controllers.
+    validations:
+      required: true
+
+  - type: textarea
+    id: base-stations
+    attributes:
+      label: Base stations
+      description: Write the number of base stations and their version (1.0 or 2.0).
+      placeholder: Four base stations 2.0.
+    validations:
+      required: true
+
+  - type: textarea
+    id: vrserver
+    attributes:
+      label: SteamVR server log (vrserver.txt)
+      description: |
+        The file is in the "logs" folder of Steam, usually `C:\Program Files (x86)\Steam\logs\vrserver.txt`.
+        Attach the file before you start SteamVR again.
+        If SteamVR started again after the problem, also attach "vrserver.previous.txt" from the same folder.
+      placeholder: Drag vrserver.txt into this box.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Nova Calibrator diagnostics file
+      description: |
+        In Nova Calibrator, open "Settings" and select "Save diagnostics file". Explorer then shows the file.
+        If Nova Calibrator does not open, attach the newest file in `%LOCALAPPDATA%\NovaCalibrator\diagnostics`.
+        Nova Calibrator writes a file there when SteamVR stops and when Nova Calibrator closes.
+        If the alignment goes wrong during play, turn on "Detailed calibration logging" in "Settings".
+        Then save one file when the alignment is correct and one file after the problem occurs.
+        The diagnostics file does not include your name or folder paths.
+      placeholder: Drag the NovaCalibrator-diagnostics file into this box.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: attached
+    attributes:
+      label: Files
+      options:
+        - label: I attached vrserver.txt and a diagnostics file, each as it is, not in a .zip file.
+          required: true

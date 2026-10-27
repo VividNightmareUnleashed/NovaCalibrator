@@ -1,0 +1,36 @@
+name: Issue logs
+
+# Every problem report must carry the files its form asks for: vrserver.txt and
+# a diagnostics file for tracking, and for setup what the problem's area needs.
+# A form cannot tell an upload from typed text, nor make a field required for
+# one answer only, and the API can still open an issue without a form.
+# tools/ci/issue-logs.py checks the uploads by name and labels and comments on
+# a report that lacks one until it has them all. Issue events run this file and
+# the script as they are on the default branch.
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: issue-logs-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out the script
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: tools/ci
+          persist-credentials: false
+
+      - name: Check the attachments
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 -I tools/ci/issue-logs.py
