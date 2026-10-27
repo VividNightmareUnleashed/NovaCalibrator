@@ -88,7 +88,7 @@ first.
 - Start from a clean `alpha` checkout and fetch both `origin` and `upstream`.
 - Review `git status`, `git log upstream/master..HEAD`, and
   `git rev-list --left-right --count upstream/master...HEAD`. Record the upstream
-  base commit in the release notes.
+  base commit in the tag message.
 - Set `common/Version.h` to the intended release version and confirm the overlay and
   driver version resources use it. A final release clears
   `QUESTCAL_VERSION_PRERELEASE_LABEL` to `""` and
