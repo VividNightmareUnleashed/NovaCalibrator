@@ -831,6 +831,25 @@ void RegistryImportScenario(Check check)
 		seeded, static_cast<long>(first), complete, static_cast<long>(second), kept, static_cast<long>(third), none);
 	check("persistence: the rename's registry import appears only complete", seeded && complete && kept && none,
 		detail);
+
+	// The copy an import left when it died before the rename, from an old key
+	// that has since lost a value and a subkey, and that the next start cannot
+	// remove. RegCopyTreeA would copy over it and keep both.
+	const bool leftover = write(from, "calibration", 2) && write(staging, "calibration", 1) &&
+		write(staging, "removed", 1) && write(staging + "\\gone", "revision", 1);
+	questcal::DeleteStagingForTest = [](HKEY, const char *) -> LSTATUS { return ERROR_ACCESS_DENIED; };
+	const LSTATUS blocked = import();
+	questcal::DeleteStagingForTest = nullptr;
+	const bool unpublished = blocked == ERROR_ACCESS_DENIED && !exists(to);
+	const LSTATUS retried = import();
+	const bool whole = retried == ERROR_SUCCESS && read(to, "calibration") == 2 && read(to, "removed") == -1 &&
+		!exists(to + "\\gone") && !exists(staging);
+	RegDeleteTreeA(HKEY_CURRENT_USER, base.c_str());
+
+	std::snprintf(detail, sizeof detail, "seeded %d; blocked %ld unpublished %d; retried %ld whole %d",
+		leftover, static_cast<long>(blocked), unpublished, static_cast<long>(retried), whole);
+	check("persistence: an import's leftover the next start cannot remove is not published",
+		leftover && unpublished && whole, detail);
 }
 
 void RunReviewRegressionScenarios(Check check)
