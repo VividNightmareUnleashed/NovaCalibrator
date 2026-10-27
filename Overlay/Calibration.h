@@ -468,6 +468,12 @@ struct CalibrationContext : CalibrationProfileState
 	// (SaveProfileFieldEdit / SaveProfileTransformEdit): they persist a
 	// candidate record and only then apply it.
 
+	// The calibration is edited or cleared only while no run is in progress. A
+	// run holds its two devices neutralized in the driver until it ends, and
+	// opening the editor or clearing under it would drop the run without
+	// releasing that hold, leaving both devices uncalibrated.
+	bool CanEditOrClear() const { return state == CalibrationState::None; }
+
 	void Clear()
 	{
 		ResetProfile();

@@ -732,8 +732,10 @@ void SupportRows(RowPage &page)
 			CalCtx.ReportError(error + "\n");
 	}).tipEnglish = "Nova Calibrator also saves a diagnostics file when it closes\nor when SteamVR stops.";
 	// The raw transform, for those who know what they are changing.
-	if (CalCtx.validProfile && !CalCtx.profileUniverseUnsafe)
+	if (CalCtx.validProfile && !CalCtx.profileUniverseUnsafe && CalCtx.CanEditOrClear())
 		page.Link(ui::Icon::Pencil, "Edit calibration (advanced)", ui::col::Text, true, [] {
+			if (!CalCtx.CanEditOrClear())
+				return;
 			SeedTransformEditorDraft();
 			CalCtx.state = CalibrationState::Editing;
 		});

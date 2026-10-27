@@ -679,7 +679,8 @@ float BuildHomePage(const VRState &state, ImVec2 origin, float width)
 		{
 			if (ui::MenuItem("##pairitem", ui::Icon::Identify, "Select the pair"))
 				OpenSheet(Sheet::Pair);
-			if (ui::MenuItem("##clearitem", ui::Icon::Trash, "Clear calibration", ui::col::DangerInk))
+			if (CalCtx.CanEditOrClear() &&
+				ui::MenuItem("##clearitem", ui::Icon::Trash, "Clear calibration", ui::col::DangerInk))
 				OpenDialog(Dialog::ClearCalibration);
 			ui::EndMenuPopup();
 		}

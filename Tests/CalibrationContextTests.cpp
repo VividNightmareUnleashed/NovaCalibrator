@@ -527,3 +527,19 @@ bool HookMaskFromSynchronizedVerdictsScenario()
 	return taken && keptOverFailedHandshake && keptOverOtherInstance &&
 		ctx.driverPoseHookMask == protocol::PoseHook005;
 }
+
+// Editing or clearing the calibration under a run would drop the run without
+// releasing the neutralization it holds in the driver.
+bool CalibrationEditOrClearOnlyIdleScenario()
+{
+	CalibrationContext ctx;
+	bool allowed = ctx.CanEditOrClear();
+	for (const CalibrationState state : { CalibrationState::Begin, CalibrationState::Neutralizing,
+		CalibrationState::Collecting, CalibrationState::Editing })
+	{
+		ctx.state = state;
+		allowed = allowed && !ctx.CanEditOrClear();
+	}
+	ctx.state = CalibrationState::None;
+	return allowed && ctx.CanEditOrClear();
+}

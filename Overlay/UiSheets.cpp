@@ -776,6 +776,12 @@ void BuildClearCalibrationDialog()
 		CloseDialog();
 	else if (pressed == 2)
 	{
+		// A run that started under the dialog keeps its calibration and its hold.
+		if (!CalCtx.CanEditOrClear())
+		{
+			CloseDialog();
+			return;
+		}
 		// The write can be refused; a destructive button that did nothing has
 		// to say so instead of leaving the screen unchanged.
 		if (!ClearSavedProfile(CalCtx))
