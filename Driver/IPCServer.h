@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstddef>
 #include <functional>
+#include <future>
 #include <thread>
 #include <set>
 #include <type_traits>
@@ -110,7 +111,9 @@ private:
 	// returns null: null means "already destroyed", never "not found".
 	static PipeInstance *ActivePipeInstanceOrClose(LPOVERLAPPED overlap);
 
-	static void RunThread(IPCServer *_this);
+	// Creates the first listener before serving and says through `listening`
+	// whether it could; returns at once when it could not.
+	static void RunThread(IPCServer *_this, std::promise<bool> listening);
 	static bool CreateAndConnectInstance(const char *name, LPOVERLAPPED overlap, HANDLE &pipe,
 		bool &pending);
 	static void CloseListenerInstance(LPOVERLAPPED overlap, HANDLE &pipe, bool &pending);

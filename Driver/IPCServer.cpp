@@ -128,20 +128,26 @@ bool IPCServer::Run(RequestSink newSink)
 	}
 	connectOverlap.hEvent = connectEvent;
 
-	// Establish the first listener synchronously. Init must not report success
-	// for a driver instance that can never accept control requests.
-	if (!CreateAndConnectInstance(pipeName, &connectOverlap, listenerPipe, listenerConnectPending))
-		return fail();
-
+	// The first listener is created on the server thread, which outlives it:
+	// Windows cancels an overlapped ConnectNamedPipe when the thread that
+	// issued it exits, and the thread calling Init is SteamVR's. Created here,
+	// every start logged "GetOverlappedResult failed in RunThread. Error: 995"
+	// a second later and re-armed the listener (2026-10-21 and -24). Init still
+	// waits to learn that it exists: it must not report success for a driver
+	// instance that can never accept control requests.
+	std::promise<bool> listening;
+	std::future<bool> listened = listening.get_future();
 	try
 	{
-		mainThread = std::thread(RunThread, this);
+		mainThread = std::thread(RunThread, this, std::move(listening));
 	}
 	catch (const std::exception &e)
 	{
 		LOG("Could not start IPC server thread: %s", e.what());
 		return fail();
 	}
+	if (!listened.get())
+		return fail();   // Stop() joins the thread, which has already returned
 	return true;
 }
 
@@ -243,8 +249,14 @@ DWORD IPCServer::NextIdleTimeoutMs() const
 	return static_cast<DWORD>(nearest);
 }
 
-void IPCServer::RunThread(IPCServer *_this)
+void IPCServer::RunThread(IPCServer *_this, std::promise<bool> listening)
 {
+	const bool listener = CreateAndConnectInstance(_this->pipeName, &_this->connectOverlap,
+		_this->listenerPipe, _this->listenerConnectPending);
+	listening.set_value(listener);
+	if (!listener)
+		return;
+
 	HANDLE waitHandles[2] = { _this->stopEvent, _this->connectEvent };
 	constexpr DWORD InitialListenerRetryMs = 50;
 	constexpr DWORD MaximumListenerRetryMs = 1000;
