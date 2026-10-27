@@ -15,6 +15,7 @@
 void (*TryInstallAfterAcceptCheckForTest)() = nullptr;
 void (*InsideDriverCallbackForTest)() = nullptr;
 void (*BeforeDriverWaitForTest)() = nullptr;
+void (*InsideObserverForTest)() = nullptr;
 #endif
 
 namespace
@@ -44,9 +45,11 @@ char ForeignModule[sizeof(protocol::HookStatus::foreignModule)] = {};
 // forwarding to 006, say) would otherwise transform the pose twice and publish
 // the transformed one as raw.
 thread_local uint32_t ForwardingDevice = vr::k_unTrackedDeviceIndexInvalid;
-// The device whose pose this thread is forwarding through an observation hook,
-// which has already recorded it raw.
+// The device whose pose this thread is forwarding through an observation hook.
 thread_local uint32_t ObservingDevice = vr::k_unTrackedDeviceIndexInvalid;
+// The device whose pose an observation hook on this thread recorded raw on its
+// way to the pose hook, which must then not record it again.
+thread_local uint32_t ObservedDevice = vr::k_unTrackedDeviceIndexInvalid;
 std::mutex HookSetupMutex;
 bool MinHookInitialized = false;   // protected by HookSetupMutex
 bool HooksInstalled = false;       // protected by HookSetupMutex
@@ -161,15 +164,14 @@ void ForwardPoseUpdate(PoseUpdateHook &hook, const ObserverHook &observer, void 
 	}
 
 	// An observation hook, ahead of the code ahead of this hook, recorded this
-	// pose raw on its way here.
+	// pose raw on its way here. What counts is that it recorded the pose, not
+	// that an observer is active now: the order check may switch one off or on
+	// between the two, and each pose must reach the ring once.
 	bool publish = true;
-	if (observer.active.load(std::memory_order_acquire))
-	{
-		if (ObservingDevice == unWhichDevice)
-			publish = false;
-		else
-			UnobservedPoseUpdates.fetch_add(1, std::memory_order_relaxed);
-	}
+	if (ObservedDevice == unWhichDevice)
+		publish = false;
+	else if (observer.active.load(std::memory_order_acquire))
+		UnobservedPoseUpdates.fetch_add(1, std::memory_order_relaxed);
 
 	auto pose = newPose;
 	{
@@ -212,6 +214,7 @@ void ObservePoseUpdate(ObserverHook &observer, void *_this,
 	const PoseUpdateDetour next = observer.next.load(std::memory_order_acquire);
 	// Not a pose this thread is already forwarding: one the host passes on to
 	// another version's vtable, or one re-sent after it was handled.
+	bool recorded = false;
 	if (observer.active.load(std::memory_order_acquire) && ObservingDevice != unWhichDevice &&
 		ForwardingDevice != unWhichDevice && unPoseStructSize == sizeof(vr::DriverPose_t) &&
 		unWhichDevice < vr::k_unMaxTrackedDeviceCount)
@@ -221,14 +224,26 @@ void ObservePoseUpdate(ObserverHook &observer, void *_this,
 		{
 			driver->PublishRawPose(unWhichDevice, newPose);
 			ObservedPoseUpdates.fetch_add(1, std::memory_order_relaxed);
+			recorded = true;
 		}
 	}
 	struct Observing
 	{
-		uint32_t outer;
-		~Observing() { ObservingDevice = outer; }
-	} observing{ ObservingDevice };
+		uint32_t outerObserving;
+		uint32_t outerObserved;
+		~Observing()
+		{
+			ObservingDevice = outerObserving;
+			ObservedDevice = outerObserved;
+		}
+	} observing{ ObservingDevice, ObservedDevice };
 	ObservingDevice = unWhichDevice;
+	if (recorded)
+		ObservedDevice = unWhichDevice;
+#ifdef QUESTCAL_HOOK_INJECTOR_TEST_SEAM
+	if (InsideObserverForTest)
+		InsideObserverForTest();
+#endif
 	if (next)
 		next(_this, unWhichDevice, newPose, unPoseStructSize);
 }
@@ -550,8 +565,9 @@ bool PlaceObserver(const PoseHookBinding &binding, void **slot, void *current)
 		return false;
 	observer.inSlot = true;
 	// Only now: until the observer is reached, the pose hook records every pose
-	// itself. A pose the observer saw before this store is recorded by neither,
-	// never by both.
+	// itself. A pose the observer passes on before this store it does not
+	// record, and the pose hook does (it skips only a pose the observer
+	// recorded), so each pose is recorded once either way.
 	observer.active.store(true, std::memory_order_release);
 	return true;
 }

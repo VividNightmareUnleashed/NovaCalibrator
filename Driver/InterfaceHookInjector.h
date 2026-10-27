@@ -51,4 +51,7 @@ extern void (*InsideDriverCallbackForTest)();
 // Called in DisableHooks once the hooks are disabled, before it waits for the
 // pose callbacks inside the driver.
 extern void (*BeforeDriverWaitForTest)();
+// Called inside an observation hook once it has recorded or skipped the pose,
+// before it passes the pose on.
+extern void (*InsideObserverForTest)();
 #endif

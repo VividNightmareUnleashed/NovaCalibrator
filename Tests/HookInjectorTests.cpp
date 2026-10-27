@@ -749,6 +749,26 @@ std::string OwnModuleFile()
 	return utf8;
 }
 
+// A second MinHook user patches the pose hook's target after this driver: the
+// entry's jump now leads to its relay, and its detour calls where the jump it
+// replaced led. `ownPatch` keeps the jump it replaced, to restore it.
+bool PatchForeignHookAhead(void *target, uint8_t (&ownPatch)[5])
+{
+	std::memcpy(ownPatch, target, sizeof ownPatch);
+	int32_t ownRel;
+	std::memcpy(&ownRel, ownPatch + 1, sizeof ownRel);
+	ForeignDisplaced = reinterpret_cast<PoseUpdateFn>(static_cast<uint8_t *>(target) + 5 + ownRel);
+	const uint64_t foreignDetour = reinterpret_cast<uint64_t>(&ForeignSmoothingDetour);
+	uint8_t relay[14] = { 0xFF, 0x25, 0, 0, 0, 0 };
+	std::memcpy(relay + 6, &foreignDetour, sizeof foreignDetour);
+	const intptr_t toRelay = reinterpret_cast<intptr_t>(ForeignRelay) - (reinterpret_cast<intptr_t>(target) + 5);
+	const int32_t foreignRel = static_cast<int32_t>(toRelay);
+	uint8_t foreignPatch[5] = { 0xE9 };
+	std::memcpy(foreignPatch + 1, &foreignRel, sizeof foreignRel);
+	return ownPatch[0] == 0xE9 && toRelay == foreignRel &&
+		WriteCode(ForeignRelay, relay, sizeof relay, true) && WriteCode(target, foreignPatch, sizeof foreignPatch);
+}
+
 // The 2026-10-14 case: OpenVR-SmoothTracking loads after this driver and
 // MinHooks TrackedDevicePoseUpdated over the pose hook's patch, so the pose
 // ring received its smoothed, zero-velocity poses. The order check finds its
@@ -771,22 +791,8 @@ void ForeignHookObservedScenario(Check check)
 	RefreshPoseHookOrder();
 	const protocol::HookStatus clean = PoseHookStatus();
 
-	// The second MinHook user's patch: the entry's jump now leads to its relay,
-	// and its detour calls where the jump it replaced led.
 	uint8_t ownPatch[5];
-	std::memcpy(ownPatch, target, sizeof ownPatch);
-	int32_t ownRel;
-	std::memcpy(&ownRel, ownPatch + 1, sizeof ownRel);
-	ForeignDisplaced = reinterpret_cast<PoseUpdateFn>(static_cast<uint8_t *>(target) + 5 + ownRel);
-	const uint64_t foreignDetour = reinterpret_cast<uint64_t>(&ForeignSmoothingDetour);
-	uint8_t relay[14] = { 0xFF, 0x25, 0, 0, 0, 0 };
-	std::memcpy(relay + 6, &foreignDetour, sizeof foreignDetour);
-	const intptr_t toRelay = reinterpret_cast<intptr_t>(ForeignRelay) - (reinterpret_cast<intptr_t>(target) + 5);
-	const int32_t foreignRel = static_cast<int32_t>(toRelay);
-	uint8_t foreignPatch[5] = { 0xE9 };
-	std::memcpy(foreignPatch + 1, &foreignRel, sizeof foreignRel);
-	const bool patched = ownPatch[0] == 0xE9 && toRelay == foreignRel &&
-		WriteCode(ForeignRelay, relay, sizeof relay, true) && WriteCode(target, foreignPatch, sizeof foreignPatch);
+	const bool patched = PatchForeignHookAhead(target, ownPatch);
 
 	// Before the check: the ring gets what the second hooker made of the pose.
 	const uint32_t publishedBefore = provider->PublishedForTest();
@@ -841,6 +847,66 @@ void ForeignHookObservedScenario(Check check)
 		rawOnce && hostGotBoth && observed.observedPoseUpdates == 1 && observed.unobservedPoseUpdates == 0 &&
 		unpatched && gone.foreignAheadMask == 0 && gone.foreignAheadSeenMask == protocol::PoseHook006 &&
 		gone.observerMask == protocol::PoseHook006 && released && slotBack, detail);
+}
+
+// The order check switches the observer off while a pose is between it and the
+// pose hook: the hook ahead removed itself by restoring what it found, so the
+// pose hook records again. The observer had already recorded that pose raw;
+// it must reach the ring once, not once from each.
+void *ObserverOffTarget = nullptr;
+uint8_t ObserverOffPatch[5] = {};
+bool ObserverSwitchedOff = false;
+void SwitchObserverOff()
+{
+	InsideObserverForTest = nullptr;
+	ObserverSwitchedOff = WriteCode(ObserverOffTarget, ObserverOffPatch, sizeof ObserverOffPatch) &&
+		SetHostPoseSlot(ObserverOffTarget);
+	RefreshPoseHookOrder();
+}
+
+void ObserverSwitchedOffMidCallScenario(Check check)
+{
+	const char *name = "hooks: a pose the observer recorded is not recorded again when the observer stops mid-call";
+	auto provider = std::make_unique<ServerTrackedDeviceProvider>();
+	auto *context = reinterpret_cast<vr::IVRDriverContext *>(&Context);
+	const bool calibrated = CalibrateDeviceZero(*provider);
+	if (!InjectHooks(provider.get(), context))
+	{
+		check(name, false, "InjectHooks failed");
+		return;
+	}
+	RequestHostInterface();
+	void *const target = *HostPoseSlot();
+	RefreshPoseHookOrder();
+	uint8_t ownPatch[5];
+	const bool patched = PatchForeignHookAhead(target, ownPatch);
+	RefreshPoseHookOrder();
+	const protocol::HookStatus placed = PoseHookStatus();
+	const bool observerInSlot = *HostPoseSlot() != target;
+
+	ObserverOffTarget = target;
+	std::memcpy(ObserverOffPatch, ownPatch, sizeof ObserverOffPatch);
+	ObserverSwitchedOff = false;
+	InsideObserverForTest = &SwitchObserverOff;
+	vr::DriverPose_t pose{};
+	pose.vecPosition[0] = 3.0;
+	pose.poseIsValid = pose.deviceIsConnected = true;
+	pose.result = vr::TrackingResult_Running_OK;
+	pose.qRotation.w = pose.qWorldFromDriverRotation.w = pose.qDriverFromHeadRotation.w = 1;
+	const uint32_t before = provider->PublishedForTest();
+	reinterpret_cast<PoseUpdateFn>(*HostPoseSlot())(&Host, 0, pose, sizeof pose);
+	InsideObserverForTest = nullptr;
+	const uint32_t recorded = provider->PublishedForTest() - before;
+	const protocol::DevicePoseSample raw = provider->LastPublishedForTest();
+	const bool slotBack = *HostPoseSlot() == target;
+	const bool released = DisableHooks();
+
+	char detail[200];
+	std::snprintf(detail, sizeof detail, "patched %d observer %x in slot %d; switched off %d; recorded %u "
+		"(%.2f); slot back %d released %d", patched, placed.observerMask, observerInSlot,
+		ObserverSwitchedOff, recorded, raw.position[0], slotBack, released);
+	check(name, calibrated && patched && placed.observerMask == protocol::PoseHook006 && observerInSlot &&
+		ObserverSwitchedOff && recorded == 1 && raw.position[0] == 3.0 && slotBack && released, detail);
 }
 
 // Another driver takes the host's vtable slot after the observer and calls
@@ -917,4 +983,5 @@ void RunHookInjectorScenarios(Check check)
 	ForeignModuleNameScenario(check);
 	ForeignHookObservedScenario(check);
 	ObserverOvertakenScenario(check);
+	ObserverSwitchedOffMidCallScenario(check);
 }
