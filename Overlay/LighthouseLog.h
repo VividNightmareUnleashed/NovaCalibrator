@@ -22,12 +22,16 @@
 //   LHR-A3C36EA5 C: ----- BOOTSTRAPPED base F210FBA6 (best) distance 2.1m ... -----
 //   LHR-A3C36EA5 C: ----- SECONDARY base 4921060B distance 2.01m  -----
 //   LHR-A3C36EA5 C: Trying to start tracking from base D3D4E73B: Not enough ...
+//   LHR-D5D0523E C: Resetting tracking: no optical samples for 2002ms
+//   LHR-A3C36EA5 C: Resetting tracking: IMU misalignment unreasonably large (-9.6, 7.5, 11) deg sigma 1.1
 //   Device LHR-A3C36EA5 powering off upon entering standby.
 //   LHR-A3C36EA5: Disconnected from receiver 4BF089B604
 //   LHR-A3C36EA5: Connected to receiver 4BF089B604
 //   Selected existing universe 1744988537 (170EE067 is primary)
 //   Creating new universe 1744988537 because there were no existing universes
 //   Stopped tracking with universe 1744988537
+//   Moving base D3D4E73B 53mm and 1.1 deg because of relationship with 04D47FB4, which is closer to the origin
+//   Setting universe tilt from D3D4E73B via transform to global: pitch -21.51 deg roll -2.63 deg
 //
 // and, outside the lighthouse driver, the server's own first line
 // ("Sun Sep 27 2026 21:43:33.604 [Info] - vrserver 2.17.10 startup with
@@ -38,7 +42,16 @@
 // driver chooses once the first devices have started tracking after SteamVR
 // starts, and again after it stopped tracking with one because no device
 // was left tracking. vrserver.txt is not always rotated at a start: one file
-// held five days of sessions on 2026-09-27.
+// held five days of sessions on 2026-09-27. The last two are the driver
+// moving one base station's pose to agree with another's, and setting the
+// universe's tilt from one station's accelerometer: every lighthouse pose in
+// that station's frame, or in all of them, moves with it. Both come in
+// bursts after the universe is chosen and singly later; every all-station
+// frame move Nova compensated on 2026-10-21 and -24 came with a tilt line.
+//
+// A "Resetting tracking" line is a full loss the SOB lines need not report:
+// on 2026-10-24 all four mid-session losses came only as this line, the last
+// SOB line before one still listing three stations.
 //
 // Not every device prints the SOB lines. A VIVE Tracker 3.0 in a four-station
 // room (live 2026-09-25) printed none in six hours; after each bootstrap it
@@ -72,6 +85,7 @@ struct Event
 		StationAdded,      // a station joined the device's solution
 		StationDropped,    // a station left it
 		NoneSeen,          // the device sees no station at all
+		TrackingReset,     // the driver dropped the device's solution (reason says why)
 		Bootstrapped,      // a fresh solution started from one station
 		BootstrapFailed,   // it tried to start one and could not
 		SecondaryAdded,    // a station joined a solution after its bootstrap (id only)
@@ -83,6 +97,8 @@ struct Event
 		ServerQuitting,    // the session is ending: its power-offs are the quit's
 		UniverseChosen,    // the driver selected or created its universe
 		UniverseStopped,   // it stopped tracking with it
+		StationMoved,      // it moved a station's pose to agree with another station
+		UniverseLevelled,  // it set the universe's tilt from a station
 	};
 	Kind kind = Kind::StationAdded;
 	std::string serial;              // "LHR-A3C36EA5"; empty for the no-device kinds
@@ -101,6 +117,13 @@ struct Event
 	// also says whether the driver created it rather than selected a known one.
 	uint64_t universeId = 0;
 	bool universeCreated = false;
+	// TrackingReset: the driver's reason, as printed.
+	std::string reason;
+	// StationMoved: the station is stationId, moved this far toward agreeing
+	// with relatedStationId. UniverseLevelled: the tilt taken from stationId.
+	uint32_t relatedStationId = 0;
+	double moveMeters = 0.0, moveDegrees = 0.0;
+	double pitchDegrees = 0.0, rollDegrees = 0.0;
 	// Local wall-clock time printed on the line, as Unix seconds with the
 	// millisecond part; timeKnown is false when the prefix did not parse.
 	bool timeKnown = false;

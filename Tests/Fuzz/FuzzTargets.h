@@ -278,6 +278,24 @@ inline std::string CheckLighthouseLine(const uint8_t *data, size_t size)
 		return "an event's known time is not finite";
 	if (e.historical)
 		return "the parse left an earlier event's field behind";
+	const bool stationChange = e.kind == Event::Kind::StationMoved || e.kind == Event::Kind::UniverseLevelled;
+	if (!stationChange && (e.relatedStationId != 0 || e.moveMeters != 0.0 || e.moveDegrees != 0.0 ||
+		e.pitchDegrees != 0.0 || e.rollDegrees != 0.0))
+		return "a line other than a station move or tilt carries one's values";
+	if (e.kind != Event::Kind::TrackingReset && !e.reason.empty())
+		return "a line other than a tracking reset carries a reason";
+	if (stationChange)
+	{
+		if (!e.serial.empty() || e.visibleKnown || e.channel >= 0 || e.stationId == 0 ||
+			!e.visibleChannels.empty() || e.standby || e.universeId != 0 || e.universeCreated)
+			return "a station move or tilt claims a device, a visible set or a universe, or names no station";
+		if (!std::isfinite(e.moveMeters) || !std::isfinite(e.moveDegrees) ||
+			!std::isfinite(e.pitchDegrees) || !std::isfinite(e.rollDegrees))
+			return "a station move or tilt carries a value that is not finite";
+		if (e.kind == Event::Kind::UniverseLevelled && (e.relatedStationId != 0 || e.moveMeters != 0.0))
+			return "a tilt line claims a move";
+		return "";
+	}
 	const bool noDevice = e.kind == Event::Kind::ServerStarted || e.kind == Event::Kind::ServerQuitting ||
 		e.kind == Event::Kind::UniverseChosen || e.kind == Event::Kind::UniverseStopped;
 	if (noDevice)
@@ -313,6 +331,7 @@ inline std::string CheckLighthouseLine(const uint8_t *data, size_t size)
 			return "a drop names no station";
 		break;
 	case Event::Kind::NoneSeen:
+	case Event::Kind::TrackingReset:
 		if (!e.visibleKnown || !e.visibleChannels.empty())
 			return "no station seen, yet some visible";
 		break;

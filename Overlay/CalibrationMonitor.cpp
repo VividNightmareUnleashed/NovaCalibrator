@@ -249,7 +249,18 @@ void calibration_internal::LighthouseTick(CalibrationContext &ctx, double time)
 				: e.universeCreated ? "created" : "chose";
 			ctx.Log("SteamVR " + std::string(what) + " lighthouse universe " + std::to_string(e.universeId) + "\n");
 		}
-		if (!note.empty())
+		if (!note.empty() && e.serial.empty())
+		{
+			// SteamVR's own station moves and universe tilt: a frame move
+			// logged after one is that re-solve. A station refined in place
+			// (under the frame watch's bounds) goes to the detailed log.
+			if (e.kind == lighthouselog::Event::Kind::StationMoved &&
+				!LighthouseFrameWatch::NotableMove(e.moveMeters, e.moveDegrees, 0.0))
+				ctx.Diag(note);
+			else
+				ctx.Log(note + "\n");
+		}
+		else if (!note.empty())
 			ctx.Log(e.serial + " " + note + "\n");
 		else if (!e.historical)
 		{

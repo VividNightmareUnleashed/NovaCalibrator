@@ -32,6 +32,7 @@ LHR-A3C36EA5 C: SOB: drop S-8 seeing S-5 S-9 S-16
 LHR-A3C36EA5 C: No base stations seen...
 LHR-A3C36EA5 C: ----- BOOTSTRAPPED base F210FBA6 (best) distance 2.1m velocity 0.3m/s ... -----
 LHR-A3C36EA5 C: Trying to start tracking from base D3D4E73B: Not enough contiguous samples for a bootstrap pose
+LHR-D5D0523E C: Resetting tracking: no optical samples for 2002ms
 Device LHR-A3C36EA5 powering off upon entering standby.
 LHR-A3C36EA5: Disconnected from receiver 4BF089B604
 LHR-A3C36EA5: Connected to receiver 4BF089B604
@@ -48,6 +49,12 @@ LHR-A3C36EA5: Connected to receiver 4BF089B604
 - `add` and `drop` list the stations the device still sees after the change,
   so every line carries the full set. `No base stations seen` and
   `BOOTSTRAPPED` mark a full loss and a solution started from scratch.
+- `Resetting tracking` is the driver giving up on a solution, with its reason
+  (`no optical samples for 2002ms`, `IMU misalignment unreasonably large`). It
+  is a full loss too, and often the only line that says so: on 2026-10-24 all
+  four losses during play came only as this line, the last SOB line before
+  one still listing three stations. The session log keeps the reason
+  (`LHR-D5D0523E lost its tracking (no optical samples for 2002ms)`).
 - The last three are the device's radio link. `powering off upon entering
   standby` is SteamVR switching the device off after it sat still for its
   **Turn off controllers after** time (Startup / Shutdown settings, 5 minutes
@@ -124,7 +131,8 @@ to one second before one, since a log line can be stamped just after the pose
 it explains). A disturbance is any of:
 
 - the device fell to a single station, or to none;
-- the device saw no station at all (`No base stations seen`);
+- the device saw no station at all (`No base stations seen`), or the driver
+  reset its tracking (`Resetting tracking`);
 - a solution was bootstrapped, or a bootstrap failed;
 - the device came back from none or one station to two or more.
 
@@ -166,6 +174,25 @@ followed from SteamVR's start until ten seconds after it chose a universe.
 When the log names no universe (it is unreadable, or the part replayed at
 startup holds none), the first fifteen seconds after the lighthouse devices
 start tracking stand in for it.
+
+The driver's own account of these moves goes into the session log, so a
+frame move can be read against its cause:
+
+```
+Moving base D3D4E73B 43mm and 0.9 deg because of relationship with F210FBA6, which is closer to the origin
+Setting universe tilt from D3D4E73B via transform to global: pitch -21.51 deg roll -2.63 deg
+```
+
+become `SteamVR moved base station S-5 (D3D4E73B) 43 mm and 0.9 deg to agree
+with S-9 (F210FBA6)` and `SteamVR set the lighthouse universe's tilt from S-5
+(D3D4E73B): pitch -21.51 deg, roll -2.63 deg, +0.91 and -0.95 deg from the
+last`; a move under a centimetre and a tenth of a degree goes to the detailed
+log. The tilt is taken from one station's accelerometer and carries every
+station with it: each move of all four stations that was followed on
+2026-10-21 and -24 came with a tilt line, the earliest 10.9 s after the
+universe was chosen, and the startup burst of station moves lasted up to 21 s
+after it. Neither
+line changes what is followed yet; they say why a frame moved.
 
 Lighthouse devices are target-side devices, so none of this touches the
 universe-jump detector, which only reads the reference system's stream.

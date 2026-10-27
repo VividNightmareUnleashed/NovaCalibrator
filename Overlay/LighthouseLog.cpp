@@ -102,6 +102,28 @@ bool StartsWith(const std::string &text, const char *prefix)
 	return text.size() >= n && text.compare(0, n, prefix) == 0;
 }
 
+// The station id at the start of "04D47FB4, which is closer to the origin":
+// hex digits only, so the comma behind it is not read as part of it.
+uint32_t LeadingHexStationId(const std::string &text)
+{
+	size_t start = text.find_first_not_of(' ');
+	if (start == std::string::npos)
+		return 0;
+	size_t end = text.find_first_not_of("0123456789abcdefABCDEF", start);
+	return ParseStationId(text.substr(start, end == std::string::npos ? std::string::npos : end - start));
+}
+
+// A finite number at `text` followed by `unit`; `rest` is set past the unit.
+bool NumberThen(const char *text, const char *unit, double &value, const char *&rest)
+{
+	char *end = nullptr;
+	value = std::strtod(text, &end);
+	if (end == text || !std::isfinite(value) || std::strncmp(end, unit, std::strlen(unit)) != 0)
+		return false;
+	rest = end + std::strlen(unit);
+	return true;
+}
+
 // The decimal id at the start of "1744988537 (170EE067 is primary)"; false
 // when there is none.
 bool LeadingUniverseId(const std::string &text, uint64_t &id)
@@ -231,6 +253,51 @@ bool ParseLine(const std::string &line, Event &out)
 		return true;
 	}
 
+	// The driver moving a station to agree with another: "Moving base D3D4E73B
+	// 53mm and 1.1 deg because of relationship with 04D47FB4, which is closer
+	// to the origin".
+	static const char moving[] = "lighthouse: Moving base ";
+	size_t movingAt = line.find(moving);
+	if (movingAt != std::string::npos)
+	{
+		const std::string rest = line.substr(movingAt + std::strlen(moving));
+		out.stationId = LeadingStationId(rest);
+		const size_t amount = rest.find(' ', rest.find_first_not_of(' '));
+		const char *after = nullptr;
+		double mm = 0.0;
+		if (out.stationId == 0 || amount == std::string::npos ||
+			!NumberThen(rest.c_str() + amount + 1, "mm and ", mm, after) ||
+			!NumberThen(after, " deg", out.moveDegrees, after))
+			return false;
+		out.moveMeters = mm / 1000.0;
+		const size_t with = rest.find("relationship with ");
+		if (with != std::string::npos)
+			out.relatedStationId = LeadingHexStationId(rest.substr(with + std::strlen("relationship with ")));
+		out.kind = Event::Kind::StationMoved;
+		out.timeKnown = ParseTimestamp(line, out.unixTime);
+		return true;
+	}
+
+	// Its tilt for the whole universe, from one station's accelerometer:
+	// "Setting universe tilt from D3D4E73B via transform to global: pitch
+	// -21.51 deg roll -2.63 deg".
+	static const char tilt[] = "lighthouse: Setting universe tilt from ";
+	size_t tiltAt = line.find(tilt);
+	if (tiltAt != std::string::npos)
+	{
+		const std::string rest = line.substr(tiltAt + std::strlen(tilt));
+		out.stationId = LeadingStationId(rest);
+		const size_t pitch = rest.find(": pitch ");
+		const char *after = nullptr;
+		if (out.stationId == 0 || pitch == std::string::npos ||
+			!NumberThen(rest.c_str() + pitch + std::strlen(": pitch "), " deg roll ", out.pitchDegrees, after) ||
+			!NumberThen(after, " deg", out.rollDegrees, after))
+			return false;
+		out.kind = Event::Kind::UniverseLevelled;
+		out.timeKnown = ParseTimestamp(line, out.unixTime);
+		return true;
+	}
+
 	// The server's first line: a new SteamVR session, no universe yet.
 	size_t server = line.find("] - vrserver ");
 	if (server != std::string::npos && line.find(" startup with PID=", server) != std::string::npos)
@@ -326,6 +393,15 @@ bool ParseLine(const std::string &line, Event &out)
 	if (StartsWith(body, "No base stations seen"))
 	{
 		out.kind = Event::Kind::NoneSeen;
+		out.visibleKnown = true;
+		return true;
+	}
+	// The driver gave up on the solution ("no optical samples for 2002ms",
+	// "IMU misalignment unreasonably large ..."): nothing is in it any more.
+	if (StartsWith(body, "Resetting tracking: "))
+	{
+		out.kind = Event::Kind::TrackingReset;
+		out.reason = body.substr(std::strlen("Resetting tracking: "));
 		out.visibleKnown = true;
 		return true;
 	}

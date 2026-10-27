@@ -166,10 +166,10 @@ void ParserScenarios(Check check)
 
 	// The universe, which no device owns, and the server's first line, as
 	// SteamVR 2.17.10 wrote them on 2026-09-27. The driver's other universe
-	// lines are not these.
+	// lines are not these; its tilt and station moves are their own kinds.
 	{
 		const std::string at = "Sun Sep 27 2026 21:43:52.456 [Info] - lighthouse: ";
-		Event chosen, created, stopped, server, other;
+		Event chosen, created, stopped, server, tilt, move, other;
 		const bool chosenOk = lighthouselog::ParseLine(at +
 			"Selected existing universe 1744988537 (170EE067 is primary)", chosen);
 		const bool createdOk = lighthouselog::ParseLine(at +
@@ -179,10 +179,17 @@ void ParserScenarios(Check check)
 		const bool serverOk = lighthouselog::ParseLine(
 			"Sun Sep 27 2026 21:43:33.604 [Info] - vrserver 2.17.10 startup with PID=5976, "
 			"config=C:\\Program Files (x86)\\Steam\\config, arch=win64", server);
-		const bool othersIgnored =
+		// The station placed 1.2 m and 43 deg from its guess while the universe
+		// was set up, which the calibration must not follow (CalibrationMonitor).
+		const bool tiltKind = lighthouselog::ParseLine(at +
+			"Setting universe tilt from 170EE067 via transform to global: pitch -26.26 deg roll 1.89 deg", tilt) &&
+			tilt.kind == Event::Kind::UniverseLevelled && tilt.universeId == 0;
+		const bool moveKind = lighthouselog::ParseLine(at +
+			"Moving base F210FBA6 1205mm and 42.7 deg because of relationship with 170EE067, which is closer to the origin", move) &&
+			move.kind == Event::Kind::StationMoved && std::abs(move.moveMeters - 1.205) < 1e-12 &&
+			move.relatedStationId == 0x170EE067u;
+		const bool othersIgnored = tiltKind && moveKind &&
 			!lighthouselog::ParseLine(at + "BootstrapFinished setting tilt base to 170EE067", other) &&
-			!lighthouselog::ParseLine(at + "Setting universe tilt from 170EE067 via transform to global: pitch -26.26 deg roll 1.89 deg", other) &&
-			!lighthouselog::ParseLine(at + "Moving base F210FBA6 1205mm and 42.7 deg because of relationship with 170EE067, which is closer to the origin", other) &&
 			!lighthouselog::ParseLine(at + "Selected existing universe (170EE067 is primary)", other) &&
 			!lighthouselog::ParseLine("Sun Sep 27 2026 21:43:34.881 [Info] - Found universe 1 in chaperone file", other) &&
 			!lighthouselog::ParseLine("Sun Sep 27 2026 21:43:33.604 [Info] - vrserver 2.17.10 watchdogs enabled", other);
@@ -224,6 +231,57 @@ void ParserScenarios(Check check)
 			asked.universeId == 0 && asked.channel < 0 && !asked.standby &&
 			monitorOk && monitor.kind == Event::Kind::ServerQuitting &&
 			stoppingOk && stopping.kind == Event::Kind::ServerQuitting && othersIgnored, detail);
+	}
+
+	// A tracking reset, the only line SteamVR 2.18.4 wrote for each of the four
+	// mid-session losses on 2026-10-24, and its IMU reason from 2026-10-21.
+	{
+		Event optical, imu;
+		const bool opticalOk = lighthouselog::ParseLine(
+			"Sat Oct 24 2026 22:00:40.422 [Info] - lighthouse: LHR-D5D0523E C: Resetting tracking: no optical samples for 2002ms",
+			optical);
+		const bool imuOk = lighthouselog::ParseLine(std::string(Prefix) +
+			"LHR-A3C36EA5 C: Resetting tracking: IMU misalignment unreasonably large (-9.6, 7.5, 11) deg sigma 1.1", imu);
+		snprintf(detail, sizeof detail, "optical %d (%d, %s, '%s') imu %d ('%s')", opticalOk,
+			static_cast<int>(optical.kind), optical.serial.c_str(), optical.reason.c_str(), imuOk, imu.reason.c_str());
+		check("lighthouse log: a tracking reset is a full loss with its reason",
+			opticalOk && optical.kind == Event::Kind::TrackingReset && optical.serial == "LHR-D5D0523E" &&
+			optical.reason == "no optical samples for 2002ms" && optical.visibleKnown &&
+			optical.visibleChannels.empty() && optical.timeKnown &&
+			imuOk && imu.kind == Event::Kind::TrackingReset &&
+			imu.reason == "IMU misalignment unreasonably large (-9.6, 7.5, 11) deg sigma 1.1", detail);
+	}
+
+	// The driver's own station moves and universe tilt (2026-10-24), and lines
+	// that only look like them: the RELATIONSHIP line before a move, and
+	// values that are not finite.
+	{
+		Event moved, tilt, other;
+		const bool movedOk = lighthouselog::ParseLine(
+			"Sat Oct 24 2026 21:58:05.775 [Info] - lighthouse: Moving base D3D4E73B 43mm and 0.9 deg because of "
+			"relationship with F210FBA6, which is closer to the origin", moved);
+		const bool tiltOk = lighthouselog::ParseLine(
+			"Sat Oct 24 2026 21:58:40.784 [Info] - lighthouse: Setting universe tilt from D3D4E73B via transform to "
+			"global: pitch -21.51 deg roll -2.63 deg", tilt);
+		const bool othersIgnored =
+			!lighthouselog::ParseLine(std::string(Prefix) +
+				"LHR-63136BC4 C: ----- RELATIONSHIP bases D3D4E73B <-> 04d47fb4 distance 3.23m, angle 104.64 deg -----", other) &&
+			!lighthouselog::ParseLine(std::string(Prefix) +
+				"Moving base D3D4E73B nan and 0.9 deg because of relationship with F210FBA6", other) &&
+			!lighthouselog::ParseLine(std::string(Prefix) + "Moving base D3D4E73B", other) &&
+			!lighthouselog::ParseLine(std::string(Prefix) +
+				"Setting universe tilt from D3D4E73B via transform to global: pitch inf deg roll 0 deg", other);
+		snprintf(detail, sizeof detail, "moved %d (%d, %08X to %08X, %.4f m %.2f deg) tilt %d (%d, %08X, %.2f %.2f) ignored %d",
+			movedOk, static_cast<int>(moved.kind), moved.stationId, moved.relatedStationId, moved.moveMeters,
+			moved.moveDegrees, tiltOk, static_cast<int>(tilt.kind), tilt.stationId, tilt.pitchDegrees,
+			tilt.rollDegrees, othersIgnored);
+		check("lighthouse log: SteamVR's station moves and universe tilt name a station, no device",
+			movedOk && moved.kind == Event::Kind::StationMoved && moved.serial.empty() && moved.timeKnown &&
+			moved.stationId == 0xD3D4E73Bu && moved.relatedStationId == 0xF210FBA6u &&
+			std::abs(moved.moveMeters - 0.043) < 1e-12 && std::abs(moved.moveDegrees - 0.9) < 1e-12 &&
+			tiltOk && tilt.kind == Event::Kind::UniverseLevelled && tilt.serial.empty() &&
+			tilt.stationId == 0xD3D4E73Bu && tilt.pitchDegrees == -21.51 && tilt.rollDegrees == -2.63 &&
+			othersIgnored, detail);
 	}
 }
 
@@ -312,7 +370,7 @@ Event Made(Event::Kind kind, const char *serial, int channel, std::vector<int> v
 	e.channel = channel;
 	e.stationId = channel >= 0 ? 0xA000u + channel : 0;
 	e.visibleKnown = kind == Event::Kind::StationAdded || kind == Event::Kind::StationDropped ||
-		kind == Event::Kind::NoneSeen;
+		kind == Event::Kind::NoneSeen || kind == Event::Kind::TrackingReset;
 	e.visibleChannels = std::move(visible);
 	e.visibleIds.assign(e.visibleChannels.size(), 0);
 	e.historical = historical;
@@ -385,6 +443,67 @@ void VisibilityScenarios(Check check)
 		singleAfterBoot && second.find("back to 2 stations") == 0 &&
 		one->bootstraps == 1 && one->drops == 5 && Same(one->visible, { 5, 8 }) &&
 		!one->degraded && vis.Disturbed("LHR-1", 321.0) && !vis.Disturbed("LHR-1", 323.0), detail);
+
+	// A tracking reset is a full loss whatever the last SOB line listed.
+	{
+		LighthouseVisibility reset;
+		reset.Apply(Made(K::StationAdded, "LHR-9", 9, { 5, 8, 9 }), 500.0);
+		Event e = Made(K::TrackingReset, "LHR-9", -1, {});
+		e.reason = "no optical samples for 2002ms";
+		std::string lostIt = reset.Apply(e, 505.0);
+		const LighthouseVisibility::Device *d = reset.Find("LHR-9");
+		check("lighthouse state: a tracking reset counts a loss and disturbs",
+			lostIt == "lost its tracking (no optical samples for 2002ms)" && d && d->losses == 1 &&
+			d->visible.empty() && d->degraded && reset.Disturbed("LHR-9", 506.0) &&
+			reset.Settling("LHR-9", 506.0), lostIt.c_str());
+
+		// Seeing a station again is not tracking again: the bootstrap is.
+		const uint32_t restartsBefore = d->liveRestarts;
+		std::string seen = reset.Apply(Made(K::StationAdded, "LHR-9", 16, { 16 }), 514.0);
+		const bool noRestartYet = reset.Find("LHR-9")->liveRestarts == restartsBefore;
+		std::string started = reset.Apply(Made(K::Bootstrapped, "LHR-9", 8, {}), 517.0);
+		d = reset.Find("LHR-9");
+		snprintf(detail, sizeof detail, "'%s' / '%s', restarts %u -> %u", seen.c_str(), started.c_str(),
+			restartsBefore, d->liveRestarts);
+		check("lighthouse state: after a reset a station seen again waits for the new solution",
+			seen == "sees S-16 (0000A010) again, with no solution yet" && noRestartYet &&
+			started.find("started a new solution") == 0 && d->liveRestarts == restartsBefore + 1 &&
+			!d->resetPending, detail);
+	}
+
+	// SteamVR's own station moves and universe tilt are logged, named by
+	// channel once a line maps the id, and touch no device.
+	{
+		LighthouseVisibility levels;
+		levels.Apply(Made(K::StationAdded, "LHR-9", 5, { 8, 5 }), 0.0);
+		Event move;
+		move.kind = K::StationMoved;
+		move.stationId = 0xA005;
+		move.relatedStationId = 0xF210FBA6;
+		move.moveMeters = 0.043;
+		move.moveDegrees = 0.9;
+		const std::string moveLine = levels.Apply(move, 10.0);
+		Event first;
+		first.kind = K::UniverseLevelled;
+		first.stationId = 0xA005;
+		first.pitchDegrees = -22.42;
+		first.rollDegrees = -1.68;
+		const std::string firstLine = levels.Apply(first, 11.0);
+		Event again = first;
+		again.pitchDegrees = -21.51;
+		again.rollDegrees = -2.63;
+		const std::string againLine = levels.Apply(again, 57.0);
+		Event replayed = move;
+		replayed.historical = true;
+		snprintf(detail, sizeof detail, "'%s' / '%s' / '%s'", moveLine.c_str(), firstLine.c_str(), againLine.c_str());
+		check("lighthouse state: SteamVR's station moves and tilt are described, not counted",
+			moveLine == "SteamVR moved base station S-5 (0000A005) 43 mm and 0.9 deg to agree with F210FBA6" &&
+			firstLine == "SteamVR set the lighthouse universe's tilt from S-5 (0000A005): pitch -22.42 deg, roll -1.68 deg" &&
+			againLine == "SteamVR set the lighthouse universe's tilt from S-5 (0000A005): pitch -21.51 deg, "
+				"roll -2.63 deg, +0.91 and -0.95 deg from the last" &&
+			levels.Apply(replayed, 60.0).empty() && levels.Find("LHR-9")->events == 1 &&
+			!levels.Disturbed("LHR-9", 58.0), detail);
+	}
 
 	// Station ranking: most dropped first; names carry the id once known.
 	vis.Apply(Made(K::StationDropped, "LHR-2", 5, {}), 400.0);

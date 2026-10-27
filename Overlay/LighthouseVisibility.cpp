@@ -46,8 +46,53 @@ std::string LighthouseVisibility::StationName(int channel) const
 	return buf;
 }
 
+std::string LighthouseVisibility::StationNameById(uint32_t id) const
+{
+	for (const auto &kv : stations)
+		if (kv.second.id == id && id != 0)
+			return StationName(kv.first);
+	return IdName(id);
+}
+
+std::string LighthouseVisibility::DescribeStationChange(const Event &e)
+{
+	char buf[192];
+	if (e.kind == Event::Kind::StationMoved)
+	{
+		if (e.historical)
+			return std::string();
+		std::snprintf(buf, sizeof buf, "SteamVR moved base station %s %.0f mm and %.1f deg",
+			StationNameById(e.stationId).c_str(), e.moveMeters * 1000.0, e.moveDegrees);
+		std::string line = buf;
+		if (e.relatedStationId != 0)
+			line += " to agree with " + StationNameById(e.relatedStationId);
+		return line;
+	}
+
+	// The change is only meaningful against a tilt taken from the same
+	// station: each station's own mounting tilt is in its numbers.
+	const bool again = tiltStation == e.stationId;
+	const double dPitch = e.pitchDegrees - tiltPitch, dRoll = e.rollDegrees - tiltRoll;
+	tiltStation = e.stationId;
+	tiltPitch = e.pitchDegrees;
+	tiltRoll = e.rollDegrees;
+	if (e.historical)
+		return std::string();
+	std::snprintf(buf, sizeof buf, "SteamVR set the lighthouse universe's tilt from %s: pitch %.2f deg, roll %.2f deg",
+		StationNameById(e.stationId).c_str(), e.pitchDegrees, e.rollDegrees);
+	std::string line = buf;
+	if (again)
+	{
+		std::snprintf(buf, sizeof buf, ", %+.2f and %+.2f deg from the last", dPitch, dRoll);
+		line += buf;
+	}
+	return line;
+}
+
 std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 {
+	if (e.kind == Event::Kind::StationMoved || e.kind == Event::Kind::UniverseLevelled)
+		return DescribeStationChange(e);
 	if (e.kind == Event::Kind::ServerStarted || e.kind == Event::Kind::ServerQuitting ||
 		e.kind == Event::Kind::UniverseChosen || e.kind == Event::Kind::UniverseStopped)
 	{
@@ -141,13 +186,7 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 		note(e.visibleChannels[i], e.visibleIds[i]);
 
 	// A station named only by id (bootstrap lines) still deserves a name.
-	auto nameById = [&](uint32_t id)
-	{
-		for (const auto &kv : stations)
-			if (kv.second.id == id && id != 0)
-				return StationName(kv.first);
-		return IdName(id);
-	};
+	auto nameById = [&](uint32_t id) { return StationNameById(id); };
 
 	// A rebuilt set was never an SOB line's, so the first SOB line after a
 	// bootstrap reads as it always did.
@@ -165,7 +204,7 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 			d.unmappedIds.push_back(id);
 	};
 	if (e.kind == Event::Kind::StationAdded || e.kind == Event::Kind::StationDropped ||
-		e.kind == Event::Kind::NoneSeen)
+		e.kind == Event::Kind::NoneSeen || e.kind == Event::Kind::TrackingReset)
 	{
 		d.rebuilding = false;
 		d.unmappedIds.clear();
@@ -177,7 +216,13 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 	case Event::Kind::StationAdded:
 		d.visible = Sorted(e.visibleChannels);
 		d.visibleKnown = true;
-		if (before == 0 || (before < 0 && d.visible.size() == 1))
+		if ((before == 0 || (before < 0 && d.visible.size() == 1)) && d.resetPending)
+		{
+			// Live 2026-10-24: an SOB add 9 s after the reset, then "Trying to
+			// start tracking" from the same station a second later.
+			what = "sees " + StationName(e.channel) + " again, with no solution yet";
+		}
+		else if (before == 0 || (before < 0 && d.visible.size() == 1))
 		{
 			what = "has tracking again from " + StationName(e.channel);
 			restart = true;
@@ -212,8 +257,21 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 		what = "sees no base station";
 		break;
 
+	case Event::Kind::TrackingReset:
+		// A full loss whatever the last SOB line listed: D5D0523E's last one
+		// still named three stations 5 s before "no optical samples for
+		// 2002ms" (live 2026-10-24), and no SOB line reported them going.
+		if (before != 0)
+			d.losses++;
+		d.visible.clear();
+		d.visibleKnown = true;
+		d.resetPending = true;
+		what = "lost its tracking (" + e.reason + ")";
+		break;
+
 	case Event::Kind::Bootstrapped:
 		d.bootstraps++;
+		d.resetPending = false;
 		// The new solution holds the one station it started from until the
 		// SOB or SECONDARY lines that follow add the rest.
 		d.visible.clear();
@@ -295,6 +353,7 @@ void LighthouseVisibility::ApplyUniverse(const Event &e, double ringTime)
 		universe = UniverseStage::Down;
 		universeId = 0;
 		quitAt = -1e9;
+		tiltStation = 0;
 		break;
 	case Event::Kind::ServerQuitting:
 		// From its stamp, replayed or live: the power-off lines behind it
@@ -380,4 +439,5 @@ void LighthouseVisibility::Reset()
 	quitAt = -1e9;
 	trackedWhileDown = false;
 	trackedWhileDownAt = -1e9;
+	tiltStation = 0;
 }

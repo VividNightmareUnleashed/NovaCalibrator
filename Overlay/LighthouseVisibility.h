@@ -93,6 +93,9 @@ public:
 		// follows is read as the first news about the device, as it always
 		// was.
 		bool rebuilding = false;
+		// The driver reset the solution and no new one has started: a station
+		// seen again is not tracking again until a bootstrap line says so.
+		bool resetPending = false;
 		uint32_t events = 0;
 		uint32_t drops = 0;         // stations dropped, any count remaining
 		uint32_t losses = 0;        // times it saw no station at all
@@ -136,6 +139,8 @@ public:
 	// visibleChannels). Returns a short description when the line is a
 	// disturbance worth a session-log line ("lost its last station
 	// (S-5 D3D4E73B)"), empty for routine handoffs and for replayed lines.
+	// A live station move or universe tilt line returns the whole log line
+	// ("SteamVR moved base station S-5 (D3D4E73B) 53 mm and 1.1 deg ...").
 	std::string Apply(const lighthouselog::Event &e, double ringTime);
 
 	// True while the device is degraded (fewer than cleanStations in view,
@@ -178,6 +183,9 @@ public:
 	int StationCount() const { return static_cast<int>(stations.size()); }
 	// "S-5 (D3D4E73B)", or "S-5" while the id is unknown.
 	std::string StationName(int channel) const;
+	// The same for a station a line named by id only: "D3D4E73B" until a
+	// line maps the id to its channel.
+	std::string StationNameById(uint32_t id) const;
 	static std::string IdName(uint32_t id);
 	const Config &Settings() const { return config; }
 	void Reset();
@@ -186,6 +194,9 @@ private:
 	// The no-device lines (LighthouseLog.h): a new server session forgets
 	// the last one's devices, and the universe comes and goes.
 	void ApplyUniverse(const lighthouselog::Event &e, double ringTime);
+	// The driver's own station moves and universe tilt (LighthouseLog.h):
+	// no state but the last tilt, and a log line for a live one.
+	std::string DescribeStationChange(const lighthouselog::Event &e);
 
 	enum class UniverseStage { Unknown, Down, Chosen };
 
@@ -196,6 +207,9 @@ private:
 	uint64_t universeId = 0;
 	double universeChosenAt = -1e9;        // ring seconds
 	double quitAt = -1e9;                  // ring seconds of the last quit line
+	// The last tilt this server session took, and the station it took it from.
+	uint32_t tiltStation = 0;
+	double tiltPitch = 0.0, tiltRoll = 0.0;
 	// The first device line since the universe went down, which starts the
 	// wait for the driver to choose one.
 	bool trackedWhileDown = false;
