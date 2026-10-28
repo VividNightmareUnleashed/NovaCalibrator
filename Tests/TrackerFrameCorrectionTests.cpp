@@ -5,6 +5,8 @@
 #include "../Overlay/TrackerFrameCorrections.h"
 #include "../Overlay/ContinuousAlignment.h"
 #include "../Overlay/DriverSession.h"
+#include "../Overlay/DriverSyncTracker.h"
+#include "../Overlay/DriverWorker.h"
 #include "../Overlay/CalibrationRun.h"
 #include "../Overlay/CollectionSource.h"
 #include "../Overlay/LighthouseVisibility.h"
@@ -12,14 +14,19 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <filesystem>
 #include <initializer_list>
 #include <limits>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -1498,7 +1505,8 @@ void SwitchOverflow(Check check)
 }
 
 // Sequences SteamVR makes rarely: a tracker off while its station is placed or
-// re-solved, and re-solves in a row.
+// re-solved, re-solves in a row, and the pose stream starting over while a
+// followed move is still on its way to the driver.
 namespace
 {
 // A stationary device's sample, at `local` in the given frame.
@@ -1765,6 +1773,206 @@ void ChangesInARow(Check check)
 	check("frame watch: two changes in a row wait as one and follow the lead for both", off9 < 1e-6 && off10 < 1e-6, detail);
 }
 
+// A followed move whose synchronization waits behind one still in flight, when
+// the overlay's pose stream starts over before that one returns:
+// StartFrameSession resets the corrections and submits the recovery request,
+// which replaces the waiting synchronization (DriverWorker keeps only the
+// newest), so the driver's checkpoint never holds the move. The recovery,
+// answered by the same driver session, gives back the corrections the overlay
+// kept, the move in them; from the checkpoint it brought the correction back
+// without it. The worker, the driver session, the driver and the corrections
+// are the real ones, Keep and Recover among them; the overlay's glue
+// (SynchronizeCalibrationDriver's request, StartFrameSession,
+// PollCalibrationDriver's verdict filter and ApplyCompletion) is transcribed.
+void MoveKeptAcrossStreamRestart(Check check)
+{
+	Fixture f(false);
+	f.driver->SetSessionForTest(41);
+	std::mutex gateMutex;
+	std::condition_variable gateWake;
+	bool gateArmed = false, gateOpen = false;
+	std::atomic<bool> blocked{ false };
+	std::mutex seenMutex;
+	// Device 9's correction (its x translation) in each state the driver took.
+	std::vector<double> reached9;
+	questcal::DriverWorker worker;
+	worker.Start([&](const protocol::Request &request)
+	{
+		if (request.type == protocol::RequestSetRuntimeState)
+		{
+			std::unique_lock<std::mutex> lock(gateMutex);
+			if (gateArmed && !gateOpen)
+			{
+				blocked = true;
+				gateWake.wait(lock, [&] { return gateOpen; });
+			}
+		}
+		questcal::DriverTransportResult result;
+		result.completed = true;
+		result.connectionGeneration = 1;
+		f.driver->GetRuntimeState(result.response);
+		if (request.type == protocol::RequestHandshake)
+			result.response.type = protocol::ResponseHandshake;
+		else if (request.type == protocol::RequestGetRuntimeState)
+			result.response.type = protocol::ResponseRuntimeState;
+		else
+		{
+			result.response.type = f.driver->TrySetRuntimeState(request.setRuntimeState)
+				? protocol::ResponseSuccess : protocol::ResponseInvalid;
+			std::lock_guard<std::mutex> lock(seenMutex);
+			reached9.push_back(request.setRuntimeState.frames[9].translation.v[0]);
+		}
+		return result;
+	});
+
+	// The overlay's state: ctx.frameDriverSession, ctx.frameRecoveryPending
+	// (InitCalibrator) and ctx.framesBeforeSession.
+	uint64_t session = 0;
+	bool pending = true;
+	questcal::TrackerFrameCorrections::Kept kept;
+	const uint64_t profileKey = 73;
+	auto job = [&]()
+	{
+		questcal::DriverStateJob j;
+		auto &request = j.request;
+		request.enabled = true;
+		request.desired.referenceTrackingSystem = "reference";
+		request.desired.targetTrackingSystem = "lighthouse";
+		request.desired.rotation = Q(f.state.transform.rotation.w, f.state.transform.rotation.x,
+			f.state.transform.rotation.y, f.state.transform.rotation.z);
+		request.desired.translationMeters = V(f.state.transform.translation.v);
+		request.desired.scale = f.state.transform.scale;
+		request.frames = f.corrections.Snapshot();
+		request.frameProfileKey = profileKey;
+		request.driverSessionId = session;
+		request.recoverFrames = pending;
+		for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+		{
+			request.frameSerialKeys[id] = f.corrections.IdentityKey(id);
+			if (!f.corrections.Serial(id).empty())
+				request.frameBoundMask |= uint64_t{1} << id;
+			auto &device = j.devices[id];
+			device.id = id;
+			if (id == 0 || (id >= 9 && id < 14))
+			{
+				device.deviceClass = id == 0 ? questcal::SyncDeviceClass::Hmd : questcal::SyncDeviceClass::Other;
+				device.trackingSystemKnown = true;
+				device.trackingSystem = id == 0 ? "reference" : "lighthouse";
+			}
+		}
+		j.time = f.time;
+		return j;
+	};
+	questcal::DriverSyncTracker tracker;
+	auto submit = [&]()
+	{
+		const auto s = worker.Submit(job());
+		tracker.NoteSubmission(s.sequence, s.stateChanged);
+		return s.sequence;
+	};
+	std::string answered;
+	// PollCalibrationDriver until `sequence` is answered, with
+	// ApplyCompletion's frame part.
+	auto await = [&](uint64_t sequence)
+	{
+		questcal::DriverCompletion completion;
+		for (int attempt = 0; attempt < 5000; ++attempt)
+		{
+			while (worker.Poll(completion))
+			{
+				const bool taken = tracker.NoteVerdict(completion.sequence, completion.result.synchronized);
+				char line[64];
+				std::snprintf(line, sizeof line, "%s%llu %s", answered.empty() ? "" : ", ",
+					static_cast<unsigned long long>(completion.sequence), taken ? "taken" : "ignored");
+				answered += line;
+				const auto &result = completion.result;
+				if (taken && result.synchronized)
+				{
+					session = result.driverSessionId;
+					if (pending && result.recoveryChecked)
+					{
+						f.corrections.Recover(kept, result.driverSessionId, profileKey, result.framesRecovered,
+							result.frameProfileKey, result.frames, result.frameSerialKeys);
+						kept = {};
+						pending = false;
+					}
+				}
+				if (completion.sequence == sequence)
+					return true;
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		return false;
+	};
+
+	// The overlay starts (StartFrameSession at its first tick): nothing to
+	// recover yet.
+	bool pass = await(submit()) && session == 41 && !pending;
+	// A periodic synchronization that the driver is slow to answer.
+	{
+		std::lock_guard<std::mutex> lock(gateMutex);
+		gateArmed = true;
+	}
+	const uint64_t slow = submit();
+	for (int attempt = 0; attempt < 5000 && !blocked; ++attempt)
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	// Device 9's station is re-solved: 3 degrees about the vertical and 4 cm.
+	// The move is followed and synchronized (CompensateTrackerFrameMoves); that
+	// request waits.
+	const Q rotation(Eigen::AngleAxisd(3.0 * questcal::Pi / 180.0, V::UnitY()));
+	const V translation(0.04, 0, 0.01);
+	f.time += 0.01;
+	{
+		auto &s = f.raw[0];
+		const auto parts = UnpackRingSample(s);
+		s.worldFromDriverRotation = questcal::WireQuaternion((rotation * parts.wfdRot).normalized());
+		const V origin = rotation * parts.wfdTrans + translation;
+		for (int axis = 0; axis < 3; ++axis) s.worldFromDriverTranslation[axis] = origin(axis);
+	}
+	const size_t movesBefore = f.moves;
+	f.Observe();
+	const auto followed = f.corrections.Snapshot()[9];
+	const uint64_t carrying = submit();
+	// The pose stream starts over (a failed drain): StartFrameSession's steps,
+	// then the binding of the serials SynchronizeCalibrationDriver reads.
+	kept = f.corrections.Keep(session, profileKey);
+	session = 0;
+	pending = true;
+	f.corrections.Reset();
+	for (uint32_t i = 0; i < 5; ++i)
+		f.corrections.Bind(9 + i, "tracker-" + std::to_string(i));
+	const uint64_t recovery = submit();
+	{
+		std::lock_guard<std::mutex> lock(gateMutex);
+		gateOpen = true;
+	}
+	gateWake.notify_all();
+	pass &= await(recovery) && !pending;
+	const auto restored = f.corrections.Snapshot()[9];
+	// The next periodic synchronization publishes what the overlay now holds.
+	pass &= await(submit());
+	worker.Stop();
+	const V at9(-0.5, 1.7, 0.2);
+	const double shortBy = CorrectionShift(restored, followed, at9);
+	const double error = f.Error();
+	std::string driverSaw;
+	for (double x : reached9)
+	{
+		char line[32];
+		std::snprintf(line, sizeof line, "%s%.3f", driverSaw.empty() ? "" : " ", x);
+		driverSaw += line;
+	}
+	char detail[512];
+	std::snprintf(detail, sizeof detail,
+		"move followed %zu; requests: start 1, slow %llu, the move's %llu, the recovery %llu; answered: %s; "
+		"device 9's correction x in each state the driver took: %s; restored correction %.1f cm short of the "
+		"followed one; driver output after the recovery off by %.1f cm",
+		f.moves - movesBefore, static_cast<unsigned long long>(slow), static_cast<unsigned long long>(carrying),
+		static_cast<unsigned long long>(recovery), answered.c_str(), driverSaw.c_str(), shortBy * 100.0, error * 100.0);
+	check("frame corrections: a move followed just before the pose stream starts over is kept by the recovery",
+		pass && shortBy < 1e-6 && error < 1e-6, detail);
+}
+
 void RunTrackerFrameCorrectionScenarios(Check check)
 {
 	SplitFrames(check);
@@ -1787,4 +1995,5 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	LeadByAnyChain(check);
 	FrameJoinedOnReturn(check);
 	ChangesInARow(check);
+	MoveKeptAcrossStreamRestart(check);
 }

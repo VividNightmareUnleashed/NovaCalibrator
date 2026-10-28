@@ -119,23 +119,27 @@ void ApplyCompletion(CalibrationContext &ctx,
 		ctx.frameDriverSession = result.driverSessionId;
 		if (ctx.frameRecoveryPending && result.recoveryChecked)
 		{
-			if (result.framesRecovered && result.frameProfileKey == FrameProfileKey(
-				ctx.referenceTrackingSystem, ctx.targetTrackingSystem, ctx.profileHmdSerial, ctx.calibrationUnixTime))
-			{
-				auto recovered = result.frames;
-				auto keys = result.frameSerialKeys;
-				for (uint32_t id = 0; id < recovered.size(); ++id)
-					if (ctx.trackerFrames.IdentityKey(id) != 0 &&
-						result.frameSerialKeys[id] != ctx.trackerFrames.IdentityKey(id))
-					{
-						recovered[id] = {};
-						keys[id] = ctx.trackerFrames.IdentityKey(id);
-					}
-				ctx.trackerFrames.Restore(recovered, keys);
+			using Recovered = questcal::TrackerFrameCorrections::Recovered;
+			const Recovered how = ctx.trackerFrames.Recover(ctx.framesBeforeSession, result.driverSessionId,
+				FrameProfileKey(ctx.referenceTrackingSystem, ctx.targetTrackingSystem, ctx.profileHmdSerial,
+					ctx.calibrationUnixTime),
+				result.framesRecovered, result.frameProfileKey, result.frames, result.frameSerialKeys);
+			if (how != Recovered::None)
 				++ctx.trackerFrameEpoch;
+			if (how == Recovered::Kept)
+			{
+				// The driver took its checkpoint with this answer: the next
+				// scan gives it these.
+				ctx.timeLastScan = -1e9;
+				ctx.Log("Kept the tracker frame corrections across the pose stream's restart in the same "
+					"SteamVR driver session.\n");
+			}
+			else if (how == Recovered::Checkpoint)
+			{
 				ctx.Log("Restored tracker frame corrections from the current SteamVR driver session. "
 					"Frame changes while the overlay was closed were not observed.\n");
 			}
+			ctx.framesBeforeSession = {};
 			ctx.frameRecoveryPending = false;
 		}
 	}

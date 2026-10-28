@@ -60,6 +60,11 @@ static uint64_t FrameStreamBoundary = 0;
 static void StartFrameSession(CalibrationContext &ctx, uint64_t boundary)
 {
 	FrameStreamBoundary = boundary;
+	// Kept for a recovery from the same driver session (ApplyCompletion),
+	// unless a recovery is already waiting: the corrections are reset then.
+	if (!ctx.frameRecoveryPending)
+		ctx.framesBeforeSession = ctx.trackerFrames.Keep(ctx.frameDriverSession, questcal::FrameProfileKey(
+			ctx.referenceTrackingSystem, ctx.targetTrackingSystem, ctx.profileHmdSerial, ctx.calibrationUnixTime));
 	ctx.frameDriverSession = 0;
 	ctx.frameRecoveryPending = true;
 	ctx.ResetTrackerFrames();

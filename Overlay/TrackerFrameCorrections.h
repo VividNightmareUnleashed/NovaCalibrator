@@ -28,6 +28,55 @@ public:
 		usableAfter.fill(-1e300);
 	}
 
+	// The corrections a new frame session resets, with the driver session they
+	// were synchronized with and their profile's key. A recovery answered by
+	// that same driver session gives these back (Recover): they hold every
+	// move followed, and the driver's checkpoint misses one whose
+	// synchronization was still waiting when the recovery request replaced it
+	// (replayed: 6.2 cm at the tracker).
+	struct Kept
+	{
+		uint64_t driverSession = 0;
+		uint64_t profileKey = 0;
+		Frames frames{};
+		FrameSerialKeys keys{};
+	};
+	Kept Keep(uint64_t driverSession, uint64_t profileKey) const
+	{
+		Kept kept;
+		if (driverSession == 0 || profileKey == 0)
+			return kept;
+		kept.driverSession = driverSession;
+		kept.profileKey = profileKey;
+		kept.frames = frames;
+		kept.keys = restoredKeys;
+		return kept;
+	}
+
+	enum class Recovered { None, Kept, Checkpoint };
+	// A recovery's answer: the kept corrections when it came from their driver
+	// session for their profile, the driver's checkpoint when it has one for
+	// the profile, or nothing (the corrections start over). A device bound
+	// since to another identity than the correction's starts over too.
+	Recovered Recover(const Kept &kept, uint64_t answerSession, uint64_t profileKey, bool checkpointFound,
+		uint64_t checkpointProfileKey, const Frames &checkpoint, const FrameSerialKeys &checkpointKeys)
+	{
+		const bool own = kept.driverSession != 0 && kept.driverSession == answerSession && profileKey != 0 &&
+			kept.profileKey == profileKey;
+		if (!own && !(checkpointFound && checkpointProfileKey == profileKey))
+			return Recovered::None;
+		Frames recovered = own ? kept.frames : checkpoint;
+		FrameSerialKeys keys = own ? kept.keys : checkpointKeys;
+		for (uint32_t id = 0; id < recovered.size(); ++id)
+			if (restoredKeys[id] != 0 && keys[id] != restoredKeys[id])
+			{
+				recovered[id] = {};
+				keys[id] = restoredKeys[id];
+			}
+		Restore(recovered, keys);
+		return own ? Recovered::Kept : Recovered::Checkpoint;
+	}
+
 	// OpenVR normally keeps indices for a server session. Still retire an old
 	// correction if a known serial changes; a failed property read is not a
 	// new identity and must not erase a returning tracker's correction.

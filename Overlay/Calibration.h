@@ -166,6 +166,9 @@ struct CalibrationContext : CalibrationProfileState
 	uint64_t trackerFrameEpoch = 0;
 	uint64_t frameDriverSession = 0;
 	bool frameRecoveryPending = false;
+	// The tracker frame corrections the last new frame session reset, for a
+	// recovery from the same driver session (TrackerFrameCorrections::Keep).
+	questcal::TrackerFrameCorrections::Kept framesBeforeSession;
 	void ResetTrackerFrames()
 	{
 		trackerFrames.Reset();
