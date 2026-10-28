@@ -459,16 +459,10 @@ void JumpDetector::EvaluatePendingCandidates()
 		c.rot = YawQuat(dYaw);
 		c.trans = postPos - c.rot * prePos;
 		c.life = Life::Ready;
-		const auto used = std::find_if(c.acceptedWhilePending.begin(), c.acceptedWhilePending.end(),
-			[&](const AcceptedStep &a)
-			{
-				return (c.trans - a.translation).norm() < config.agreePosTol &&
-					std::abs(WrapAngle(dYaw - a.yaw)) < config.agreeYawTolRad;
-			});
-		if (used != c.acceptedWhilePending.end())
+		if (AcceptedStep *followed = OwedFollowUp(c))
 		{
-			Drop(c, Format("the step accepted at %.3f s, still being fitted when it was: its evidence is used",
-				used->t));
+			followed->owed.reset(c.deviceId);
+			Drop(c, Format("the follow-up of the step accepted at %.3f s: its evidence is used", followed->t));
 			continue;
 		}
 
@@ -541,8 +535,38 @@ bool JumpDetector::HeldPositionSignature(const std::vector<Hist> &window)
 	return false;
 }
 
+JumpDetector::AcceptedStep *JumpDetector::OwedFollowUp(const Candidate &c)
+{
+	if (c.deviceId == vr::k_unTrackedDeviceIndex_Hmd)
+		return nullptr;
+	const double yaw = YawOf(c.rot);
+	for (auto &a : recentAccepts)
+		if (a.owed.test(c.deviceId) && c.t - a.t >= -config.controllerLeadSeconds && c.t <= a.followDeadline &&
+			(c.trans - a.translation).norm() < config.agreePosTol &&
+			std::abs(WrapAngle(yaw - a.yaw)) < config.agreeYawTolRad)
+			return &a;
+	return nullptr;
+}
+
 void JumpDetector::TryAccept()
 {
+	// Accepted steps whose follow-ups no longer fall due: every owing device
+	// has followed, or the windows have closed with no step of theirs still
+	// being fitted inside them.
+	const double streamNow = devices[vr::k_unTrackedDeviceIndex_Hmd].lastValidTime;
+	recentAccepts.erase(
+		std::remove_if(recentAccepts.begin(), recentAccepts.end(),
+			[&](const AcceptedStep &a) {
+				if (a.owed.none())
+					return true;
+				if (streamNow <= a.followDeadline + config.window)
+					return false;
+				return std::none_of(candidates.begin(), candidates.end(), [&](const Candidate &c) {
+					return c.PendingHeuristic() && a.owed.test(c.deviceId) && c.t <= a.followDeadline;
+				});
+			}),
+		recentAccepts.end());
+
 	// Exact path: a worldFromDriver rebase on the HMD is authoritative (the
 	// HMD defines the reference universe). Agreement from other devices is a
 	// sanity check, not a requirement. Evaluate it before heuristic guards:
@@ -684,32 +708,32 @@ void JumpDetector::TryAccept()
 					c0.deviceId, StepCompanions(c0, now).c_str()));
 			// Discard this step's evidence: its headset candidates, each
 			// confirming device's steps up to the one it confirmed with (the same
-			// event in adjacent fit windows), and another device's step that
-			// matches this one (the same event, from a device that did not vote).
-			// Every other step stays, whatever its time: it may confirm a later
-			// headset step still waiting for its own confirmation. Clearing
-			// everything lost the second of two held map switches; clearing by
-			// time lost it too when the second switch's confirmation came before
-			// the step that confirmed the first.
+			// event in adjacent fit windows), and the follow-up each device that
+			// did not vote owes it, the first of its steps that matches this one,
+			// made already or still to come. Every other step stays, whatever its
+			// time: it may confirm a later headset step still waiting for its own
+			// confirmation. Clearing everything lost the second of two held map
+			// switches; clearing by time lost it too when the second switch's
+			// confirmation came before the step that confirmed the first. A
+			// device whose own step for this one was lost to a spoilt fit still
+			// owes it one, so its next matching step inside the windows is taken
+			// for that.
 			const double stepTime = c0.t;
 			const double followDeadline = c0.followDeadline;
 			std::array<double, vr::k_unMaxTrackedDeviceCount> usedUntil;
 			usedUntil.fill(-std::numeric_limits<double>::infinity());
 			for (const auto *a : agree)
 				usedUntil[a->deviceId] = std::max(usedUntil[a->deviceId], a->t);
-			const double acceptedYaw = YawOf(d.rotation);
-			auto inWindows = [&](const Candidate &c)
-			{
-				return c.t - stepTime >= -config.controllerLeadSeconds && c.t <= followDeadline;
-			};
-			// A step still being fitted has no delta yet to compare: it is
-			// compared once fitted (EvaluatePendingCandidates). Matched on its
-			// unset delta it could pass for a small accepted step, and kept
-			// unmarked it would confirm the next headset step of this size.
-			for (auto &c : candidates)
-				if (c.deviceId != vr::k_unTrackedDeviceIndex_Hmd && c.PendingHeuristic() &&
-					c.t > usedUntil[c.deviceId] && inWindows(c))
-					c.acceptedWhilePending.push_back({ stepTime, d.translation, acceptedYaw });
+			// Every device seen that took no part owes this step a follow-up,
+			// already made or still to come (OwedFollowUp). A step still being
+			// fitted is judged once it is: compared now on its unset delta it
+			// could pass for a small accepted step.
+			AcceptedStep step{ stepTime, followDeadline, d.translation, YawOf(d.rotation), {} };
+			for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+				if (id != vr::k_unTrackedDeviceIndex_Hmd && devices[id].lastValidTime >= 0.0 &&
+					usedUntil[id] == -std::numeric_limits<double>::infinity())
+					step.owed.set(id);
+			recentAccepts.push_back(step);
 			candidates.erase(
 				std::remove_if(candidates.begin(), candidates.end(),
 					[&](const Candidate &c) {
@@ -717,9 +741,10 @@ void JumpDetector::TryAccept()
 							return c.kind != Kind::Heuristic || c.t <= stepTime;
 						if (c.t <= usedUntil[c.deviceId])
 							return true;
-						return !c.PendingHeuristic() && inWindows(c) &&
-							(c.trans - d.translation).norm() < config.agreePosTol &&
-							std::abs(WrapAngle(YawOf(c.rot) - acceptedYaw)) < config.agreeYawTolRad;
+						if (!c.ReadyHeuristic() || OwedFollowUp(c) != &recentAccepts.back())
+							return false;
+						recentAccepts.back().owed.reset(c.deviceId);
+						return true;
 					}),
 				candidates.end());
 			return;
@@ -895,6 +920,7 @@ void JumpDetector::Reset()
 	}
 	candidates.clear();
 	accepted.clear();
+	recentAccepts.clear();
 	gaps.clear();
 	notes.clear();
 	details.clear();

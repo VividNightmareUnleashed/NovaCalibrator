@@ -380,6 +380,32 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 		r.count == 1 && std::abs(r.total - .4) < 1e-8,
 		"switch led by one controller and matched in its frame by the other; the next switch has no evidence of its own");
 
+	// That controller follows the switch only after it was accepted. It owed
+	// the switch a follow-up, so its step is that follow-up and confirms
+	// nothing more; with no other step behind it, the headset's next switch of
+	// the same size waits for its own.
+	r = Replay([](int f, uint32_t id)
+	{
+		if (id == 0) return (f >= 150 ? .4 : 0.) + (f >= 450 ? .4 : 0.);
+		if (id == 1) return f >= 100 ? .4 : 0.;
+		return f >= 175 ? .4 : 0.;
+	}, {0, 1, 2}, 900, true);
+	check("recovery: a follow-up after the accept does not confirm the next switch",
+		r.count == 1 && std::abs(r.total - .4) < 1e-8,
+		"switch accepted on one controller's lead, the other following 0.05 s after the accept; the next switch has no evidence of its own");
+
+	// Having followed, the controller steps again 0.5 s ahead of the
+	// headset's next switch of the same size: a new step, which confirms it.
+	r = Replay([](int f, uint32_t id)
+	{
+		if (id == 0) return (f >= 150 ? .4 : 0.) + (f >= 450 ? .4 : 0.);
+		if (id == 1) return f >= 100 ? .4 : 0.;
+		return (f >= 175 ? .4 : 0.) + (f >= 400 ? .4 : 0.);
+	}, {0, 1, 2}, 900, true);
+	check("recovery: a device that has followed a switch confirms the next one",
+		r.count == 2 && std::abs(r.total - .8) < 1e-8,
+		"the controller's follow-up used up, its next step of the same size leads the headset's next switch by 0.5 s");
+
 	// A controller lying still is locked by the engine's static prior and
 	// cannot step until the hand moves. The follow-up clock pauses while every
 	// other device is locked, so the same 31.5 s step confirms, and a locked

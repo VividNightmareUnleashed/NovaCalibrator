@@ -244,13 +244,18 @@ private:
 		Eigen::Vector3d previousTranslation{ 0, 0, 0 };
 	};
 
-	// A step accepted while another device's candidate was still being
-	// fitted: its delta, to compare with that candidate's once it has one.
+	// An accepted step whose follow-ups are still owed. Each device that took
+	// no part in it owes one, within its windows: that device's first step
+	// there matching the accepted delta, judged once fitted, is its follow-up,
+	// the same event's evidence, already used. A later step stays, as new
+	// evidence (TryAccept, OwedFollowUp).
 	struct AcceptedStep
 	{
 		double t = 0.0;
+		double followDeadline = 0.0;
 		Eigen::Vector3d translation{ 0, 0, 0 };
 		double yaw = 0.0;
+		std::bitset<vr::k_unMaxTrackedDeviceCount> owed;
 	};
 
 	struct Candidate
@@ -299,10 +304,6 @@ private:
 		// engine; self-tracked ones follow their own map).
 		bool catchUpShaped = false;
 		std::bitset<vr::k_unMaxTrackedDeviceCount> steppedWith;
-		// Another device: the steps accepted while this one was still being
-		// fitted, within whose windows it lies. Fitted, it is dropped if it is
-		// one of them, that step's evidence already used (TryAccept).
-		std::vector<AcceptedStep> acceptedWhilePending;
 
 		// The filters every consumer needs, once each.
 		bool LiveExact() const { return kind == Kind::Exact && life != Life::Dead; }
@@ -386,6 +387,9 @@ private:
 	DeviceState devices[vr::k_unMaxTrackedDeviceCount];
 	std::vector<Candidate> candidates;
 	std::deque<UniverseDelta> accepted;
+	std::vector<AcceptedStep> recentAccepts;
+	// The accepted step `c` is the owed follow-up of, if any.
+	AcceptedStep *OwedFollowUp(const Candidate &c);
 	std::deque<GapEvent> gaps;
 	std::deque<std::string> notes;
 	double lastAcceptTime = -1e9;
