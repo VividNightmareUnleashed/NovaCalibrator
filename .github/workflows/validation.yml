@@ -159,8 +159,11 @@ jobs:
           $env:TLA2TOOLS_JAR = $jar
           $env:JAVA_HOME = $env:JAVA_HOME_17_X64
           $env:Path = "$env:JAVA_HOME_17_X64\bin;$env:Path"
-          pwsh -NoProfile -File VirtualQuest\formal\check.ps1 -Only Traces
-          if ($LASTEXITCODE -ne 0) { throw 'A recorded hub run is not a behaviour of the model.' }
+          # The private suite's output stays off this public log: the wrapper
+          # keeps it in the runner's temp folder and prints the counts alone.
+          python tools\ci\run-private-check.py --label 'traces' --raw "$env:RUNNER_TEMP\traces-raw.json" -- `
+            pwsh -NoProfile -File VirtualQuest\formal\check.ps1 -Only Traces -ResultPath "$env:RUNNER_TEMP\traces-raw.json"
+          if ($LASTEXITCODE -ne 0) { throw 'A recorded hub or verdict run is not a behaviour of its model.' }
 
       # Every preview screen in each language (tools\check-screens.ps1), drawn
       # by the build's executable through Mesa's software OpenGL: a screen that
