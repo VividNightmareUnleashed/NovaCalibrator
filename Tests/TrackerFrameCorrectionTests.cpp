@@ -1291,8 +1291,9 @@ void StartupReplacements(Check check)
 
 // A device whose old-frame samples outlast the lag tolerance cannot have the
 // move read off the others, and a later change of its frame comes while that
-// one still waits: the first is settled as a switch rather than dropped, and
-// the device takes the frame's correction.
+// one still waits: the two wait as one rather than the first being dropped,
+// are settled as one switch when the first would have been, and the device
+// takes the frame's correction.
 void SupersededInference(Check check)
 {
 	ReplayRig rig;
@@ -1307,7 +1308,10 @@ void SupersededInference(Check check)
 	// own pose jumping, and jumping again with the next move.
 	rig.devices[10] = { V(0.59, 0.35, -2.18), 1.0, 0.0, { { 0.0, 0 }, { 6.5, 1 }, { 7.0, 2 } },
 		{ { 6.5, V(0.63, 0.33, -2.12) }, { 7.0, V(0.60, 0.38, -2.15) } }, {}, {} };
-	rig.RunUntil(9.0);
+	// The two changes wait as one, from frame 0, and no move leads there from
+	// it within the lag: settled as one switch when the first would have been,
+	// at 11.5 s, and joined.
+	rig.RunUntil(12.5);
 	size_t jumped = 0;
 	for (const auto &o : rig.outcomes)
 		jumped += o.change.id == 10 && o.change.cause == LighthouseFrameWatch::Switch::Cause::OwnJump &&
@@ -1315,7 +1319,7 @@ void SupersededInference(Check check)
 	char detail[200];
 	std::snprintf(detail, sizeof detail, "disagreeing with device 1: %s; joins after an own jump %zu; error %.2f mm",
 		rig.Disagreeing(1).c_str(), jumped, rig.Error(10) * 1000.0);
-	check("frame watch: a change still waiting when the device changes again is settled as a switch and joined",
+	check("frame watch: a change still waiting when the device changes again waits with it and settles with it",
 		rig.Disagreeing(1) == "none" && jumped == 1 && rig.Error(10) < 0.001, detail);
 }
 
@@ -1662,6 +1666,66 @@ void LeadByAnyChain(Check check)
 	check("frame watch: a change any chain of the other devices' moves leads to is handed as a move", pass, out.c_str());
 }
 
+// The headset tracker's own pose jumps at two re-solves of its station in a
+// row; the lead for the first comes a moment after the second, from a device a
+// solve behind. The two changes wait as one, and the headset tracker follows
+// both. Settled as a switch when the second came, the first had the headset
+// tracker give a correction that never followed it to the device that did.
+void ChangesInARow(Check check)
+{
+	using Membership = questcal::TrackerFrameCorrections::Membership;
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections frames;
+	const Q e0 = Q::Identity();
+	const Q e1(Eigen::AngleAxisd(0.020, V::UnitY()));
+	const Q e2(Eigen::AngleAxisd(0.045, V::UnitY()));
+	const V t0(0, 0, 0), t1(0.03, 0, 0.01), t2(0.07, 0, 0.02);
+	const V at9(0.4, 1.0, -0.6), at10(-0.3, 0.9, 0.5);
+	std::string joins;
+	size_t followed = 0;
+	for (double t = 10.0; t < 17.0; t += 0.05)
+	{
+		// The station is a solve behind the headset tracker; device 10 is a
+		// solve behind the station.
+		Q sr = e0, r9 = e0, r10 = e0;
+		V st = t0, tr9 = t0, tr10 = t0, local9 = at9;
+		if (t >= 10.5 - 1e-9) { r9 = e1; tr9 = t1; local9 = at9 + V(0.05, 0, 0); }
+		if (t >= 10.6 - 1e-9) { sr = e2; st = t2; r9 = e2; tr9 = t2; local9 = at9 + V(0.10, 0, 0); }
+		if (t >= 10.65 - 1e-9) { r10 = e1; tr10 = t1; }
+		if (t >= 10.7 - 1e-9) { r10 = e2; tr10 = t2; }
+		watch.Note(ReplaySample(1, t, V::Zero(), sr, st), TickScale, true);
+		watch.Note(ReplaySample(9, t, local9, r9, tr9), TickScale, false);
+		watch.Note(ReplaySample(10, t, at10, r10, tr10), TickScale, false);
+		auto moves = watch.TakeMoves();
+		std::stable_sort(moves.begin(), moves.end(), [](const auto &a, const auto &b) { return a.time < b.time; });
+		for (const auto &move : moves)
+			followed += frames.Follow(move) ? 1 : 0;
+		for (const auto &o : frames.JoinSwitches(watch.TakeSwitches(), watch, 9, vr::k_unTrackedDeviceIndexInvalid,
+			[](uint32_t, double) { return Membership::Target; }, [](uint32_t id) { return id == 9 || id == 10; }))
+			for (const auto &j : o.result.joined)
+			{
+				char line[96];
+				std::snprintf(line, sizeof line, "%sdevice %u took device %u's at %.2f", joins.empty() ? "" : ", ",
+					j.id, j.source, t);
+				joins += line;
+			}
+	}
+	// Both are in E2 and moved with their station from E0: the right correction
+	// takes E2 back to E0.
+	protocol::FrameCorrection right;
+	const Q n = (e0 * e2.conjugate()).normalized();
+	right.rotation = { n.w(), n.x(), n.y(), n.z() };
+	const V nt = t0 - n * t2;
+	for (int axis = 0; axis < 3; ++axis)
+		right.translation.v[axis] = nt(axis);
+	const double off9 = CorrectionShift(frames.Snapshot()[9], right, at9);
+	const double off10 = CorrectionShift(frames.Snapshot()[10], right, at10);
+	char detail[320];
+	std::snprintf(detail, sizeof detail, "moves followed %zu; joins: %s; off the right correction: device 9 %.1f mm, device 10 %.1f mm",
+		followed, joins.empty() ? "none" : joins.c_str(), off9 * 1000.0, off10 * 1000.0);
+	check("frame watch: two changes in a row wait as one and follow the lead for both", off9 < 1e-6 && off10 < 1e-6, detail);
+}
+
 void RunTrackerFrameCorrectionScenarios(Check check)
 {
 	SplitFrames(check);
@@ -1682,4 +1746,5 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	CollectionFallback(check);
 	SetupPlacementOnReturn(check);
 	LeadByAnyChain(check);
+	ChangesInARow(check);
 }

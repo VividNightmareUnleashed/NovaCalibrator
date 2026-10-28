@@ -630,6 +630,9 @@ private:
 		Eigen::Quaterniond toRot{ 1, 0, 0, 0 };
 		Eigen::Vector3d toTrans{ 0, 0, 0 };
 		Eigen::Vector3d at{ 0, 0, 0 };   // the device's local position, for each move's shift
+		// When its first change came: changes merged into it wait no longer
+		// than that one would have.
+		double firstChange = 0.0;
 	};
 
 	void AddTransition(const Device &was, const Device &is)
@@ -733,27 +736,43 @@ private:
 		f.move.id = id;
 		f.move.time = is.time;
 		f.move.frameTime = is.time;
-		f.move.rotation = (is.wfdRot * was.wfdRot.conjugate()).normalized();
-		f.move.translation = is.wfdTrans - f.move.rotation * was.wfdTrans;
-		f.move.shiftM = ((is.wfdRot * is.drvPos + is.wfdTrans) - (was.wfdRot * is.drvPos + was.wfdTrans)).norm();
 		f.move.returned = returned;
-		f.move.ownJump = !returned;
-		SetFrames(f.move, was, is);
 		f.since = Since(was);
 		f.fromRot = was.wfdRot;
 		f.fromTrans = was.wfdTrans;
 		f.toRot = is.wfdRot;
 		f.toTrans = is.wfdTrans;
 		f.at = is.drvPos;
-		// A change of the same device still waiting is settled before the
-		// newer one: no move led to it so far, and dropping it would leave
-		// the device's correction short of it with nothing said (live
-		// 2026-10-15: a 17.8 cm move lost this way, 4 s before it expired).
+		f.firstChange = is.time;
+		// A change of the same device still waiting for its lead is part of
+		// this one: the two wait as one change, from the older one's frame and
+		// no longer than the older one would have, and a lead for both lets the
+		// device follow both. Settled on its own, the older one was a switch
+		// whose join had the device give or take a correction short of the
+		// move the lead for it, coming a moment later, would have followed (the
+		// headset tracker after two re-solves in a row, replayed: 18 and 43 mm
+		// at its frame's devices); dropped, it left the device's correction
+		// short of it with nothing said (live 2026-10-15: a 17.8 cm move lost
+		// this way, 4 s before it expired).
 		for (const auto &g : inferences)
 			if (g.move.id == id)
-				Settle(g);
+			{
+				f.since = (std::min)(f.since, g.since);
+				f.fromRot = g.fromRot;
+				f.fromTrans = g.fromTrans;
+				f.firstChange = (std::min)(f.firstChange, g.firstChange);
+				f.move.returned = f.move.returned || g.move.returned;
+			}
 		inferences.erase(std::remove_if(inferences.begin(), inferences.end(),
 			[id](const Inference &g) { return g.move.id == id; }), inferences.end());
+		f.move.ownJump = !f.move.returned;
+		f.move.rotation = (f.toRot * f.fromRot.conjugate()).normalized();
+		f.move.translation = f.toTrans - f.move.rotation * f.fromTrans;
+		f.move.shiftM = ((f.toRot * f.at + f.toTrans) - (f.fromRot * f.at + f.fromTrans)).norm();
+		f.move.fromRot = f.fromRot;
+		f.move.fromTrans = f.fromTrans;
+		f.move.toRot = f.toRot;
+		f.move.toTrans = f.toTrans;
 		const std::vector<Transition> lead = Lead(f);
 		if (!lead.empty())
 			HandLead(f, lead);
@@ -810,10 +829,10 @@ private:
 	{
 		const double cutoff = latestTime - config.inferSeconds;
 		for (const auto &f : inferences)
-			if (f.move.time < cutoff)
+			if (f.firstChange < cutoff)
 				Settle(f);
 		inferences.erase(std::remove_if(inferences.begin(), inferences.end(),
-			[cutoff](const Inference &f) { return f.move.time < cutoff; }), inferences.end());
+			[cutoff](const Inference &f) { return f.firstChange < cutoff; }), inferences.end());
 	}
 
 	static constexpr size_t MaxPendingMoves = 256;
