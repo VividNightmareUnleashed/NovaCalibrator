@@ -365,6 +365,21 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 		r.count == 2 && std::abs(r.total - .65) < 1e-8 && std::abs(r.last.translation.x() - .25) < 1e-8,
 		"first switch confirmed 2.9 s late by one controller, second confirmed 0.5 s early by the other");
 
+	// The same switch from a controller whose sample of the frame comes after
+	// the headset's: its step is still being fitted when the switch is
+	// accepted on the other controller's lead. Fitted, it is that switch's
+	// evidence, already used, and must not confirm the headset's next step of
+	// the same size 3 s later, which nothing else confirms.
+	r = Replay([](int f, uint32_t id)
+	{
+		if (id == 0) return (f >= 150 ? .4 : 0.) + (f >= 450 ? .4 : 0.);
+		if (id == 1) return f >= 100 ? .4 : 0.;
+		return f >= 150 ? .4 : 0.;
+	}, {0, 1, 2}, 900, true);
+	check("recovery: a step still being fitted at an accept does not confirm the next one",
+		r.count == 1 && std::abs(r.total - .4) < 1e-8,
+		"switch led by one controller and matched in its frame by the other; the next switch has no evidence of its own");
+
 	// A controller lying still is locked by the engine's static prior and
 	// cannot step until the hand moves. The follow-up clock pauses while every
 	// other device is locked, so the same 31.5 s step confirms, and a locked

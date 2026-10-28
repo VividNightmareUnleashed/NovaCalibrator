@@ -459,6 +459,18 @@ void JumpDetector::EvaluatePendingCandidates()
 		c.rot = YawQuat(dYaw);
 		c.trans = postPos - c.rot * prePos;
 		c.life = Life::Ready;
+		const auto used = std::find_if(c.acceptedWhilePending.begin(), c.acceptedWhilePending.end(),
+			[&](const AcceptedStep &a)
+			{
+				return (c.trans - a.translation).norm() < config.agreePosTol &&
+					std::abs(WrapAngle(dYaw - a.yaw)) < config.agreeYawTolRad;
+			});
+		if (used != c.acceptedWhilePending.end())
+		{
+			Drop(c, Format("the step accepted at %.3f s, still being fitted when it was: its evidence is used",
+				used->t));
+			continue;
+		}
 
 		// The shift is the step's translation about the stream origin; how far
 		// the device itself moved tells a turn about it (the heading alone
@@ -686,6 +698,18 @@ void JumpDetector::TryAccept()
 			for (const auto *a : agree)
 				usedUntil[a->deviceId] = std::max(usedUntil[a->deviceId], a->t);
 			const double acceptedYaw = YawOf(d.rotation);
+			auto inWindows = [&](const Candidate &c)
+			{
+				return c.t - stepTime >= -config.controllerLeadSeconds && c.t <= followDeadline;
+			};
+			// A step still being fitted has no delta yet to compare: it is
+			// compared once fitted (EvaluatePendingCandidates). Matched on its
+			// unset delta it could pass for a small accepted step, and kept
+			// unmarked it would confirm the next headset step of this size.
+			for (auto &c : candidates)
+				if (c.deviceId != vr::k_unTrackedDeviceIndex_Hmd && c.PendingHeuristic() &&
+					c.t > usedUntil[c.deviceId] && inWindows(c))
+					c.acceptedWhilePending.push_back({ stepTime, d.translation, acceptedYaw });
 			candidates.erase(
 				std::remove_if(candidates.begin(), candidates.end(),
 					[&](const Candidate &c) {
@@ -693,7 +717,7 @@ void JumpDetector::TryAccept()
 							return c.kind != Kind::Heuristic || c.t <= stepTime;
 						if (c.t <= usedUntil[c.deviceId])
 							return true;
-						return c.t - stepTime >= -config.controllerLeadSeconds && c.t <= followDeadline &&
+						return !c.PendingHeuristic() && inWindows(c) &&
 							(c.trans - d.translation).norm() < config.agreePosTol &&
 							std::abs(WrapAngle(YawOf(c.rot) - acceptedYaw)) < config.agreeYawTolRad;
 					}),

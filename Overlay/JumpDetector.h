@@ -244,6 +244,15 @@ private:
 		Eigen::Vector3d previousTranslation{ 0, 0, 0 };
 	};
 
+	// A step accepted while another device's candidate was still being
+	// fitted: its delta, to compare with that candidate's once it has one.
+	struct AcceptedStep
+	{
+		double t = 0.0;
+		Eigen::Vector3d translation{ 0, 0, 0 };
+		double yaw = 0.0;
+	};
+
 	struct Candidate
 	{
 		uint32_t deviceId = 0;
@@ -290,6 +299,10 @@ private:
 		// engine; self-tracked ones follow their own map).
 		bool catchUpShaped = false;
 		std::bitset<vr::k_unMaxTrackedDeviceCount> steppedWith;
+		// Another device: the steps accepted while this one was still being
+		// fitted, within whose windows it lies. Fitted, it is dropped if it is
+		// one of them, that step's evidence already used (TryAccept).
+		std::vector<AcceptedStep> acceptedWhilePending;
 
 		// The filters every consumer needs, once each.
 		bool LiveExact() const { return kind == Kind::Exact && life != Life::Dead; }
