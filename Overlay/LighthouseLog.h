@@ -152,8 +152,8 @@ std::string LogPathUnder(std::string steamFolder);
 // is held between polls and SteamVR can rename the file at its next start.
 // The first poll replays the tail of the existing file (so the current
 // visibility is known at once) with `historical` set; later polls return
-// only what was appended. A file that shrank was rotated and is read from
-// its start.
+// only what was appended. A file that shrank, or that is another file than
+// the last poll read, was rotated and is read from its start.
 class Tailer
 {
 public:
@@ -181,6 +181,12 @@ private:
 	bool available = false;
 	uint64_t linesSeen = 0;
 	uint64_t rotations = 0;
+	// Which file the path named at the last poll (its volume and file index),
+	// where the platform says: SteamVR's new log can outgrow the old one
+	// before a poll sees it.
+	bool fileKnown = false;
+	uint64_t fileVolume = 0;
+	uint64_t fileIndex = 0;
 };
 
 } // namespace lighthouselog

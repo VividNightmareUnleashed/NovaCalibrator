@@ -337,7 +337,28 @@ void TailerScenarios(Check check)
 		events.size() == 1 && !events[0].historical && events[0].channel == 8 &&
 		tail.Rotations() == 1, detail);
 
+	// SteamVR renames the old log at its next start and writes a new one,
+	// which can outgrow the old file before the next poll: a new file all the
+	// same, read from its start.
 	std::error_code ec;
+	events.clear();
+	const fs::path previous = dir / ("QuestCalLighthouseTail-" + std::to_string(stamp) + ".previous.txt");
+	fs::rename(path, previous, ec);
+	const bool renamed = !ec;
+	{
+		std::ofstream out(path, std::ios::binary);
+		out << noise << noise << a << b;
+	}
+	const uint64_t linesBefore = tail.LinesSeen();
+	tail.Poll(events);
+	snprintf(detail, sizeof detail, "renamed %d, events %zu, lines %llu, rotations %llu", renamed ? 1 : 0,
+		events.size(), static_cast<unsigned long long>(tail.LinesSeen() - linesBefore),
+		static_cast<unsigned long long>(tail.Rotations()));
+	check("lighthouse tail: a new file longer than the old one is read from its start",
+		renamed && events.size() == 2 && !events[0].historical && events[0].channel == 5 &&
+		events[1].channel == 8 && tail.LinesSeen() - linesBefore == 4 && tail.Rotations() == 2, detail);
+	fs::remove(previous, ec);
+
 	fs::remove(path, ec);
 
 	lighthouselog::Tailer missing((dir / "QuestCalLighthouseTail-missing.txt").string());

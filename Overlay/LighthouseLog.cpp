@@ -464,22 +464,107 @@ std::string LogPathUnder(std::string steam)
 	return steam + "\\logs\\vrserver.txt";
 }
 
+namespace
+{
+// The log as one poll reads it, through one handle, so its size, which file
+// the path names and its bytes cannot come from two files across a rotation.
+// Opened shared for writing and deleting: SteamVR keeps writing, and renames
+// it at its next start.
+struct LogFile
+{
+	bool open = false;
+	uint64_t size = 0;
+	bool identified = false;
+	uint64_t volume = 0;
+	uint64_t index = 0;
+
+	LogFile(const LogFile &) = delete;
+	LogFile &operator=(const LogFile &) = delete;
+
+#ifdef _WIN32
+	HANDLE handle = INVALID_HANDLE_VALUE;
+
+	explicit LogFile(const std::string &path)
+	{
+		handle = CreateFileA(path.c_str(), GENERIC_READ,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+			FILE_ATTRIBUTE_NORMAL, nullptr);
+		BY_HANDLE_FILE_INFORMATION info{};
+		if (handle == INVALID_HANDLE_VALUE || !GetFileInformationByHandle(handle, &info))
+			return;
+		open = true;
+		size = (static_cast<uint64_t>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
+		identified = true;
+		volume = info.dwVolumeSerialNumber;
+		index = (static_cast<uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
+	}
+
+	~LogFile()
+	{
+		if (handle != INVALID_HANDLE_VALUE)
+			CloseHandle(handle);
+	}
+
+	size_t Read(uint64_t offset, char *buffer, size_t want)
+	{
+		LARGE_INTEGER at;
+		at.QuadPart = static_cast<LONGLONG>(offset);
+		if (!SetFilePointerEx(handle, at, nullptr, FILE_BEGIN))
+			return 0;
+		size_t done = 0;
+		while (done < want)
+		{
+			DWORD got = 0;
+			const DWORD chunk = static_cast<DWORD>(std::min<size_t>(want - done, 1u << 20));
+			if (!ReadFile(handle, buffer + done, chunk, &got, nullptr) || got == 0)
+				break;
+			done += got;
+		}
+		return done;
+	}
+#else
+	std::ifstream in;
+
+	explicit LogFile(const std::string &path) : in(path, std::ios::binary)
+	{
+		if (!in)
+			return;
+		in.seekg(0, std::ios::end);
+		const std::streamoff end = in.tellg();
+		if (end < 0)
+			return;
+		open = true;
+		size = static_cast<uint64_t>(end);
+	}
+
+	size_t Read(uint64_t offset, char *buffer, size_t want)
+	{
+		in.seekg(static_cast<std::streamoff>(offset));
+		in.read(buffer, static_cast<std::streamsize>(want));
+		return static_cast<size_t>(in.gcount());
+	}
+#endif
+};
+} // namespace
+
 Tailer::Tailer(std::string p) : path(std::move(p)) { }
 
 void Tailer::Poll(std::vector<Event> &out)
 {
-	std::ifstream in(path, std::ios::binary);
-	if (!in)
+	LogFile file(path);
+	if (!file.open)
 	{
 		available = false;
 		return;
 	}
 	available = true;
-	in.seekg(0, std::ios::end);
-	const std::streamoff endPos = in.tellg();
-	if (endPos < 0)
-		return;
-	const uint64_t size = static_cast<uint64_t>(endPos);
+	const uint64_t size = file.size;
+	// Another file than the last poll read: rotated, however long it is now.
+	const bool replaced = fileKnown && file.identified &&
+		(file.volume != fileVolume || file.index != fileIndex);
+	fileKnown = file.identified;
+	fileVolume = file.volume;
+	fileIndex = file.index;
 
 	if (!primed)
 	{
@@ -489,7 +574,7 @@ void Tailer::Poll(std::vector<Event> &out)
 		replayEnd = size;
 		partial.clear();
 	}
-	else if (size < offset)
+	else if (size < offset || replaced)
 	{
 		// Rotated (SteamVR renamed the old file and started a new one) or
 		// truncated: whatever is there now is new.
@@ -504,9 +589,7 @@ void Tailer::Poll(std::vector<Event> &out)
 
 	const uint64_t want = std::min<uint64_t>(size - offset, MaxBytesPerPoll);
 	std::string buf(static_cast<size_t>(want), '\0');
-	in.seekg(static_cast<std::streamoff>(offset));
-	in.read(&buf[0], static_cast<std::streamsize>(want));
-	buf.resize(static_cast<size_t>(in.gcount()));
+	buf.resize(file.Read(offset, &buf[0], buf.size()));
 	if (buf.empty())
 		return;
 	uint64_t consumed = offset;   // file position of partial's first byte, once set
