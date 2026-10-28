@@ -6,6 +6,11 @@ name: Fuzz
 # so each run continues from the coverage the last one reached. The harness
 # already replays the same properties over seeded mutations on every push and
 # pull request; this is the longer search.
+#
+# Beside them, with the VIRTUALQUEST_DEPLOY_KEY secret, the simulated
+# headset's randomized long sessions: every push runs 120 fixed ones in the
+# solver harness ("virtual quest sweep"); this runs thousands from seeds that
+# move on every week, so each run covers sessions no run has had.
 on:
   schedule:
     - cron: '0 3 * * 0'
@@ -15,6 +20,10 @@ on:
         description: Seconds per target
         required: false
         default: '300'
+      sessions:
+        description: Simulated-headset sweep sessions (1 to 10000)
+        required: false
+        default: '3000'
 
 permissions:
   contents: read
@@ -63,3 +72,60 @@ jobs:
             x64/fuzz/${{ matrix.target }}/crash-*
             x64/fuzz/${{ matrix.target }}/last-run.txt
           retention-days: 30
+
+  virtual-quest-sweep:
+    runs-on: windows-2022
+    timeout-minutes: 75
+    env:
+      HAS_VIRTUALQUEST: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY != '' }}
+
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'alpha' || '' }}
+          persist-credentials: false
+
+      - name: Note a missing VirtualQuest key
+        if: env.HAS_VIRTUALQUEST != 'true'
+        shell: pwsh
+        run: |
+          Write-Host '::warning::VIRTUALQUEST_DEPLOY_KEY is not set: the simulated-headset sweep needs the VirtualQuest repository and is skipped.'
+
+      # As validation.yml checks it out (tools/ci/checkout-virtualquest.ps1
+      # says why not with actions/checkout).
+      - name: Check out VirtualQuest
+        if: env.HAS_VIRTUALQUEST == 'true'
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
+        run: tools\ci\checkout-virtualquest.ps1
+
+      - name: Build the solver harness
+        if: env.HAS_VIRTUALQUEST == 'true'
+        timeout-minutes: 30
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools\validate-cpp.ps1 -Mode Compile
+          if ($LASTEXITCODE -ne 0) { throw 'The build failed.' }
+
+      # Seeds from the week number, ten thousand apart (the most sessions a
+      # run takes): a run's sessions never repeat an earlier week's, and each
+      # failing session is named by its seed, so it replays alone with
+      # --sweep-seed <seed> --sweep-sessions 1.
+      - name: Sweep the simulated headset
+        if: env.HAS_VIRTUALQUEST == 'true'
+        timeout-minutes: 40
+        shell: pwsh
+        env:
+          SESSIONS: ${{ inputs.sessions }}
+        run: |
+          $sessions = 3000
+          if ($env:SESSIONS -and -not [int]::TryParse($env:SESSIONS, [ref]$sessions)) { throw "Not a session count: $env:SESSIONS" }
+          $week = [int][math]::Floor(((Get-Date).ToUniversalTime() - [datetime]'2026-01-04').TotalDays / 7)
+          $seed = 1000000 + 10000 * $week
+          Write-Host "Sweeping $sessions sessions from seed $seed"
+          x64\Release\SolverTests.exe '--test-case=virtual quest sweep' --sweep-sessions $sessions --sweep-seed $seed
+          if ($LASTEXITCODE -ne 0) { throw "A session from seed $seed on applied a step that left more error than the stream's own step; it is named above." }
+

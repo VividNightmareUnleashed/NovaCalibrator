@@ -99,6 +99,7 @@ void RunIPCServerTransportScenarios(void (*check)(const char *, bool, const char
 void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *));
 #ifdef QUESTCAL_VIRTUAL_QUEST
 void RunVirtualQuestScenarios(void (*check)(const char *, bool, const char *));
+void RunVirtualQuestSweep(void (*check)(const char *, bool, const char *), int sessions, uint32_t seed);
 #endif
 #ifdef QUESTCAL_FORMAL_CONFORMANCE
 void RunFormalConformanceScenarios(void (*check)(const char *, bool, const char *));
@@ -7361,6 +7362,8 @@ void RunUpdatePolicyScenarios()
 // From the command line, before any group runs.
 int PropertyTrials = 64;
 uint32_t PropertySeed = 0x5EED1234u;
+int SweepSessions = 120;
+uint32_t SweepSeed = 20261028u;
 
 void RunProfileHelperScenarios()
 {
@@ -7909,6 +7912,7 @@ DOCTEST_TEST_CASE("universe verdict") { Group([] { RunUniverseVerdictScenarios(C
 #ifdef QUESTCAL_VIRTUAL_QUEST
 // The simulated headset (the VirtualQuest submodule), when checked out.
 DOCTEST_TEST_CASE("virtual quest") { Group([] { RunVirtualQuestScenarios(Check); }); }
+DOCTEST_TEST_CASE("virtual quest sweep") { Group([] { RunVirtualQuestSweep(Check, SweepSessions, SweepSeed); }); }
 #endif
 #ifdef QUESTCAL_FORMAL_CONFORMANCE
 // The code checked against the formal models' own tables.
@@ -7947,7 +7951,8 @@ int main(int argc, char **argv)
 		if (arg == "--emit-traces" && i + 1 < argc)
 			return EmitFormalTraces(argv[i + 1]) > 0 ? 0 : 1;
 #endif
-		if ((arg == "--property-trials" || arg == "--property-seed") && i + 1 < argc)
+		if ((arg == "--property-trials" || arg == "--property-seed" ||
+			arg == "--sweep-sessions" || arg == "--sweep-seed") && i + 1 < argc)
 		{
 			try
 			{
@@ -7960,6 +7965,16 @@ int main(int argc, char **argv)
 					if (value < 1 || value > 100000)
 						throw std::out_of_range("property trial count");
 					PropertyTrials = static_cast<int>(value);
+				}
+				else if (arg == "--sweep-sessions")
+				{
+					if (value < 1 || value > 10000)
+						throw std::out_of_range("sweep session count");
+					SweepSessions = static_cast<int>(value);
+				}
+				else if (arg == "--sweep-seed")
+				{
+					SweepSeed = static_cast<uint32_t>(value);
 				}
 				else
 				{
@@ -7979,7 +7994,8 @@ int main(int argc, char **argv)
 		else
 		{
 			fprintf(stderr,
-				"Usage: SolverTests.exe [--property-trials N] [--property-seed N] [doctest options]\n");
+				"Usage: SolverTests.exe [--property-trials N] [--property-seed N] "
+				"[--sweep-sessions N] [--sweep-seed N] [doctest options]\n");
 			return 2;
 		}
 	}
