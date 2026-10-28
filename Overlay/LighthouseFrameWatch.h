@@ -119,6 +119,12 @@ public:
 	{
 		uint32_t id = 0;
 		double time = 0.0;
+		// When the frame moved: the device's own sample for a move it showed,
+		// and for one read off other devices' moves the time the move it stands
+		// for first showed, before the device did (a tracker switched off
+		// through SteamVR's universe setup is back after it, its frame moved
+		// during it).
+		double frameTime = 0.0;
 		Eigen::Quaterniond rotation{ 1, 0, 0, 0 };
 		Eigen::Vector3d translation{ 0, 0, 0 };
 		double shiftM = 0.0;   // how far the move carried the device
@@ -214,7 +220,7 @@ public:
 			{
 				if (!baseStation)
 				{
-					Move m{ c.id, c.time, c.rotation, c.translation, c.shiftM };
+					Move m{ c.id, c.time, c.time, c.rotation, c.translation, c.shiftM };
 					SetFrames(m, d, now);
 					Hand(m);
 				}
@@ -623,6 +629,7 @@ private:
 		Eigen::Vector3d fromTrans{ 0, 0, 0 };
 		Eigen::Quaterniond toRot{ 1, 0, 0, 0 };
 		Eigen::Vector3d toTrans{ 0, 0, 0 };
+		Eigen::Vector3d at{ 0, 0, 0 };   // the device's local position, for each move's shift
 	};
 
 	void AddTransition(const Device &was, const Device &is)
@@ -642,9 +649,10 @@ private:
 
 		for (size_t i = 0; i < inferences.size();)
 		{
-			if (Leads(inferences[i]))
+			const std::vector<Transition> lead = Lead(inferences[i]);
+			if (!lead.empty())
 			{
-				Hand(inferences[i].move);
+				HandLead(inferences[i], lead);
 				inferences.erase(inferences.begin() + static_cast<std::ptrdiff_t>(i));
 			}
 			else
@@ -654,23 +662,69 @@ private:
 		}
 	}
 
-	// The moves reported since `since`, followed from the old frame, end on
-	// the new one: that frame moved, the station under it re-solved.
-	bool Leads(const Inference &f) const
+	// The moves reported since `since` that lead from the old frame to the new
+	// one, in the order they came (that frame moved, the station under it
+	// re-solved), or none. Any chain of them counts, not only the one the
+	// first move from the old frame starts: another device can show a frame
+	// between that the station's own samples skip, and the station move on
+	// past the new frame before the device shows it (a lead missed either way
+	// settled an exact move as a switch).
+	std::vector<Transition> Lead(const Inference &f) const
 	{
-		Eigen::Quaterniond rot = f.fromRot;
-		Eigen::Vector3d trans = f.fromTrans;
-		bool moved = false;
+		// Every frame the moves so far reach, with the move that first reached
+		// it and the frame that move came from.
+		struct Reached
+		{
+			Eigen::Quaterniond rot;
+			Eigen::Vector3d trans;
+			const Transition *by;
+			size_t parent;
+		};
+		std::vector<Reached> reached{ { f.fromRot, f.fromTrans, nullptr, 0 } };
+		auto find = [&reached](const Eigen::Quaterniond &rot, const Eigen::Vector3d &trans)
+		{
+			for (size_t i = 0; i < reached.size(); ++i)
+				if (!questcal::WorldFromDriverChanged(reached[i].rot, reached[i].trans, rot, trans))
+					return i;
+			return reached.size();
+		};
 		for (const auto &t : transitions)
 		{
-			if (t.seq < f.since ||
-				questcal::WorldFromDriverChanged(t.fromRot, t.fromTrans, rot, trans))
+			if (t.seq < f.since)
 				continue;
-			rot = t.toRot;
-			trans = t.toTrans;
-			moved = true;
+			const size_t from = find(t.fromRot, t.fromTrans);
+			if (from == reached.size() || find(t.toRot, t.toTrans) != reached.size())
+				continue;
+			reached.push_back({ t.toRot, t.toTrans, &t, from });
+			if (questcal::WorldFromDriverChanged(t.toRot, t.toTrans, f.toRot, f.toTrans))
+				continue;
+			std::vector<Transition> chain;
+			for (size_t i = reached.size() - 1; reached[i].by; i = reached[i].parent)
+				chain.push_back(*reached[i].by);
+			std::reverse(chain.begin(), chain.end());
+			return chain;
 		}
-		return moved && !questcal::WorldFromDriverChanged(rot, trans, f.toRot, f.toTrans);
+		return {};
+	}
+
+	// The inferred change handed out move by move, each with the time it first
+	// showed, so the caller judges each against SteamVR's universe setup on its
+	// own. Followed in turn they compose to the device's whole change.
+	void HandLead(const Inference &f, const std::vector<Transition> &lead)
+	{
+		for (const auto &t : lead)
+		{
+			Move m = f.move;
+			m.frameTime = t.time;
+			m.rotation = (t.toRot * t.fromRot.conjugate()).normalized();
+			m.translation = t.toTrans - m.rotation * t.fromTrans;
+			m.shiftM = ((t.toRot * f.at + t.toTrans) - (t.fromRot * f.at + t.fromTrans)).norm();
+			m.fromRot = t.fromRot;
+			m.fromTrans = t.fromTrans;
+			m.toRot = t.toRot;
+			m.toTrans = t.toTrans;
+			Hand(m);
+		}
 	}
 
 	void Infer(uint32_t id, const Device &was, const Device &is, bool returned)
@@ -678,6 +732,7 @@ private:
 		Inference f;
 		f.move.id = id;
 		f.move.time = is.time;
+		f.move.frameTime = is.time;
 		f.move.rotation = (is.wfdRot * was.wfdRot.conjugate()).normalized();
 		f.move.translation = is.wfdTrans - f.move.rotation * was.wfdTrans;
 		f.move.shiftM = ((is.wfdRot * is.drvPos + is.wfdTrans) - (was.wfdRot * is.drvPos + was.wfdTrans)).norm();
@@ -689,6 +744,7 @@ private:
 		f.fromTrans = was.wfdTrans;
 		f.toRot = is.wfdRot;
 		f.toTrans = is.wfdTrans;
+		f.at = is.drvPos;
 		// A change of the same device still waiting is settled before the
 		// newer one: no move led to it so far, and dropping it would leave
 		// the device's correction short of it with nothing said (live
@@ -698,8 +754,9 @@ private:
 				Settle(g);
 		inferences.erase(std::remove_if(inferences.begin(), inferences.end(),
 			[id](const Inference &g) { return g.move.id == id; }), inferences.end());
-		if (Leads(f))
-			Hand(f.move);
+		const std::vector<Transition> lead = Lead(f);
+		if (!lead.empty())
+			HandLead(f, lead);
 		else if (inferences.size() < MaxInferences)
 			inferences.push_back(f);
 		else

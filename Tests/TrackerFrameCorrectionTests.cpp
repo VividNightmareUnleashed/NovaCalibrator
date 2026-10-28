@@ -7,6 +7,7 @@
 #include "../Overlay/DriverSession.h"
 #include "../Overlay/CalibrationRun.h"
 #include "../Overlay/CollectionSource.h"
+#include "../Overlay/LighthouseVisibility.h"
 #include "../common/MathConstants.h"
 
 #include <algorithm>
@@ -806,7 +807,7 @@ struct JoinRig
 			watch.Note(s, TickScale, false);
 		}
 		auto handed = watch.TakeMoves();
-		std::sort(handed.begin(), handed.end(), [](const auto &a, const auto &b) { return a.time < b.time; });
+		std::stable_sort(handed.begin(), handed.end(), [](const auto &a, const auto &b) { return a.time < b.time; });
 		for (const auto &move : handed)
 			moves += frames.Follow(move) ? 1 : 0;
 		for (const auto &change : watch.TakeSwitches())
@@ -1488,6 +1489,179 @@ void SwitchOverflow(Check check)
 		overflowed && taken == 256 && cleared && after == 2 && stillClear, detail);
 }
 
+// Sequences SteamVR makes rarely: a tracker off while its station is placed or
+// re-solved, and re-solves in a row.
+namespace
+{
+// A stationary device's sample, at `local` in the given frame.
+protocol::DevicePoseSample ReplaySample(uint32_t id, double time, const V &local, const Q &frameRotation,
+	const V &frameTranslation)
+{
+	protocol::DevicePoseSample s = Sample(id, time, local, frameRotation, frameTranslation);
+	s.deviceIsConnected = true;
+	return s;
+}
+
+protocol::DevicePoseSample ReplayOff(uint32_t id, double time)
+{
+	protocol::DevicePoseSample s = Sample(id, time, V::Zero());
+	s.deviceIsConnected = false;
+	s.poseIsValid = false;
+	s.trackingResult = vr::TrackingResult_Running_OutOfRange;
+	return s;
+}
+
+const char *UniverseName(LighthouseVisibility::UniverseSetup u)
+{
+	return u == LighthouseVisibility::UniverseSetup::SettingUp ? "SettingUp"
+		: u == LighthouseVisibility::UniverseSetup::Settled ? "Settled" : "Unknown";
+}
+
+double CorrectionShift(const protocol::FrameCorrection &a, const protocol::FrameCorrection &b, const V &at)
+{
+	return (questcal::TrackerFrameCorrections::Apply(a, at) - questcal::TrackerFrameCorrections::Apply(b, at)).norm();
+}
+} // namespace
+
+// A tracker switched off while SteamVR places a station it guessed (its
+// universe setup), and back after the setup window, is handed that placement as
+// a move read off the station's own: stamped with when the frame moved, it is
+// judged against the setup by that time and left alone, as every other device
+// in the frame left it. Judged by the tracker's return, it was followed.
+void SetupPlacementOnReturn(Check check)
+{
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections frames;
+	LighthouseVisibility visibility;
+	lighthouselog::Event start;
+	start.kind = lighthouselog::Event::Kind::ServerStarted;
+	visibility.Apply(start, 9.0);
+	lighthouselog::Event chosen;
+	chosen.kind = lighthouselog::Event::Kind::UniverseChosen;
+	chosen.universeId = 1744988537;
+	visibility.Apply(chosen, 11.0);   // SettingUp until 21.0 (universeSetupSeconds 10)
+	// The guess and the placement (live 2026-09-27: 1205 mm and 42.7 deg).
+	const Q guessR(Eigen::AngleAxisd(42.7 * questcal::Pi / 180.0, V::UnitY()));
+	const V guessT(1.2, 0.0, 0.1);
+	const Q placedR = Q::Identity();
+	const V placedT = V::Zero();
+	const V at9(0.4, 1.0, -0.6), at10(-0.3, 0.9, 0.5);
+	std::vector<LighthouseFrameWatch::Move> handed;
+	std::string decisions;
+	auto drain = [&](double now)
+	{
+		for (const auto &move : watch.TakeMoves())
+		{
+			// DuringUniverseSetup(ctx, move.frameTime), from the log's word.
+			const auto u = visibility.Universe(move.frameTime);
+			const bool setup = u == LighthouseVisibility::UniverseSetup::SettingUp;
+			char line[160];
+			std::snprintf(line, sizeof line, "%sdevice %u move at %.2f: universe %s, %s", decisions.empty() ? "" : "; ",
+				move.id, move.time, UniverseName(u), setup ? "left alone" : (frames.Follow(move) ? "followed" : "refused"));
+			decisions += line;
+			handed.push_back(move);
+		}
+		(void)now;
+		watch.TakeSwitches();
+	};
+	for (double t = 10.0; t < 31.0; t += 0.05)
+	{
+		const bool placed = t >= 12.0;
+		const Q r = placed ? placedR : guessR;
+		const V tr = placed ? placedT : guessT;
+		watch.Note(ReplaySample(1, t, V::Zero(), r, tr), TickScale, true);   // the base station
+		watch.Note(ReplaySample(10, t, at10, r, tr), TickScale, false);
+		if (t < 11.45 || t >= 30.0)
+			watch.Note(ReplaySample(9, t, at9, r, tr), TickScale, false);
+		else
+			watch.Note(ReplayOff(9, t), TickScale, false);
+		drain(t);
+	}
+	const double shift9 = CorrectionShift(frames.Snapshot()[9], protocol::FrameCorrection{}, at9);
+	const double shift10 = CorrectionShift(frames.Snapshot()[10], protocol::FrameCorrection{}, at10);
+	char detail[640];
+	std::snprintf(detail, sizeof detail,
+		"%s; universe at the placement (12.00): %s; device 9's correction moved %.1f cm at it, device 10's %.1f cm",
+		decisions.c_str(), UniverseName(visibility.Universe(12.0)), shift9 * 100.0, shift10 * 100.0);
+	check("frame corrections: a station placed during the universe setup is left alone by a tracker back after it",
+		shift9 < 1e-9 && shift10 < 1e-9, detail);
+}
+
+// A change of a device's frame its own pose jumped with is a move when any
+// chain of the moves other devices showed leads to it: one through a frame
+// between that the station skipped (a), and one the station moved on past
+// before the device showed it (b). Walked as one path from the first move out
+// of the old frame, neither led there, and the change, which the station's own
+// samples show exactly, was settled as a switch after inferSeconds.
+void LeadByAnyChain(Check check)
+{
+	const Q e0 = Q::Identity();
+	const Q e1(Eigen::AngleAxisd(0.020, V::UnitY()));
+	const Q e2(Eigen::AngleAxisd(0.045, V::UnitY()));
+	const V t0(0, 0, 0), t1(0.03, 0, 0.01), t2(0.07, 0, 0.02);
+	const V at9(0.4, 1.0, -0.6), at10(-0.3, 0.9, 0.5), jump(0.05, 0, 0);
+	std::string out;
+	bool pass = true;
+	for (int variant = 0; variant < 2; ++variant)
+	{
+		LighthouseFrameWatch watch;
+		std::vector<LighthouseFrameWatch::Move> moves;
+		std::vector<LighthouseFrameWatch::Switch> switches;
+		for (double t = 10.0; t < 17.0; t += 0.05)
+		{
+			// (a) Device 9 shows E1 at 10.5 and goes off before E2; the
+			// station's next sample, at 10.75, is in E2; device 10 shows E2 at
+			// 10.8 with its own pose jumping.
+			// (b) The station shows E1 at 10.5 and E2 at 10.6; device 10, a
+			// solve behind, shows E1 at 10.65 with its own pose jumping, then
+			// E2 from 10.7.
+			Q sr = e0, r9 = e0, r10 = e0;
+			V st = t0, tr9 = t0, tr10 = t0;
+			bool off9 = false, jumped = false;
+			if (variant == 0)
+			{
+				if (t >= 10.5) { r9 = e1; tr9 = t1; }
+				off9 = t >= 10.65;
+				if (t >= 10.75) { sr = e2; st = t2; }
+				if (t >= 10.8) { r10 = e2; tr10 = t2; jumped = true; }
+			}
+			else
+			{
+				if (t >= 10.5) { sr = e1; st = t1; r9 = e1; tr9 = t1; }
+				if (t >= 10.6) { sr = e2; st = t2; r9 = e2; tr9 = t2; }
+				if (t >= 10.65) { r10 = e1; tr10 = t1; jumped = true; }
+				if (t >= 10.7) { r10 = e2; tr10 = t2; }
+			}
+			watch.Note(ReplaySample(1, t, V::Zero(), sr, st), TickScale, true);
+			watch.Note(off9 ? ReplayOff(9, t) : ReplaySample(9, t, at9, r9, tr9), TickScale, false);
+			watch.Note(ReplaySample(10, t, jumped ? V(at10 + jump) : at10, r10, tr10), TickScale, false);
+			for (const auto &m : watch.TakeMoves()) moves.push_back(m);
+			for (const auto &s : watch.TakeSwitches()) switches.push_back(s);
+		}
+		// What device 10 was handed for the change its own pose jumped with.
+		const Q from = e0;
+		const Q to = variant == 0 ? e2 : e1;
+		bool movedThere = false, switchedThere = false;
+		for (const auto &m : moves)
+			movedThere |= m.id == 10 && m.fromRot.angularDistance(from) < 1e-9 && m.toRot.angularDistance(to) < 1e-9;
+		double settledAt = -1;
+		for (const auto &s : switches)
+			if (s.id == 10 && s.cause == LighthouseFrameWatch::Switch::Cause::OwnJump &&
+				s.fromRot.angularDistance(from) < 1e-9 && s.toRot.angularDistance(to) < 1e-9)
+			{
+				switchedThere = true;
+				settledAt = s.time;
+			}
+		char line[200];
+		std::snprintf(line, sizeof line, "%s(%c) device 10 %s: handed a move %d, settled as an own-jump switch %d (stamped %.2f)",
+			out.empty() ? "" : "; ", variant == 0 ? 'a' : 'b', variant == 0 ? "E0 to E2" : "E0 to E1",
+			movedThere ? 1 : 0, switchedThere ? 1 : 0, settledAt);
+		out += line;
+		pass &= movedThere && !switchedThere;
+	}
+	check("frame watch: a change any chain of the other devices' moves leads to is handed as a move", pass, out.c_str());
+}
+
 void RunTrackerFrameCorrectionScenarios(Check check)
 {
 	SplitFrames(check);
@@ -1506,4 +1680,6 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	SwitchOverflow(check);
 	DeferredFrameLog(check);
 	CollectionFallback(check);
+	SetupPlacementOnReturn(check);
+	LeadByAnyChain(check);
 }

@@ -360,7 +360,9 @@ static void CompensateTrackerFrameMoves(CalibrationContext &ctx)
 		SynchronizeCalibrationDriver(ctx);
 		return;
 	}
-	std::sort(moves.begin(), moves.end(), [](const auto &a, const auto &b)
+	// Stable: one change read off other devices' moves comes as several moves
+	// of one time, to be followed in the order they were made.
+	std::stable_sort(moves.begin(), moves.end(), [](const auto &a, const auto &b)
 	{ return a.time < b.time; });
 	bool changed = false;
 	for (const auto &move : moves)
@@ -383,7 +385,11 @@ static void CompensateTrackerFrameMoves(CalibrationContext &ctx)
 		}
 		double yawDeg = 0.0, tiltDeg = 0.0;
 		const bool notable = DescribeFrameMove(move, yawDeg, tiltDeg);
-		const bool setup = DuringUniverseSetup(ctx, move.time);
+		// By when the frame moved, not when the device showed it: a tracker
+		// switched off through the setup is back after it, its frame placed
+		// during it (the 2026-09-27 placement replayed so: 68.7 cm followed at
+		// the tracker).
+		const bool setup = DuringUniverseSetup(ctx, move.frameTime);
 		const bool mounted = move.id == ctx.continuousTrackerId;
 		if (setup)
 		{

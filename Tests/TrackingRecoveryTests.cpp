@@ -1186,12 +1186,21 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 				}
 				return out;
 			};
-			auto exactly = [&](const Result &r, const Pose &f, double at)
+			// One move per re-solve, each `f`, handed at the return `at` and
+			// stamped with when its station moved (`movedAt`).
+			auto exactly = [&](const Result &r, const Pose &f, double at, const std::vector<double> &movedAt)
 			{
-				return r.moves.size() == 1 && r.moves[0].returned && !r.moves[0].ownJump &&
-					r.moves[0].rotation.angularDistance(f.first) < 1e-9 &&
-					(r.moves[0].translation - f.second).norm() < 1e-9 &&
-					std::abs(r.moves[0].time - at) < 0.01 && r.moves[0].shiftM > 0.05;
+				if (r.moves.size() != movedAt.size())
+					return false;
+				for (size_t k = 0; k < r.moves.size(); ++k)
+				{
+					const auto &m = r.moves[k];
+					if (!m.returned || m.ownJump || m.rotation.angularDistance(f.first) >= 1e-9 ||
+						(m.translation - f.second).norm() >= 1e-9 || std::abs(m.time - at) >= 0.01 ||
+						m.frameTime < movedAt[k] - 1e-9 || m.frameTime > movedAt[k] + 0.02 || m.shiftM <= 0.05)
+						return false;
+				}
+				return true;
 			};
 
 			const Result once = away(0, { 6.0 }, 0, false, 9.0);
@@ -1200,14 +1209,16 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 			const Result elsewhere = away(0, { 6.0 }, 1, true, 9.0);
 			const Result otherStation = away(1, { 6.0 }, 0, true, 9.0);
 			const Result nothing = away(0, {}, 0, true, 9.0);
-			char buf[200];
-			snprintf(buf, sizeof buf, "once %zu, twice %zu, station published after it %zu, "
+			char buf[240];
+			snprintf(buf, sizeof buf, "once %zu, twice %zu (moved at %.2f, %.2f), station published after it %zu, "
 				"back in another frame %zu, another station moved %zu, nothing moved %zu",
-				once.moves.size(), awayTwice.moves.size(), late.moves.size(), elsewhere.moves.size(),
-				otherStation.moves.size(), nothing.moves.size());
+				once.moves.size(), awayTwice.moves.size(),
+				awayTwice.moves.size() > 0 ? awayTwice.moves[0].frameTime : -1.0,
+				awayTwice.moves.size() > 1 ? awayTwice.moves[1].frameTime : -1.0, late.moves.size(),
+				elsewhere.moves.size(), otherStation.moves.size(), nothing.moves.size());
 			check("lighthouse frame: a station re-solved while the tracker was off is handed out when it is back in that frame",
-				exactly(once, resolve, 9.0) && exactly(awayTwice, compose(resolve, resolve), 9.0) &&
-				exactly(late, resolve, 9.0) && elsewhere.moves.empty() && otherStation.moves.empty() &&
+				exactly(once, resolve, 9.0, { 6.0 }) && exactly(awayTwice, resolve, 9.0, { 5.0, 7.0 }) &&
+				exactly(late, resolve, 9.0, { 8.99 }) && elsewhere.moves.empty() && otherStation.moves.empty() &&
 				nothing.moves.empty(), buf);
 		}
 
