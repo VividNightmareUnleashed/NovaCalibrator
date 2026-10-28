@@ -684,12 +684,12 @@ private:
 	}
 
 	// The moves reported since `since` that lead from the old frame to the new
-	// one, in the order they came (that frame moved, the station under it
-	// re-solved), or none. Any chain of them counts, not only the one the
-	// first move from the old frame starts: another device can show a frame
-	// between that the station's own samples skip, and the station move on
-	// past the new frame before the device shows it (a lead missed either way
-	// settled an exact move as a switch).
+	// one, step by step (that frame moved, the station under it re-solved), or
+	// none. Any chain of them counts, recorded in any order: another device can
+	// show a frame between that the station's own samples skip, the station
+	// move on past the new frame before the device shows it, and a device a
+	// solve ahead show the second step before one behind shows the first (a
+	// lead missed any of these ways settled an exact move as a switch).
 	std::vector<Transition> Lead(const Inference &f) const
 	{
 		// Every frame the moves so far reach, with the move that first reached
@@ -709,21 +709,28 @@ private:
 					return i;
 			return reached.size();
 		};
-		for (const auto &t : transitions)
+		// Pass over the record until a pass reaches no new frame: a step can be
+		// recorded before the one it continues.
+		for (bool grew = true; grew;)
 		{
-			if (t.seq < f.since)
-				continue;
-			const size_t from = find(t.fromRot, t.fromTrans);
-			if (from == reached.size() || find(t.toRot, t.toTrans) != reached.size())
-				continue;
-			reached.push_back({ t.toRot, t.toTrans, &t, from });
-			if (questcal::WorldFromDriverChanged(t.toRot, t.toTrans, f.toRot, f.toTrans))
-				continue;
-			std::vector<Transition> chain;
-			for (size_t i = reached.size() - 1; reached[i].by; i = reached[i].parent)
-				chain.push_back(*reached[i].by);
-			std::reverse(chain.begin(), chain.end());
-			return chain;
+			grew = false;
+			for (const auto &t : transitions)
+			{
+				if (t.seq < f.since)
+					continue;
+				const size_t from = find(t.fromRot, t.fromTrans);
+				if (from == reached.size() || find(t.toRot, t.toTrans) != reached.size())
+					continue;
+				reached.push_back({ t.toRot, t.toTrans, &t, from });
+				grew = true;
+				if (questcal::WorldFromDriverChanged(t.toRot, t.toTrans, f.toRot, f.toTrans))
+					continue;
+				std::vector<Transition> chain;
+				for (size_t i = reached.size() - 1; reached[i].by; i = reached[i].parent)
+					chain.push_back(*reached[i].by);
+				std::reverse(chain.begin(), chain.end());
+				return chain;
+			}
 		}
 		return {};
 	}

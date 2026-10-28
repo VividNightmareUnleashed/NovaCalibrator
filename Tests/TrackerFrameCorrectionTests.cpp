@@ -1505,8 +1505,8 @@ void SwitchOverflow(Check check)
 }
 
 // Sequences SteamVR makes rarely: a tracker off while its station is placed or
-// re-solved, re-solves in a row, and the pose stream starting over while a
-// followed move is still on its way to the driver.
+// re-solved, re-solves in a row or shown out of order, and the pose stream
+// starting over while a followed move is still on its way to the driver.
 namespace
 {
 // A stationary device's sample, at `local` in the given frame.
@@ -1537,6 +1537,64 @@ double CorrectionShift(const protocol::FrameCorrection &a, const protocol::Frame
 {
 	return (questcal::TrackerFrameCorrections::Apply(a, at) - questcal::TrackerFrameCorrections::Apply(b, at)).norm();
 }
+
+// The correction that takes the frame (r, tr) back to the calibration's.
+protocol::FrameCorrection BackToStart(const Q &r, const V &tr)
+{
+	protocol::FrameCorrection c;
+	const Q n = r.conjugate().normalized();
+	c.rotation = { n.w(), n.x(), n.y(), n.z() };
+	const V nt = -(n * tr);
+	for (int axis = 0; axis < 3; ++axis)
+		c.translation.v[axis] = nt(axis);
+	return c;
+}
+
+// CompensateTrackerFrameMoves and JoinTrackerFrames on the watch's output, as
+// written (the stable sort, Follow, JoinSwitches): devices 9 and 10 are the
+// calibrated target devices, `headset` the headset tracker.
+struct MonitorRig
+{
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections frames;
+	uint32_t headset = vr::k_unTrackedDeviceIndexInvalid;
+	std::string log;
+	void Tick(double t)
+	{
+		using Membership = questcal::TrackerFrameCorrections::Membership;
+		auto moves = watch.TakeMoves();
+		std::stable_sort(moves.begin(), moves.end(), [](const auto &a, const auto &b) { return a.time < b.time; });
+		for (const auto &m : moves)
+		{
+			char line[160];
+			std::snprintf(line, sizeof line, "%sdevice %u move (frame moved %.2f, handed %.2f) %s", log.empty() ? "" : "; ",
+				m.id, m.frameTime, t, frames.Follow(m) ? "followed" : "refused");
+			log += line;
+		}
+		for (const auto &o : frames.JoinSwitches(watch.TakeSwitches(), watch, headset, vr::k_unTrackedDeviceIndexInvalid,
+			[](uint32_t, double) { return Membership::Target; }, [](uint32_t id) { return id == 9 || id == 10; }))
+		{
+			char line[200];
+			if (!o.result.joined.empty())
+				for (const auto &j : o.result.joined)
+				{
+					std::snprintf(line, sizeof line, "%sdevice %u took device %u's at %.2f", log.empty() ? "" : "; ",
+						j.id, j.source, t);
+					log += line;
+				}
+			else if (o.kind != questcal::TrackerFrameCorrections::SwitchOutcome::Kind::Held || !o.change.held)
+			{
+				std::snprintf(line, sizeof line, "%sdevice %u switch (%s) at %.2f: %s", log.empty() ? "" : "; ",
+					o.change.id, o.change.cause == LighthouseFrameWatch::Switch::Cause::OwnJump ? "own jump"
+						: o.change.cause == LighthouseFrameWatch::Switch::Cause::Appeared ? "appeared"
+						: o.change.cause == LighthouseFrameWatch::Switch::Cause::Returned ? "returned" : "re-expressed",
+					t, o.kind == questcal::TrackerFrameCorrections::SwitchOutcome::Kind::Held ? "held"
+						: (o.result.kept ? o.result.kept : "kept"));
+				log += line;
+			}
+		}
+	}
+};
 } // namespace
 
 // A tracker switched off while SteamVR places a station it guessed (its
@@ -1973,6 +2031,46 @@ void MoveKeptAcrossStreamRestart(Check check)
 		pass && shortBy < 1e-6 && error < 1e-6, detail);
 }
 
+// Device 9's own pose jumps as its station is re-solved (E0 to E1), and it
+// shows the next re-solve (E1 to E2) as a move before the station, a solve
+// behind, shows the first: E1 to E2 is recorded before E0 to E1. The headset
+// tracker (device 10), two solves behind, then shows E2 with its own pose
+// jumping, and the recorded steps lead it there. Taken in one pass in the order
+// they were recorded, they led nowhere: the change was settled as a switch, and
+// the headset tracker gave device 9 its correction, short of both re-solves.
+void ChainRecordedOutOfOrder(Check check)
+{
+	MonitorRig rig;
+	rig.headset = 10;
+	const Q e0 = Q::Identity();
+	const Q e1(Eigen::AngleAxisd(0.020, V::UnitY()));
+	const Q e2(Eigen::AngleAxisd(0.045, V::UnitY()));
+	const V t0(0, 0, 0), t1(0.03, 0, 0.01), t2(0.07, 0, 0.02);
+	const V at9(0.4, 1.0, -0.6), at10(-0.3, 0.9, 0.5), jump(0.05, 0, 0);
+	for (double t = 10.0; t < 17.0; t += 0.05)
+	{
+		Q sr = e0, r9 = e0, r10 = e0;
+		V st = t0, tr9 = t0, tr10 = t0, local9 = at9, local10 = at10;
+		if (t >= 10.5 - 1e-9) { r9 = e1; tr9 = t1; local9 = at9 + jump; }   // its own pose jumps with E1
+		if (t >= 10.6 - 1e-9) { r9 = e2; tr9 = t2; }                        // E2 shown as a move
+		if (t >= 10.65 - 1e-9) { sr = e1; st = t1; }                         // the station, a solve behind
+		if (t >= 10.7 - 1e-9) { sr = e2; st = t2; }
+		if (t >= 10.8 - 1e-9) { r10 = e2; tr10 = t2; local10 = at10 + jump; } // two solves behind, jumping
+		rig.watch.Note(ReplaySample(1, t, V::Zero(), sr, st), TickScale, true);
+		rig.watch.Note(ReplaySample(9, t, local9, r9, tr9), TickScale, false);
+		rig.watch.Note(ReplaySample(10, t, local10, r10, tr10), TickScale, false);
+		if (std::fmod(t + 1e-9, 0.25) < 0.05)
+			rig.Tick(t);
+	}
+	const auto right = BackToStart(e2, t2);
+	const double off9 = CorrectionShift(rig.frames.Snapshot()[9], right, at9 + jump);
+	const double off10 = CorrectionShift(rig.frames.Snapshot()[10], right, at10 + jump);
+	char detail[900];
+	std::snprintf(detail, sizeof detail, "%s; off the right correction: device 9 %.1f mm, device 10 %.1f mm",
+		rig.log.c_str(), off9 * 1000.0, off10 * 1000.0);
+	check("frame watch: a chain of moves recorded out of order leads the change", off9 < 1e-6 && off10 < 1e-6, detail);
+}
+
 void RunTrackerFrameCorrectionScenarios(Check check)
 {
 	SplitFrames(check);
@@ -1996,4 +2094,5 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	FrameJoinedOnReturn(check);
 	ChangesInARow(check);
 	MoveKeptAcrossStreamRestart(check);
+	ChainRecordedOutOfOrder(check);
 }
