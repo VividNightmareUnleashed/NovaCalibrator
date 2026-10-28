@@ -116,6 +116,14 @@ public:
 		uint32_t liveRestarts = 0;
 		uint32_t liveBootstraps = 0;
 		double lastRestart = -1e9;
+		// The live disturbance's place in LiveSequence(), and the last
+		// bootstrap's: 0 for none. A consumer compares these with the sequence
+		// it last looked at, not the counts, which start over with a server
+		// start or a new file: a count back at the value the consumer last
+		// saw hid a restart, and one fallen to 0 read as a restart dated by a
+		// device that had none.
+		uint64_t lastDisturbanceSequence = 0;
+		uint64_t lastBootstrapSequence = 0;
 
 		// The radio link (LighthouseLog.h). Off from a power-off or a dropped
 		// link until the link comes back or the device reports tracking;
@@ -178,6 +186,10 @@ public:
 	bool Quitting(double ringTime) const;
 
 	const Device *Find(const std::string &serial) const;
+	// How many live disturbances any device has had: kept across Reset and
+	// server starts, so a device's sequence (Device) orders it against a look
+	// taken before them.
+	uint64_t LiveSequence() const { return liveSequence; }
 	const std::map<std::string, Device> &Devices() const { return devices; }
 	std::vector<Station> Stations() const;   // most dropped first
 	int StationCount() const { return static_cast<int>(stations.size()); }
@@ -214,6 +226,48 @@ private:
 	// wait for the driver to choose one.
 	bool trackedWhileDown = false;
 	double trackedWhileDownAt = -1e9;
+	uint64_t liveSequence = 0;
+};
+
+// One device's live disturbances as a consumer sees them between looks: each
+// look reports the ones since the last (by LiveSequence, so however the
+// fold's counts started over between the two), and a new device to watch
+// starts over, what it had before not news.
+class DisturbanceWatch
+{
+public:
+	struct Seen
+	{
+		bool disturbed = false;    // one or more since the last look
+		double time = -1e9;        // the last one's ring time
+		bool newSolution = false;  // one of them a bootstrap
+		const LighthouseVisibility::Device *device = nullptr;
+	};
+
+	// `serial` is the device to watch, empty for none.
+	Seen Look(const LighthouseVisibility &visibility, const std::string &serial)
+	{
+		Seen seen;
+		if (serial.empty())
+		{
+			watched.clear();
+			return seen;
+		}
+		seen.device = visibility.Find(serial);
+		if (seen.device && serial == watched && seen.device->lastDisturbanceSequence > sequence)
+		{
+			seen.disturbed = true;
+			seen.time = seen.device->lastDisturbance;
+			seen.newSolution = seen.device->lastBootstrapSequence > sequence;
+		}
+		watched = serial;
+		sequence = visibility.LiveSequence();
+		return seen;
+	}
+
+private:
+	std::string watched;
+	uint64_t sequence = 0;
 };
 
 // The detailed log's account of how many stations each device sees. A body

@@ -305,12 +305,16 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 		return std::string();
 	d.lastDisturbance = ringTime;
 	d.liveDisturbances++;
+	d.lastDisturbanceSequence = ++liveSequence;
 	if (restart)
 	{
 		d.liveRestarts++;
 		d.lastRestart = ringTime;
 		if (e.kind == Event::Kind::Bootstrapped)
+		{
 			d.liveBootstraps++;
+			d.lastBootstrapSequence = d.lastDisturbanceSequence;
+		}
 	}
 	return what;
 }

@@ -23,12 +23,10 @@ using questcal::SynchronizeCalibrationDriver;
 
 static std::vector<protocol::DevicePoseSample> ContinuousScratch;
 static bool ContinuousActive = false;
-// The headset tracker's live lighthouse disturbance count last acted on, so
-// each new one restarts the window exactly once, and its bootstrap count, so
-// the loop hears which of them began a solution of its own.
-static std::string ContinuousLighthouseSerial;
-static uint32_t ContinuousLighthouseDisturbances = 0;
-static uint32_t ContinuousLighthouseBootstraps = 0;
+// The headset tracker's live lighthouse disturbances, so each new one
+// restarts the window exactly once and the loop hears whether one of them
+// began a solution of its own.
+static DisturbanceWatch ContinuousLighthouse;
 // The stream the last TrackerLost named, for the TrackerRecovered after it.
 static ringpose::StoppedStream ContinuousLostStream = ringpose::StoppedStream::Tracker;
 
@@ -354,27 +352,18 @@ void calibration_internal::ContinuousTick(CalibrationContext &ctx, double now)
 	// A new solution or a change of stations can move its pose by centimeters
 	// and a single-baseline fit swims, so a window must not straddle one and no
 	// verdict is drawn while it settles. Without the log nothing changes here.
-	const LighthouseVisibility::Device *trackerSeen = ctx.continuousTrackerSerial.empty()
-		? nullptr : ctx.lighthouse.Find(ctx.continuousTrackerSerial);
-	if (!trackerSeen)
+	// The tracker's disturbances since the last look, the first after the
+	// overlay starts or a new file begins among them (DisturbanceWatch: by
+	// count, the first restart made the tracker's entry and passed for the
+	// starting point, a count back where the loop last saw it hid a restart,
+	// and one fallen to 0 noted a restart dated by an entry that had none).
+	const DisturbanceWatch::Seen seen = ContinuousLighthouse.Look(ctx.lighthouse, ctx.continuousTrackerSerial);
+	const LighthouseVisibility::Device *trackerSeen = seen.device;
+	if (seen.disturbed)
 	{
-		ContinuousLighthouseSerial.clear();
-	}
-	else
-	{
-		if (trackerSeen->serial == ContinuousLighthouseSerial &&
-			trackerSeen->liveDisturbances != ContinuousLighthouseDisturbances)
-		{
-			// A new server session starts the counts over, and its first line
-			// for the tracker need not be a bootstrap.
-			Continuous->NoteTargetResolved(questcal::RingTime(trackerSeen->lastDisturbance),
-				trackerSeen->liveBootstraps != ContinuousLighthouseBootstraps && trackerSeen->liveBootstraps > 0);
-			ctx.continuousCorrectionGate.Clear();
-			ctx.Diag("continuous: window restarted, headset tracker " + trackerSeen->lastDisturbanceText);
-		}
-		ContinuousLighthouseSerial = trackerSeen->serial;
-		ContinuousLighthouseDisturbances = trackerSeen->liveDisturbances;
-		ContinuousLighthouseBootstraps = trackerSeen->liveBootstraps;
+		Continuous->NoteTargetResolved(questcal::RingTime(seen.time), seen.newSolution);
+		ctx.continuousCorrectionGate.Clear();
+		ctx.Diag("continuous: window restarted, headset tracker " + trackerSeen->lastDisturbanceText);
 	}
 	Continuous->SetTargetSettling(trackerSeen &&
 		ctx.lighthouse.Settling(ctx.continuousTrackerSerial, ringNow));

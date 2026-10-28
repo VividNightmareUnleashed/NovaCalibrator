@@ -1010,6 +1010,144 @@ void ModelScenarios(Check check)
 	}
 }
 
+// The headset tracker's restarts as the continuous loop hears of them: the real
+// tailer, fold and DisturbanceWatch, polled and looked at as LighthouseTick and
+// ContinuousTick do.
+struct LogRig
+{
+	std::filesystem::path path;
+	lighthouselog::Tailer tail;
+	LighthouseVisibility vis;
+	uint64_t rotationsSeen = 0;
+	DisturbanceWatch loop;
+	double ring = 100.0;
+	explicit LogRig(const std::filesystem::path &p) : path(p), tail(p.string()) {}
+	void Append(const std::string &line)
+	{
+		std::ofstream out(path, std::ios::binary | std::ios::app);
+		out << line << "\n";
+	}
+	// LighthouseTick: poll, reset on a rotation, give each line a ring time.
+	void Poll()
+	{
+		std::vector<Event> events;
+		tail.Poll(events);
+		if (tail.Rotations() != rotationsSeen)
+		{
+			rotationsSeen = tail.Rotations();
+			vis.Reset();
+		}
+		for (const auto &e : events)
+			vis.Apply(e, ring += 1.0);
+	}
+	// The loop's look: "noted t (new solution)" or "none".
+	std::string Look()
+	{
+		const DisturbanceWatch::Seen seen = loop.Look(vis, "LHR-0EAD0001");
+		if (!seen.disturbed)
+			return "none";
+		char buf[64];
+		std::snprintf(buf, sizeof buf, "noted %.0f%s", seen.time, seen.newSolution ? " (new solution)" : "");
+		return buf;
+	}
+};
+
+const char *const HeadBoot = "Fri Sep 11 2026 22:10:00.000 [Info] - lighthouse: LHR-0EAD0001 C: ----- BOOTSTRAPPED base F210FBA6 (best) distance 2.14m velocity 0.31m/s -----";
+const char *const HeadRoutine = "Fri Sep 11 2026 22:10:00.000 [Info] - lighthouse: LHR-0EAD0001 C: SOB: add S-8 also seeing S-5";
+const char *const OtherLine = "Fri Sep 11 2026 22:09:00.000 [Info] - lighthouse: LHR-0BEE0002 C: SOB: add S-8 also seeing S-5";
+const char *const ServerStart = "Fri Sep 11 2026 22:11:00.000 [Info] - vrserver 2.17.10 startup with PID=5976, arch=win64";
+
+void RestartsReachTheLoop(Check check)
+{
+	namespace fs = std::filesystem;
+	const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+	const fs::path dir = fs::temp_directory_path();
+	std::error_code ec;
+	// (a) The overlay starts with no line of the headset tracker in the log's
+	// tail; its first restart then makes its entry, which the loop must not
+	// take for its starting point.
+	{
+		const fs::path p = dir / ("QuestCalRestartLog-a-" + std::to_string(stamp) + ".txt");
+		{ std::ofstream out(p, std::ios::binary); out << OtherLine << "\n" << OtherLine << "\n"; }
+		LogRig rig(p);
+		rig.Poll();
+		std::string seen = "start: " + rig.Look();
+		rig.Append(HeadBoot);
+		rig.Poll();
+		seen += "; first restart: " + rig.Look();
+		rig.Append(HeadBoot);
+		rig.Poll();
+		seen += "; second restart: " + rig.Look();
+		check("lighthouse watch: the headset tracker's first restart after the overlay starts reaches the continuous loop",
+			seen.find("first restart: noted") != std::string::npos, seen.c_str());
+		fs::remove(p, ec);
+	}
+	// (b) After a new file (a rotation) the loop looks while the entry is gone;
+	// the new session's first restart is new all the same.
+	{
+		const fs::path p = dir / ("QuestCalRestartLog-b-" + std::to_string(stamp) + ".txt");
+		const fs::path old = dir / ("QuestCalRestartLog-b-" + std::to_string(stamp) + ".previous.txt");
+		{ std::ofstream out(p, std::ios::binary); out << HeadRoutine << "\n"; }
+		LogRig rig(p);
+		rig.Poll();
+		std::string seen = "start: " + rig.Look();
+		rig.Append(HeadBoot);
+		rig.Poll();
+		seen += "; restart: " + rig.Look();
+		fs::rename(p, old, ec);
+		{ std::ofstream out(p, std::ios::binary); out << ServerStart << "\n"; }
+		rig.Poll();
+		seen += "; new file: " + rig.Look();
+		rig.Append(HeadBoot);
+		rig.Poll();
+		seen += "; its first restart: " + rig.Look();
+		check("lighthouse watch: the first restart in a new file reaches the continuous loop",
+			seen.find("its first restart: noted") != std::string::npos, seen.c_str());
+		fs::remove(p, ec);
+		fs::remove(old, ec);
+	}
+	// (c) A server start in the same file, read in one poll with the tracker's
+	// restart in the new session: the count is back where the loop last saw it,
+	// which hid the restart from a compare by count.
+	{
+		const fs::path p = dir / ("QuestCalRestartLog-c-" + std::to_string(stamp) + ".txt");
+		{ std::ofstream out(p, std::ios::binary); out << HeadRoutine << "\n"; }
+		LogRig rig(p);
+		rig.Poll();
+		std::string seen = "start: " + rig.Look();
+		rig.Append(HeadBoot);
+		rig.Poll();
+		seen += "; restart: " + rig.Look();
+		rig.Append(ServerStart);
+		rig.Append(HeadBoot);
+		rig.Poll();
+		seen += "; server start and a restart: " + rig.Look();
+		check("lighthouse watch: a restart after a server start in the same file reaches the continuous loop",
+			seen.find("server start and a restart: noted") != std::string::npos, seen.c_str());
+		fs::remove(p, ec);
+	}
+	// (d) The same with a routine line after the server start: the count fell
+	// to 0, which a compare by count took for a restart dated by an entry that
+	// had none (lastDisturbance's -1e9).
+	{
+		const fs::path p = dir / ("QuestCalRestartLog-d-" + std::to_string(stamp) + ".txt");
+		{ std::ofstream out(p, std::ios::binary); out << HeadRoutine << "\n"; }
+		LogRig rig(p);
+		rig.Poll();
+		std::string seen = "start: " + rig.Look();
+		rig.Append(HeadBoot);
+		rig.Poll();
+		seen += "; restart: " + rig.Look();
+		rig.Append(ServerStart);
+		rig.Append(HeadRoutine);
+		rig.Poll();
+		seen += "; server start and a routine line: " + rig.Look();
+		check("lighthouse watch: no restart is noted where none was logged",
+			seen.find("routine line: none") != std::string::npos, seen.c_str());
+		fs::remove(p, ec);
+	}
+}
+
 } // namespace
 
 void RunLighthouseScenarios(void (*check)(const char *, bool, const char *))
@@ -1019,4 +1157,5 @@ void RunLighthouseScenarios(void (*check)(const char *, bool, const char *))
 	VisibilityScenarios(check);
 	DigestScenarios(check);
 	ModelScenarios(check);
+	RestartsReachTheLoop(check);
 }
