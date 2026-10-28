@@ -1,11 +1,12 @@
 name: Release
 
 # Pushing a novacalibrator-v* tag builds it on a clean Windows machine with the
-# full test suite (VirtualQuest included) and the pose hub trace replay through
-# its TLA+ model, analyzes it with Clang-Tidy, proves it against VirtualQuest's
-# formal suite on Linux (formal-assurance.yml), packages it, scans it on
-# VirusTotal, creates a DRAFT release here, and runs the install test on that
-# draft. Nothing reaches users until the draft is published by hand.
+# full test suite (VirtualQuest included) and the pose hub and universe verdict
+# traces replayed through their TLA+ models, analyzes it with Clang-Tidy, proves
+# it against VirtualQuest's formal suite on Linux (formal-assurance.yml),
+# packages it, scans it on VirusTotal, creates a DRAFT release here, and runs
+# the install test on that draft. Nothing reaches users until the draft is
+# published by hand.
 #
 # Installed copies look for updates only in VividNightmareUnleashed/NovaCalibrator,
 # so a run anywhere else (a fork, or this repository under another name) stops
@@ -46,12 +47,12 @@ env:
   MINISIGN_URL: https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-win64.zip
   MINISIGN_SHA256: 37b600344e20c19314b2e82813db2bfdcc408b77b876f7727889dbd46d539479
 
-# Jobs: check refuses what must not be built, in seconds; build tests,
-# packages and scans, and keeps the result with the run; beside it, traces
-# replays the pose hub traces through their model and runs the duplicate scan,
-# and clang-tidy analyzes the tagged source (clang-tidy.yml), where any
-# first-party finding stops the release; formal-scope picks the formal jobs
-# whose inputs changed since the last commit where each passed, and
+# Jobs: check refuses what must not be built, in seconds; build tests, packages
+# and scans, and keeps the result with the run; beside it, traces replays the
+# pose hub and universe verdict traces through their models and runs the
+# duplicate scan, and clang-tidy analyzes the tagged source (clang-tidy.yml),
+# where any first-party finding stops the release; formal-scope picks the formal
+# jobs whose inputs changed since the last commit where each passed, and
 # formal-assurance runs those; publish creates the draft from the kept package
 # once all of them passed. A failed publish is repeated with
 # "Re-run failed jobs" in a minute, without building again.
@@ -218,7 +219,7 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File tools\validate-cpp.ps1 -Mode Compile
           if ($LASTEXITCODE -ne 0) { throw 'The build failed.' }
 
-      - name: Replay the pose hub traces through the model
+      - name: Replay the hub and verdict traces through their models
         timeout-minutes: 10
         shell: pwsh
         run: |

@@ -12,9 +12,9 @@ name: Validation
 #
 # With the VIRTUALQUEST_DEPLOY_KEY secret (a read-only deploy key on the
 # private VirtualQuest repository) the harness also builds the simulated
-# headset's scenarios and the formal-model links, and the pose hub traces are
-# replayed through their TLA+ model. Without it the run says so and tests the
-# public suite only.
+# headset's scenarios and the formal-model links, and the pose hub and
+# universe verdict traces are replayed through their TLA+ models. Without it
+# the run says so and tests the public suite only.
 #
 # Pull requests from forks never get the secret, and neither does a fork's own
 # copy of this workflow. Those runs skip every job below that needs
@@ -102,7 +102,7 @@ jobs:
         if: env.HAS_VIRTUALQUEST != 'true'
         shell: pwsh
         run: |
-          Write-Host '::warning::VIRTUALQUEST_DEPLOY_KEY is not set: the simulated-headset scenarios, the formal-model links and the hub traces are not run.'
+          Write-Host '::warning::VIRTUALQUEST_DEPLOY_KEY is not set: the simulated-headset scenarios, the formal-model links and the hub and verdict traces are not run.'
 
       # The key only opens VirtualQuest, so it is checked out on its own at the
       # commit this tree pins (tools/ci/checkout-virtualquest.ps1 says why not
@@ -147,7 +147,7 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File tools\validate-cpp.ps1 -Mode Build
           if ($LASTEXITCODE -ne 0) { throw 'The build or the solver harness failed.' }
 
-      - name: Replay the pose hub traces through the model
+      - name: Replay the hub and verdict traces through their models
         if: env.HAS_VIRTUALQUEST == 'true'
         timeout-minutes: 10
         shell: pwsh
