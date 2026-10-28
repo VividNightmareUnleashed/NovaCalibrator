@@ -238,11 +238,12 @@ public:
 	// out the time such a move takes to show on any device. The headset tracker
 	// coming into a frame gives its correction to the devices there instead,
 	// and never takes one. `member` says which devices are calibrated, `keep`
-	// is one whose correction stays put (a measurement's target), and a change
+	// is one whose correction stays put (a measurement's target), a change
 	// still being read off other devices' moves (LighthouseFrameWatch::Settled)
-	// waits for its own switch. A device the caller still has a switch for is
-	// not calibrated here: its correction is the one the switch is about to
-	// replace.
+	// waits for its own switch, and a device still to show a move out of its
+	// frame (LighthouseFrameWatch::Leaving) joins in the frame it follows into.
+	// A device the caller still has a switch for is not calibrated here: its
+	// correction is the one the switch is about to replace.
 	template <class Member>
 	JoinResult Join(const LighthouseFrameWatch::Switch &change, const LighthouseFrameWatch &watch,
 		uint32_t headsetTracker, uint32_t keep, Member member)
@@ -259,6 +260,12 @@ public:
 			result.kept = "it has no frame any more";
 		else if (!watch.Settled(id))
 			result.kept = "a later change of its frame is still being read";
+		// Joined in the frame it still shows, it found no mate there and kept
+		// its own, then followed the move beside the correction of the frame
+		// it came into (its change settled while it was a solve behind,
+		// replayed: two corrections 18.6 mm apart).
+		else if (watch.Leaving(id))
+			result.kept = "it is still to show a move out of its frame";
 		result.retry = result.kept && id < frames.size() && member(id) &&
 			(Parked(id) || watch.LastFrame(id, frameRotation, frameTranslation));
 		if (result.kept)

@@ -310,6 +310,21 @@ public:
 		return !Lead(f).empty();
 	}
 
+	// A move recorded out of the device's last frame that the device has not
+	// shown yet (Since): a solve behind, it is still to follow it.
+	bool Leaving(uint32_t id) const
+	{
+		Eigen::Quaterniond r;
+		Eigen::Vector3d t;
+		if (!LastFrame(id, r, t))
+			return false;
+		const uint64_t since = Since(devices[id]);
+		for (const auto &tr : transitions)
+			if (tr.seq >= since && !questcal::WorldFromDriverChanged(tr.fromRot, tr.fromTrans, r, t))
+				return true;
+		return false;
+	}
+
 	// A frame change at `time` is recent enough that a device a solve behind
 	// can still show the move that made it (lagSeconds).
 	bool WithinLag(double time) const { return latestTime < time + config.lagSeconds; }

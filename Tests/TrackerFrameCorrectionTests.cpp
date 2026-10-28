@@ -1505,9 +1505,9 @@ void SwitchOverflow(Check check)
 }
 
 // Sequences SteamVR makes rarely: a tracker off while its station is placed or
-// re-solved, re-solves in a row or shown out of order, a device switched on as
-// its frame moves, and the pose stream starting over while a followed move is
-// still on its way to the driver.
+// re-solved, re-solves in a row or shown out of order, a device switched on or
+// a solve behind as its frame moves, and the pose stream starting over while a
+// followed move is still on its way to the driver.
 namespace
 {
 // A stationary device's sample, at `local` in the given frame.
@@ -2199,6 +2199,45 @@ void JoinBeforeMoveShown(Check check)
 		one, detail);
 }
 
+// The headset tracker's pose jumps as it comes into the other station's frame
+// (G1), a change no move leads; that station re-solves 4.8 s later and device 9
+// shows the move to G2 at once, and the headset tracker, a solve behind, 0.5 s
+// later. Its change ran out of time between the two: joined in G1, where no
+// device was, it kept its own, then followed the move into G2 beside device
+// 9's: two corrections in one frame. It joins in G2 once it shows the move.
+void JoinInStaleOwnFrame(Check check)
+{
+	MonitorRig rig;
+	rig.headset = 10;
+	const Q e0 = Q::Identity();
+	const Q g0(Eigen::AngleAxisd(0.30, V::UnitY()));
+	const Q g1(Eigen::AngleAxisd(0.32, V::UnitY()));
+	const Q g2(Eigen::AngleAxisd(0.345, V::UnitY()));
+	const V t0(0, 0, 0), u0(0.5, 0, 0.2), u1(0.53, 0, 0.21), u2(0.57, 0, 0.22);
+	const V at9(0.4, 1.0, -0.6), at10(-0.3, 0.9, 0.5), jump(0.05, 0, 0);
+	for (double t = 10.0; t < 18.0; t += 0.05)
+	{
+		Q r9 = g0, r10 = e0;
+		V tr9 = u0, tr10 = t0, local10 = at10;
+		if (t >= 10.3 - 1e-9) { r9 = g1; tr9 = u1; }                           // G0 to G1, a move
+		if (t >= 10.5 - 1e-9) { r10 = g1; tr10 = u1; local10 = at10 + jump; }  // into G1, its pose jumping
+		if (t >= 15.3 - 1e-9) { r9 = g2; tr9 = u2; }                           // G1 to G2, a move
+		if (t >= 15.8 - 1e-9) { r10 = g2; tr10 = u2; }                         // the same move, a solve behind
+		rig.watch.Note(ReplaySample(1, t, V::Zero(), e0, t0), TickScale, true);
+		rig.watch.Note(ReplaySample(9, t, at9, r9, tr9), TickScale, false);
+		rig.watch.Note(ReplaySample(10, t, local10, r10, tr10), TickScale, false);
+		if (std::fmod(t + 1e-9, 0.25) < 0.05)
+			rig.Tick(t);
+	}
+	const bool one = questcal::TrackerFrameCorrections::Agree(rig.frames.Snapshot()[9], rig.frames.Snapshot()[10]);
+	const double apart = CorrectionShift(rig.frames.Snapshot()[9], rig.frames.Snapshot()[10], at9);
+	char detail[900];
+	std::snprintf(detail, sizeof detail, "%s; one correction in G2 %d; the two corrections %.1f mm apart at device 9",
+		rig.log.c_str(), one ? 1 : 0, apart * 1000.0);
+	check("frame corrections: a device a solve behind when its change settles joins in the frame it follows into",
+		one, detail);
+}
+
 void RunTrackerFrameCorrectionScenarios(Check check)
 {
 	SplitFrames(check);
@@ -2226,4 +2265,5 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	MergeAcrossFollowedMove(check);
 	MergedIntoUnleadable(check);
 	JoinBeforeMoveShown(check);
+	JoinInStaleOwnFrame(check);
 }
