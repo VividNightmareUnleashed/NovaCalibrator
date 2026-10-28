@@ -733,6 +733,100 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 			others.empty() ? "no lines" : others.back().substr(0, 120).c_str());
 	}
 
+	// Logging only. A headset step shaped like a drift catch-up names the
+	// devices whose own frames jumped with it: controllers that share the
+	// headset's correction take its catch-up too, self-tracked ones stay
+	// continuous. A 3 deg turn about the head at 91 s, the controllers 30 and
+	// 60 cm away either keeping their frame or taking the same turn.
+	{
+		auto run = [](bool shared, std::vector<std::string> &log)
+		{
+			JumpDetector detector(QpcSeconds);
+			int count = 0;
+			for (int frame = 0; frame <= 12400; ++frame)
+			{
+				const double time = 1.0 + frame * 0.01;
+				const Eigen::Quaterniond turn(Eigen::AngleAxisd(frame >= 9000 ? 3.0 * questcal::Pi / 180.0 : 0.0,
+					Eigen::Vector3d::UnitY()));
+				for (uint32_t id = 0; id < 3; ++id)
+				{
+					auto s = Sample(id, time, 0.0);
+					s.position[2] = 1e-5 * std::sin(time * 700.0 + id);
+					const double yaw = id == 0 ? 0.1 * time : 0.0;
+					Eigen::Quaterniond rotation(Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitY()));
+					Eigen::Vector3d position(s.position[0], s.position[1], s.position[2]);
+					if (id == 0 || shared)
+					{
+						// About the head, which stands on the vertical through the origin.
+						rotation = turn * rotation;
+						position = turn * position;
+					}
+					s.rotation = { rotation.w(), rotation.x(), rotation.y(), rotation.z() };
+					for (int k = 0; k < 3; ++k)
+						s.position[k] = position[k];
+					detector.Push(s);
+					JumpDetector::UniverseDelta delta;
+					while (detector.PollDelta(delta))
+						++count;
+					std::string note;
+					while (detector.PollNote(note))
+						log.push_back(note);
+				}
+			}
+			return count;
+		};
+		std::vector<std::string> own, shared;
+		const int ownCount = run(false, own), sharedCount = run(true, shared);
+		check("diagnostics: a refused drift catch-up names the devices that stayed continuous",
+			ownCount == 0 && Has(own,
+				"pose discontinuity on device 0 expired as a drift catch-up (1 this session); 0 other device(s) jumped with it, 2 stayed continuous"),
+			LastWith(own, "drift catch-up").c_str());
+		check("diagnostics: a drift catch-up the controllers jumped with names them",
+			sharedCount == 1 && Has(shared,
+				"pose discontinuity on device 0, shaped like a drift catch-up, confirmed by devices that jumped with it: 2 other device(s) jumped with it, 0 stayed continuous"),
+			LastWith(shared, "drift catch-up").c_str());
+	}
+
+	// Logging only: once a session, the frame a device's angular velocity is
+	// reported in, judged against the orientation's own rate. A headset
+	// pitched 0.5 rad turns at 1 rad/s about the vertical and reports that
+	// rate in its own frame, then in the world's.
+	{
+		auto run = [](bool deviceFrame)
+		{
+			JumpDetector detector(QpcSeconds);
+			std::vector<std::string> log;
+			const Eigen::Quaterniond pitch(Eigen::AngleAxisd(0.5, Eigen::Vector3d::UnitX()));
+			for (int frame = 0; frame <= 400; ++frame)
+			{
+				const double time = 1.0 + frame * 0.01;
+				auto s = Sample(0, time, 0.0);
+				s.position[2] = 1e-5 * std::sin(time * 700.0);
+				const Eigen::Quaterniond rotation = Eigen::AngleAxisd(time, Eigen::Vector3d::UnitY()) * pitch;
+				s.rotation = { rotation.w(), rotation.x(), rotation.y(), rotation.z() };
+				const Eigen::Vector3d rate = deviceFrame
+					? Eigen::Vector3d(rotation.conjugate() * Eigen::Vector3d::UnitY()) : Eigen::Vector3d::UnitY();
+				for (int k = 0; k < 3; ++k)
+					s.angularVelocity[k] = rate[k];
+				detector.Push(s);
+				JumpDetector::UniverseDelta delta;
+				while (detector.PollDelta(delta)) {}
+				std::string note;
+				while (detector.PollNote(note))
+					log.push_back(note);
+			}
+			return log;
+		};
+		const auto device = run(true), world = run(false);
+		int lines = 0;
+		for (const auto &l : device)
+			lines += l.find("angular velocity on device") != std::string::npos;
+		check("diagnostics: the angular velocity's frame is logged once a session",
+			lines == 1 && Has(device, "angular velocity on device 0 is reported in the device frame") &&
+			Has(world, "angular velocity on device 0 is reported in the world frame"),
+			LastWith(device, "angular velocity").c_str());
+	}
+
 	// The stream digest: one line per device a minute with what the
 	// transport did. A 90 Hz headset for 61 s with every 13th frame
 	// re-predicted (velocities repeated, position moved on), 20 frames of

@@ -3107,11 +3107,12 @@ void RunJumpScenarios()
 			else
 				jd.Push(RefSample(hmd, t));
 
-			// Poll only the first note: the second rebase leaves its note and
-			// delta pending, so Reset below has something real to drop.
+			// Poll the notes up to the first rebase's (the angular velocity's
+			// frame may be noted before it): the second rebase leaves its note
+			// and delta pending, so Reset below has something real to drop.
 			if (step == jumpStep)
-				noteDescribesRebase = jd.PollNote(firstNote) &&
-					firstNote.find("rebase") != std::string::npos;
+				while (!noteDescribesRebase && jd.PollNote(firstNote))
+					noteDescribesRebase = firstNote.find("rebase") != std::string::npos;
 		}
 
 		jd.Reset();

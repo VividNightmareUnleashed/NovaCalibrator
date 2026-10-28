@@ -7,6 +7,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
+#include <bitset>
 #include <cstdint>
 #include <deque>
 #include <string>
@@ -281,6 +282,14 @@ private:
 		bool heldPosition = false;
 		bool driftCatchUp = false;
 		bool settledSolo = false;
+		// HMD heuristic, for the log only: shaped like a drift catch-up
+		// (threshold-sized or a turn about the head, followed drift or not),
+		// and the other devices whose own frames jumped within agreeWindow of
+		// it. Whether controllers step with such a step is whether they share
+		// the headset's correction (Constellation-tracked ones do in the
+		// engine; self-tracked ones follow their own map).
+		bool catchUpShaped = false;
+		std::bitset<vr::k_unMaxTrackedDeviceCount> steppedWith;
 
 		// The filters every consumer needs, once each.
 		bool LiveExact() const { return kind == Kind::Exact && life != Life::Dead; }
@@ -308,6 +317,17 @@ private:
 		// samples (0 until two have arrived).
 		bool holeNoted = false;
 		double usualInterval = 0.0;
+		// Which frame the reported angular velocity is in, judged once a
+		// session for the log only: the two samples before the latest (time
+		// and driver-local orientation, oldest first) with the middle one's
+		// reported rate, and that rate's residuals against the orientation's
+		// own rate taken in the device frame and in the world frame.
+		int rateSamples = 0;
+		double rateTime[2] = { 0.0, 0.0 };
+		Eigen::Quaterniond rateRot[2] = { Eigen::Quaterniond::Identity(), Eigen::Quaterniond::Identity() };
+		Eigen::Vector3d rateReported{ 0, 0, 0 };
+		std::vector<double> deviceFrameResidual, worldFrameResidual;
+		bool angularFrameReported = false;
 	};
 
 	// A candidate's device has always had a valid sample since the last
@@ -338,6 +358,11 @@ private:
 	void EvaluatePendingCandidates();
 	void TryAccept();
 	int ActiveDeviceCount(double now) const;
+	// For the log: which devices' frames jumped with an HMD candidate.
+	std::string StepCompanions(const Candidate &c, double now) const;
+	// For the log: the frame of a device's reported angular velocity, once.
+	void ProbeAngularFrame(uint32_t id, DeviceState &dev, double t,
+	                       const Eigen::Quaterniond &rot, const Eigen::Vector3d &rate);
 	// True when at least one other reference device is tracking and every
 	// one of them is locked still (position repeated over the last samples).
 	bool OthersLockedStill(double now) const;

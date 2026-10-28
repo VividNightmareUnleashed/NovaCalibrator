@@ -91,6 +91,13 @@ std::string Format(const char *fmt, ...)
 	return buf;
 }
 
+double MedianOf(std::vector<double> v)
+{
+	const size_t k = v.size() / 2;
+	std::nth_element(v.begin(), v.begin() + k, v.end());
+	return v[k];
+}
+
 } // namespace
 
 void JumpDetector::Push(const protocol::DevicePoseSample &s)
@@ -176,6 +183,7 @@ void JumpDetector::Push(const protocol::DevicePoseSample &s)
 	Eigen::Vector3d driverVelocity(s.velocity[0], s.velocity[1], s.velocity[2]);
 	Eigen::Vector3d driverAngularVelocity(
 		s.angularVelocity[0], s.angularVelocity[1], s.angularVelocity[2]);
+	ProbeAngularFrame(s.deviceId, dev, t, p.drvRot, driverAngularVelocity);
 	const ringpose::DriverLocalPoseSample world = RingWorldPose(s, p, t);
 
 	Hist h;
@@ -342,6 +350,16 @@ void JumpDetector::DetectDiscontinuity(uint32_t id, DeviceState &dev, const Hist
 		details.push_back(Format("candidate on device %u at %.3f s: frame jump %.3f m / %.2f deg over %.1f ms, moving %.3f m/s, turning %.3f rad/s%s",
 			id, c.t, posErr, yawErr * 180.0 / questcal::Pi, dt * 1000.0, incoming.vel.norm(), std::abs(incoming.yawRate),
 			c.needsCorroboration ? "; under the solo floor, needs another device or a settled stream" : ""));
+	// For the log: the other devices whose own frames jumped with this one.
+	for (auto &o : candidates)
+		if (o.kind == Kind::Heuristic && o.life != Life::Dead && o.deviceId != id &&
+			std::abs(o.t - c.t) <= config.agreeWindow)
+		{
+			if (id == vr::k_unTrackedDeviceIndex_Hmd)
+				c.steppedWith.set(o.deviceId);
+			else if (o.deviceId == vr::k_unTrackedDeviceIndex_Hmd)
+				o.steppedWith.set(id);
+		}
 	candidates.push_back(c);
 }
 
@@ -471,6 +489,7 @@ void JumpDetector::EvaluatePendingCandidates()
 				std::abs(dYaw) <= config.driftCatchUpYawRad + config.driftCatchUpYawBandRad &&
 				moved <= config.driftCatchUpHeadShift;
 			c.driftCatchUp = (thresholdSized || turnAboutHead) && !driftFollowed;
+			c.catchUpShaped = thresholdSized || turnAboutHead;
 			bool aboveFloor = c.trans.norm() > config.soloSettledPos ||
 				std::abs(dYaw) > config.soloSettledYawRad;
 			bool steady = resumeAge >= config.soloSettledSeconds;
@@ -647,6 +666,10 @@ void JumpDetector::TryAccept()
 
 			accepted.push_back(d);
 			lastAcceptTime = c0.t;
+			if (c0.catchUpShaped && agree.size() >= 2)
+				notes.push_back(Format(
+					"pose discontinuity on device %u, shaped like a drift catch-up, confirmed by devices that jumped with it: %s",
+					c0.deviceId, StepCompanions(c0, now).c_str()));
 			// Discard this step's evidence: its headset candidates, each
 			// confirming device's steps up to the one it confirmed with (the same
 			// event in adjacent fit windows), and another device's step that
@@ -715,8 +738,8 @@ void JumpDetector::TryAccept()
 		{
 			driftCatchUps++;
 			notes.push_back(Format(
-				"pose discontinuity on device %u expired as a drift catch-up (%d this session)",
-				c0.deviceId, driftCatchUps));
+				"pose discontinuity on device %u expired as a drift catch-up (%d this session); %s",
+				c0.deviceId, driftCatchUps, StepCompanions(c0, now).c_str()));
 			continue;
 		}
 		ignoredSteps++;
@@ -741,6 +764,57 @@ void JumpDetector::TryAccept()
 					devices[c.deviceId].lastValidTime - c.t > keep;
 			}),
 		candidates.end());
+}
+
+std::string JumpDetector::StepCompanions(const Candidate &c, double now) const
+{
+	const int jumped = static_cast<int>(c.steppedWith.count());
+	const int others = (std::max)(0, ActiveDeviceCount(now) - 1);
+	return Format("%d other device(s) jumped with it, %d stayed continuous", jumped, (std::max)(0, others - jumped));
+}
+
+void JumpDetector::ProbeAngularFrame(uint32_t id, DeviceState &dev, double t,
+                                     const Eigen::Quaterniond &rot, const Eigen::Vector3d &rate)
+{
+	if (dev.angularFrameReported)
+		return;
+	// The middle of three samples spanning under 50 ms, where the device
+	// turns and the rates in its own frame and in the world's differ enough
+	// to tell which one the driver reports.
+	if (dev.rateSamples >= 2 && t > dev.rateTime[0] && t - dev.rateTime[0] < 0.05)
+	{
+		const double span = t - dev.rateTime[0];
+		const Eigen::AngleAxisd inDevice(dev.rateRot[0].conjugate() * rot), inWorld(rot * dev.rateRot[0].conjugate());
+		const Eigen::Vector3d deviceRate = inDevice.axis() * (inDevice.angle() / span);
+		const Eigen::Vector3d worldRate = inWorld.axis() * (inWorld.angle() / span);
+		if ((deviceRate - worldRate).norm() > 0.2 && dev.rateReported.norm() > 0.3)
+		{
+			dev.deviceFrameResidual.push_back((dev.rateReported - deviceRate).norm());
+			dev.worldFrameResidual.push_back((dev.rateReported - worldRate).norm());
+		}
+		if (dev.deviceFrameResidual.size() >= 120)
+		{
+			const double inDeviceFrame = MedianOf(dev.deviceFrameResidual), inWorldFrame = MedianOf(dev.worldFrameResidual);
+			const char *frame = inDeviceFrame < 0.5 * inWorldFrame ? "the device frame" :
+				inWorldFrame < 0.5 * inDeviceFrame ? "the world frame" : "neither frame clearly";
+			notes.push_back(Format(
+				"angular velocity on device %u is reported in %s: over %zu turning samples it differs from the orientation's own rate by %.3f rad/s (median) taken in the device frame, %.3f rad/s in the world frame",
+				id, frame, dev.deviceFrameResidual.size(), inDeviceFrame, inWorldFrame));
+			dev.angularFrameReported = true;
+			std::vector<double>().swap(dev.deviceFrameResidual);
+			std::vector<double>().swap(dev.worldFrameResidual);
+			return;
+		}
+	}
+	if (dev.rateSamples >= 1)
+	{
+		dev.rateTime[0] = dev.rateTime[1];
+		dev.rateRot[0] = dev.rateRot[1];
+	}
+	dev.rateTime[1] = t;
+	dev.rateRot[1] = rot;
+	dev.rateReported = rate;
+	dev.rateSamples = (std::min)(dev.rateSamples + 1, 2);
 }
 
 int JumpDetector::ActiveDeviceCount(double now) const
