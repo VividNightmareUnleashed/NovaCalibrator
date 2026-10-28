@@ -338,17 +338,23 @@ static FrameMembership TargetMembership(const CalibrationContext &ctx, uint32_t 
 // The watch also handles hidden trackers and returns after tracking loss.
 static void CompensateTrackerFrameMoves(CalibrationContext &ctx)
 {
-	const bool overflow = FrameWatch.TakeMoveOverflow();
+	const bool moveOverflow = FrameWatch.TakeMoveOverflow();
+	// A dropped switch leaves a device with the correction of a frame it is
+	// no longer in, so it costs the calibration as a dropped move does.
+	const bool switchOverflow = FrameWatch.TakeSwitchOverflow();
 	auto moves = FrameWatch.TakeMoves();
-	if (overflow)
+	if (moveOverflow || switchOverflow)
 	{
+		FrameWatch.TakeSwitches();   // what is left is incomplete, not to be joined
 		EndCalibrationRun(ctx);
 		ctx.enabled = false;
 		ctx.profileUniverseUnsafe = true;
 		ctx.frameMovesLost = true;
 		ctx.persistence.MarkProfile(ctx.timeLastTick);
 		ResetContinuousObservations(ctx, questcal::ContinuousAlignment::ResetReason::StreamGap);
-		ctx.Log("Lighthouse frame move queue overflowed; calibration disabled until a new measurement\n");
+		ctx.Log(moveOverflow
+			? "Lighthouse frame move queue overflowed; calibration disabled until a new measurement\n"
+			: "Lighthouse frame switch queue overflowed; calibration disabled until a new measurement\n");
 		ctx.ReportError("SteamVR moved the base stations more often than Nova Calibrator could follow. The "
 			"calibration is off until you calibrate again.\n");
 		SynchronizeCalibrationDriver(ctx);

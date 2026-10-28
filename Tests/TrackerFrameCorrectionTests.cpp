@@ -1453,6 +1453,41 @@ void CollectionFallback(Check check)
 		accepted && faithful && gated, detail);
 }
 
+// Switches past the bound are dropped, so the watch says so, as it does for
+// moves: a device left with the correction of a frame it is no longer in
+// must not be followed as if nothing was lost.
+void SwitchOverflow(Check check)
+{
+	LighthouseFrameWatch watch;
+	const Q a = Q::Identity(), b(Eigen::AngleAxisd(0.1, V::UnitY()));
+	const V world(1, 0, 0);
+	double time = 1.0;
+	// One device re-expressed in the other frame at every sample, its pose in
+	// the world unchanged: a switch each time.
+	auto note = [&](const Q &frame)
+	{
+		auto s = Sample(3, time, frame.conjugate() * world, frame);
+		s.rotation = questcal::WireQuaternion(frame.conjugate());
+		s.deviceIsConnected = true;
+		watch.Note(s, TickScale, false);
+		time += 0.01;
+	};
+	for (int i = 0; i < 300; ++i)
+		note(i % 2 ? b : a);
+	const bool overflowed = watch.TakeSwitchOverflow();
+	const size_t taken = watch.TakeSwitches().size();
+	const bool cleared = !watch.TakeSwitchOverflow();
+	note(a);
+	note(b);
+	const size_t after = watch.TakeSwitches().size();
+	const bool stillClear = !watch.TakeSwitchOverflow();
+	char detail[160];
+	std::snprintf(detail, sizeof detail, "overflow %d, taken %zu, cleared %d; then %zu more, overflow %d",
+		overflowed ? 1 : 0, taken, cleared ? 1 : 0, after, stillClear ? 0 : 1);
+	check("frame watch: switches past the bound are dropped and said so",
+		overflowed && taken == 256 && cleared && after == 2 && stillClear, detail);
+}
+
 void RunTrackerFrameCorrectionScenarios(Check check)
 {
 	SplitFrames(check);
@@ -1468,6 +1503,7 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	StartupReplacements(check);
 	SupersededInference(check);
 	HeldFrameChanges(check);
+	SwitchOverflow(check);
 	DeferredFrameLog(check);
 	CollectionFallback(check);
 }

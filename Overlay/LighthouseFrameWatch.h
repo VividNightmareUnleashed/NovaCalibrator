@@ -328,9 +328,8 @@ public:
 	// new frame for one that jumped into it or came back in it. The ones
 	// given back (Hold) come first, unless the device switched again since:
 	// a join reads the frame the device is in now, so the newest switch
-	// stands for both. Bounded like the moves; a switch past the bound is
-	// dropped, which leaves the device with the correction it had, as before
-	// switches were reported.
+	// stands for both. Bounded like the moves: a switch past the bound is
+	// dropped, and TakeSwitchOverflow says so.
 	std::vector<Switch> TakeSwitches()
 	{
 		std::vector<Switch> out;
@@ -374,6 +373,8 @@ public:
     // Overflow invalidates completeness: callers must stop applying the
     // profile until recalibration, rather than silently use partial frames.
     bool TakeMoveOverflow() { const bool out = moveOverflow; moveOverflow = false; return out; }
+	// The same for the switches.
+	bool TakeSwitchOverflow() { const bool out = switchOverflow; switchOverflow = false; return out; }
 
 	// Reports whose group has closed: a sample arrived more than
 	// groupSeconds after its first change.
@@ -397,6 +398,7 @@ public:
         moveOverflow = false;
 		switches.clear();
 		heldSwitches.clear();
+		switchOverflow = false;
 		transitions.clear();
 		inferences.clear();
 		latestTime = -1e300;
@@ -716,7 +718,10 @@ private:
 		const Eigen::Quaterniond &toRot, const Eigen::Vector3d &toTrans)
 	{
 		if (switches.size() >= MaxPendingMoves)
+		{
+			switchOverflow = true;
 			return;
+		}
 		Switch s;
 		s.id = id;
 		s.time = time;
@@ -765,6 +770,7 @@ private:
 	std::vector<Move> moves, heldMoves;
     bool moveOverflow = false;
 	std::vector<Switch> switches, heldSwitches;
+	bool switchOverflow = false;
 	std::vector<Transition> transitions;
 	std::vector<Inference> inferences;
 	uint64_t nextTransition = 0;
