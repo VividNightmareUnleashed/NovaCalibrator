@@ -49,11 +49,12 @@ JOBS = {
     # formal/check.ps1 -Only input-validation: ESBMC and Gappa.
     'input_validation': {'folders': [FORMAL / 'input-validation'], 'exclude': [],
                          'scripts': [FORMAL / 'check.ps1']},
-    # formal-assurance.yml on a push: check.ps1 -Core, TLC, Lean and
-    # GenMC over VirtualQuest's own models. It compiles no public source, and
-    # check.ps1 only hashes the headers the numeric harnesses name, so it has
-    # no public input: it runs when VirtualQuest or the tools below change.
-    'core': {'folders': [], 'exclude': [], 'scripts': []},
+    # formal-assurance.yml on a push: check.ps1 -Core, TLC, Lean, GenMC and
+    # ESBMC over VirtualQuest's own models and kernels. It compiles no public
+    # source, but its models describe public functions, which model-pins.json
+    # names: it runs when one of their files changes, or VirtualQuest or the
+    # tools below.
+    'core': {'folders': [], 'exclude': [], 'scripts': [], 'pins': FORMAL / 'model-pins.json'},
 }
 
 # The workflow jobs that prove each formal job on a commit, by name prefix:
@@ -139,6 +140,15 @@ def included(path):
     return found
 
 
+def pinned(manifest):
+    """The public files whose functions a manifest of model pins names."""
+    try:
+        entries = json.loads(manifest.read_text(encoding='utf-8'))['pins']
+    except (OSError, ValueError, KeyError):
+        return []
+    return [(ROOT / entry['file']).resolve() for entry in entries]
+
+
 def inputs(job):
     """The public files (outside VirtualQuest) a job reads."""
     spec = JOBS[job]
@@ -162,6 +172,10 @@ def inputs(job):
             queue.extend((p, depth) for p in included(path))
         elif path.suffix in SCRIPTS and depth <= 1:
             queue.extend((p, depth + 1) for p in referenced(path))
+    # The pinned files themselves: what they include is not what a model
+    # describes, and no check of the job reads it.
+    if spec.get('pins'):
+        seen.update(p for p in pinned(spec['pins']) if p.is_file())
     return sorted(p.relative_to(ROOT).as_posix() for p in seen
                   if not inside(p, VIRTUAL) and p.relative_to(ROOT).as_posix() in TRACKED)
 

@@ -37,9 +37,10 @@ name: Validation
 # its base branch, so the image a push to alpha saves lets pull requests into
 # alpha skip the build.
 #
-# The private-core job runs VirtualQuest's own formal suite, TLC, Lean and
-# GenMC, on four runners (formal-assurance.yml). Its output stays off this
-# public log; a failure names the checks that failed, to be run locally.
+# The private-core job runs VirtualQuest's own formal suite, TLC, Lean, GenMC
+# and ESBMC over its kernels, on four runners (formal-assurance.yml). Its
+# output stays off this public log; a failure names the checks that failed,
+# to be run locally.
 #
 # Those two formal jobs run only for a change that can affect them (the
 # formal-scope job below). Each is compared with the last commit where it ran
@@ -124,6 +125,17 @@ jobs:
         run: |
           python VirtualQuest/formal/check-pins.py
           if ($LASTEXITCODE -ne 0) { throw 'A pin of the formal suite no longer holds; it is named above.' }
+
+      # The functions the formal models describe, by a hash of their code: a
+      # change to one fails here, naming the model to review, so a model never
+      # goes on passing about code that is gone.
+      - name: Check the formal models' pins on this source
+        if: env.HAS_VIRTUALQUEST == 'true'
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          python VirtualQuest/formal/check-model-pins.py
+          if ($LASTEXITCODE -ne 0) { throw 'A function a formal model describes changed; the model to review is named above.' }
 
       # Every step has its own limit, a few times its usual length, so a hung
       # step fails in minutes instead of holding the runner to the job limit.
