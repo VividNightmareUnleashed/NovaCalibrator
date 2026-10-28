@@ -1505,8 +1505,9 @@ void SwitchOverflow(Check check)
 }
 
 // Sequences SteamVR makes rarely: a tracker off while its station is placed or
-// re-solved, re-solves in a row or shown out of order, and the pose stream
-// starting over while a followed move is still on its way to the driver.
+// re-solved, re-solves in a row or shown out of order, a device switched on as
+// its frame moves, and the pose stream starting over while a followed move is
+// still on its way to the driver.
 namespace
 {
 // A stationary device's sample, at `local` in the given frame.
@@ -2161,6 +2162,43 @@ void MergedIntoUnleadable(Check check)
 		detail);
 }
 
+// Device 10 is switched on in a frame SteamVR just moved (E1) while the
+// headset tracker (device 9) and the station, a solve behind, still show E0:
+// no move into E1 is recorded yet, so its join finds no mate and no device to
+// wait for. Kept at once, its correction stayed beside the one the headset
+// tracker brought into E1 by the move it followed a moment later.
+void JoinBeforeMoveShown(Check check)
+{
+	MonitorRig rig;
+	rig.headset = 9;
+	const Q e0 = Q::Identity();
+	const Q e1(Eigen::AngleAxisd(0.020, V::UnitY()));
+	const V t0(0, 0, 0), t1(0.03, 0, 0.01);
+	const V at9(0.4, 1.0, -0.6), at10(-0.3, 0.9, 0.5);
+	for (double t = 10.0; t < 17.0; t += 0.05)
+	{
+		Q sr = e0, r9 = e0;
+		V st = t0, tr9 = t0;
+		if (t >= 10.9 - 1e-9) { sr = e1; st = t1; }    // the station, a solve behind
+		if (t >= 10.95 - 1e-9) { r9 = e1; tr9 = t1; }  // the headset tracker, a solve behind
+		rig.watch.Note(ReplaySample(1, t, V::Zero(), sr, st), TickScale, true);
+		rig.watch.Note(ReplaySample(9, t, at9, r9, tr9), TickScale, false);
+		if (t >= 10.5 - 1e-9)                          // switched on in the moved frame
+			rig.watch.Note(ReplaySample(10, t, at10, e1, t1), TickScale, false);
+		if (std::fmod(t + 1e-9, 0.25) < 0.05)
+			rig.Tick(t);
+	}
+	const bool one = questcal::TrackerFrameCorrections::Agree(rig.frames.Snapshot()[9], rig.frames.Snapshot()[10]);
+	const auto right = BackToStart(e1, t1);
+	const double off9 = CorrectionShift(rig.frames.Snapshot()[9], right, at9);
+	const double off10 = CorrectionShift(rig.frames.Snapshot()[10], right, at10);
+	char detail[900];
+	std::snprintf(detail, sizeof detail, "%s; one correction in E1 %d; off the right correction: device 9 %.1f mm, device 10 %.1f mm",
+		rig.log.c_str(), one ? 1 : 0, off9 * 1000.0, off10 * 1000.0);
+	check("frame corrections: a device that comes into a moved frame before the move shows takes the frame's correction",
+		one, detail);
+}
+
 void RunTrackerFrameCorrectionScenarios(Check check)
 {
 	SplitFrames(check);
@@ -2187,4 +2225,5 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	ChainRecordedOutOfOrder(check);
 	MergeAcrossFollowedMove(check);
 	MergedIntoUnleadable(check);
+	JoinBeforeMoveShown(check);
 }

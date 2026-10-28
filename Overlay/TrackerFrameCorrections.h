@@ -234,14 +234,15 @@ public:
 	// continuous loop holds that one to the headset, otherwise theirs when they
 	// all agree; alone, or among devices that disagree, it keeps its own,
 	// unless a calibrated device is still to come into the frame by a move it
-	// follows (LighthouseFrameWatch::Behind), which it waits for. The
-	// headset tracker coming into a frame gives its correction to the devices
-	// there instead, and never takes one. `member` says which devices are
-	// calibrated, `keep` is one whose correction stays put (a measurement's
-	// target), and a change still being read off other devices' moves
-	// (LighthouseFrameWatch::Settled) waits for its own switch. A device the
-	// caller still has a switch for is not calibrated here: its correction is
-	// the one the switch is about to replace.
+	// follows (LighthouseFrameWatch::Behind), which it waits for, as it waits
+	// out the time such a move takes to show on any device. The headset tracker
+	// coming into a frame gives its correction to the devices there instead,
+	// and never takes one. `member` says which devices are calibrated, `keep`
+	// is one whose correction stays put (a measurement's target), and a change
+	// still being read off other devices' moves (LighthouseFrameWatch::Settled)
+	// waits for its own switch. A device the caller still has a switch for is
+	// not calibrated here: its correction is the one the switch is about to
+	// replace.
 	template <class Member>
 	JoinResult Join(const LighthouseFrameWatch::Switch &change, const LighthouseFrameWatch &watch,
 		uint32_t headsetTracker, uint32_t keep, Member member)
@@ -283,6 +284,16 @@ public:
 					result.retry = true;
 					return result;
 				}
+			// No device has shown a move into that frame yet, and one a solve
+			// behind can still show it (a device switched on in a frame SteamVR
+			// had just moved kept its own, beside the one the headset tracker
+			// then followed in, replayed: 43.1 mm).
+			if (watch.WithinLag(change.time))
+			{
+				result.kept = "a move into that frame can still show on another device";
+				result.retry = true;
+				return result;
+			}
 			result.kept = "no other calibrated device is in that frame";
 			return result;
 		}

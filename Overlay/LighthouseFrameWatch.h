@@ -310,6 +310,10 @@ public:
 		return !Lead(f).empty();
 	}
 
+	// A frame change at `time` is recent enough that a device a solve behind
+	// can still show the move that made it (lagSeconds).
+	bool WithinLag(double time) const { return latestTime < time + config.lagSeconds; }
+
 	// Where the device last was: its local position in its last frame.
 	bool LastPosition(uint32_t id, Eigen::Vector3d &position) const
 	{
