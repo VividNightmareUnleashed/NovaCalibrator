@@ -2071,6 +2071,46 @@ void ChainRecordedOutOfOrder(Check check)
 	check("frame watch: a chain of moves recorded out of order leads the change", off9 < 1e-6 && off10 < 1e-6, detail);
 }
 
+// Once both devices have joined their first frame: device 9's own pose jumps
+// with E0 to E1; it shows E1 to E2 as a move, which it follows; the station,
+// behind, shows E0 to E3 in one step; device 9 then shows E3 with its own pose
+// jumping. Merged from E0, its two changes were led by E0 to E3, which carried
+// E1 to E2 a second time.
+void MergeAcrossFollowedMove(Check check)
+{
+	MonitorRig rig;
+	rig.headset = 10;
+	const Q e0 = Q::Identity();
+	const Q e1(Eigen::AngleAxisd(0.020, V::UnitY()));
+	const Q e2(Eigen::AngleAxisd(0.045, V::UnitY()));
+	const Q e3(Eigen::AngleAxisd(0.070, V::UnitY()));
+	const V t0(0, 0, 0), t1(0.03, 0, 0.01), t2(0.07, 0, 0.02), t3(0.10, 0, 0.04);
+	const V at9(0.4, 1.0, -0.6), at10(-0.3, 0.9, 0.5), jump(0.05, 0, 0);
+	for (double t = 10.0; t < 19.0; t += 0.05)
+	{
+		Q sr = e0, r9 = e0, r10 = e0;
+		V st = t0, tr9 = t0, tr10 = t0, local9 = at9;
+		if (t >= 12.5 - 1e-9) { r9 = e1; tr9 = t1; local9 = at9 + jump; }        // own pose jumps with E1
+		if (t >= 12.6 - 1e-9) { r9 = e2; tr9 = t2; }                             // E2 shown as a move
+		if (t >= 12.7 - 1e-9) { sr = e3; st = t3; }                              // the station: E0 to E3
+		if (t >= 12.75 - 1e-9) { r9 = e3; tr9 = t3; local9 = at9 + jump + jump; } // E3, its pose jumping
+		if (t >= 12.8 - 1e-9) { r10 = e3; tr10 = t3; }                           // device 10 moves with it
+		rig.watch.Note(ReplaySample(1, t, V::Zero(), sr, st), TickScale, true);
+		rig.watch.Note(ReplaySample(9, t, local9, r9, tr9), TickScale, false);
+		rig.watch.Note(ReplaySample(10, t, at10, r10, tr10), TickScale, false);
+		if (std::fmod(t + 1e-9, 0.25) < 0.05 || std::abs(t - 12.6) < 1e-6)
+			rig.Tick(t);
+	}
+	const auto right = BackToStart(e3, t3);
+	const double off9 = CorrectionShift(rig.frames.Snapshot()[9], right, at9 + jump + jump);
+	const double off10 = CorrectionShift(rig.frames.Snapshot()[10], right, at10);
+	char detail[900];
+	std::snprintf(detail, sizeof detail, "%s; off the right correction: device 9 %.1f mm, device 10 %.1f mm",
+		rig.log.c_str(), off9 * 1000.0, off10 * 1000.0);
+	check("frame watch: a change merged across a move the device followed follows that move once",
+		off9 < 1e-6 && off10 < 1e-6, detail);
+}
+
 void RunTrackerFrameCorrectionScenarios(Check check)
 {
 	SplitFrames(check);
@@ -2095,4 +2135,5 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	ChangesInARow(check);
 	MoveKeptAcrossStreamRestart(check);
 	ChainRecordedOutOfOrder(check);
+	MergeAcrossFollowedMove(check);
 }

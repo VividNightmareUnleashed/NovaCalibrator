@@ -778,10 +778,20 @@ private:
 		// headset tracker after two re-solves in a row, replayed: 18 and 43 mm
 		// at its frame's devices); dropped, it left the device's correction
 		// short of it with nothing said (live 2026-10-15: a 17.8 cm move lost
-		// this way, 4 s before it expired).
+		// this way, 4 s before it expired). One that ended in another frame was
+		// left by a move the device followed since, or by a re-expression: a
+		// lead for both would carry that move again (replayed: 24.4 mm at the
+		// device), and a lead for the older one alone would come after the
+		// newer move the device followed, which Follow refuses. It is settled,
+		// as it was before changes waited together.
 		for (const auto &g : inferences)
 			if (g.move.id == id)
 			{
+				if (questcal::WorldFromDriverChanged(g.toRot, g.toTrans, was.wfdRot, was.wfdTrans))
+				{
+					Settle(g);
+					continue;
+				}
 				f.since = (std::min)(f.since, g.since);
 				f.fromRot = g.fromRot;
 				f.fromTrans = g.fromTrans;
