@@ -2,7 +2,8 @@ name: Formal assurance
 
 # VirtualQuest's private formal suite, run here because the private repository
 # has no hosted Actions: TLC, Lean, GenMC and ESBMC over VirtualQuest's own
-# kernels (check.ps1 -Core) on four runners.
+# kernels (check.ps1 -Core) on four runners, and recorded runs of the real pose
+# hub and universe verdict replayed through their models on one more.
 # A release can also run the complete numeric suite (ESBMC and Gappa) on four
 # runners of its own, at the same time. The caller says which of the two to
 # run (tools/ci/formal-scope.py decides for both workflows).
@@ -229,6 +230,61 @@ jobs:
           --raw "$RUNNER_TEMP/core-raw.json" --
           pwsh -NoProfile -File VirtualQuest/formal/check.ps1 -Core -Strict -Shard ${{ matrix.shard }}/4
           -SourceRoot "$PWD" -ResultPath "$RUNNER_TEMP/core-raw.json"
+
+  # The real Overlay/PoseStreamHub.cpp and Overlay/UniverseVerdict.h, built on
+  # Linux into the trace emitter (VirtualQuest/formal/emitter), record their
+  # runs for the models to replay (check.ps1 -Only Traces). The emitter's draws
+  # come from the raw Mersenne Twister output, so these are the traces
+  # SolverTests writes on Windows. The build's output stays in the runner's
+  # temp folder.
+  traces:
+    if: inputs.core
+    name: traces
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Check out VirtualQuest
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
+        run: tools/ci/checkout-virtualquest.ps1
+
+      - name: Java for TLC
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: tla2tools.jar v1.7.4
+        run: |
+          jar="$RUNNER_TEMP/tla2tools.jar"
+          curl -fsSL "$TLA2TOOLS_URL" -o "$jar"
+          echo "$TLA2TOOLS_SHA256  $jar" | sha256sum -c - > /dev/null
+          echo "TLA2TOOLS_JAR=$jar" >> "$GITHUB_ENV"
+
+      - name: Build the trace emitter
+        timeout-minutes: 10
+        run: |
+          VirtualQuest/formal/emitter/build.sh "$PWD" "$RUNNER_TEMP/trace-emitter" \
+            > "$RUNNER_TEMP/trace-emitter-build.log" 2>&1 || { echo 'Building the trace emitter failed.'; exit 1; }
+
+      - name: Replay the traces
+        timeout-minutes: 20
+        env:
+          JAVA_TOOL_OPTIONS: -Xmx5g
+        run: >
+          python tools/ci/run-private-check.py --label "traces"
+          --raw "$RUNNER_TEMP/traces-raw.json" --
+          pwsh -NoProfile -File VirtualQuest/formal/check.ps1 -Only Traces -Strict
+          -SolverTests "$RUNNER_TEMP/trace-emitter" -SourceRoot "$PWD" -ResultPath "$RUNNER_TEMP/traces-raw.json"
 
   # Every numeric obligation: the expanded 64-frame checks need one
   # memory-heavy process per runner.

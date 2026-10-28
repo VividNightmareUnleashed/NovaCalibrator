@@ -62,7 +62,8 @@ JOBS = {
 # release.yml's (through formal-assurance.yml) both count.
 PROVING = {
     'input_validation': ('input-validation (', 'formal-assurance / numeric ('),
-    'core': ('private-core / private-core (', 'formal-assurance / private-core ('),
+    'core': ('private-core / private-core (', 'formal-assurance / private-core (',
+             'private-core / traces', 'formal-assurance / traces'),
 }
 PROVING_WORKFLOWS = ('validation.yml', 'release.yml')
 
