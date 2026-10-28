@@ -651,6 +651,16 @@ private:
 		// When its first change came: changes merged into it wait no longer
 		// than that one would have.
 		double firstChange = 0.0;
+		// With changes merged into it, the newest one on its own (its frame
+		// before, since and cause) and when the rest came and why: a whole no
+		// move leads can still have its newest part led (Expire).
+		bool merged = false;
+		Eigen::Quaterniond newestFromRot{ 1, 0, 0, 0 };
+		Eigen::Vector3d newestFromTrans{ 0, 0, 0 };
+		uint64_t newestSince = 0;
+		bool newestReturned = false;
+		double restTime = 0.0;
+		bool restReturned = false;
 	};
 
 	void AddTransition(const Device &was, const Device &is)
@@ -792,6 +802,13 @@ private:
 					Settle(g);
 					continue;
 				}
+				f.merged = true;
+				f.newestFromRot = was.wfdRot;
+				f.newestFromTrans = was.wfdTrans;
+				f.newestSince = Since(was);
+				f.newestReturned = returned;
+				f.restTime = g.move.time;
+				f.restReturned = g.move.returned;
 				f.since = (std::min)(f.since, g.since);
 				f.fromRot = g.fromRot;
 				f.fromTrans = g.fromTrans;
@@ -814,7 +831,7 @@ private:
 		else if (inferences.size() < MaxInferences)
 			inferences.push_back(f);
 		else
-			Settle(f);
+			Expire(f);
 	}
 
 	// No move led to the inferred change's new frame: the device switched.
@@ -865,9 +882,39 @@ private:
 		const double cutoff = latestTime - config.inferSeconds;
 		for (const auto &f : inferences)
 			if (f.firstChange < cutoff)
-				Settle(f);
+				Expire(f);
 		inferences.erase(std::remove_if(inferences.begin(), inferences.end(),
 			[cutoff](const Inference &f) { return f.firstChange < cutoff; }), inferences.end());
+	}
+
+	// An inference out of time, or of room: settled as a switch, unless changes
+	// were merged into it and the moves recorded lead the newest one alone.
+	// That one is led, and the rest settled: an own jump into another station's
+	// frame, which no move can lead, took the newest change's lead with it when
+	// merged (replayed: the headset tracker's correction 55.2 mm short of a
+	// re-solve it showed). Waiting the whole time first leaves the older
+	// changes their own leads, which can come a moment later.
+	void Expire(const Inference &f)
+	{
+		if (f.merged)
+		{
+			Inference newest = f;
+			newest.merged = false;
+			newest.since = f.newestSince;
+			newest.fromRot = f.newestFromRot;
+			newest.fromTrans = f.newestFromTrans;
+			newest.move.returned = f.newestReturned;
+			newest.move.ownJump = !f.newestReturned;
+			const std::vector<Transition> lead = Lead(newest);
+			if (!lead.empty())
+			{
+				Switched(f.move.id, f.restTime, f.restReturned ? Switch::Cause::Returned : Switch::Cause::OwnJump,
+					f.fromRot, f.fromTrans, f.newestFromRot, f.newestFromTrans);
+				HandLead(newest, lead);
+				return;
+			}
+		}
+		Settle(f);
 	}
 
 	static constexpr size_t MaxPendingMoves = 256;

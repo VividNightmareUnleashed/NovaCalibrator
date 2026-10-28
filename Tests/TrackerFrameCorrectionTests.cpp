@@ -2111,6 +2111,56 @@ void MergeAcrossFollowedMove(Check check)
 		off9 < 1e-6 && off10 < 1e-6, detail);
 }
 
+// The headset tracker's pose jumps as it comes into the other station's frame
+// (G1), a change no recorded move can lead; device 9, in that station's frames,
+// then shows G1 to G2 as a move, and the headset tracker shows G2 with its own
+// pose jumping again. Merged into the first, its second change waited and was
+// settled with it, though the move recorded leads it on its own: the headset
+// tracker followed nothing and gave its correction, short of G1 to G2, to
+// device 9. It follows G1 to G2 once the first change runs out of time.
+void MergedIntoUnleadable(Check check)
+{
+	MonitorRig rig;
+	rig.headset = 10;
+	const Q e0 = Q::Identity();
+	const Q g0(Eigen::AngleAxisd(0.30, V::UnitY()));
+	const Q g1(Eigen::AngleAxisd(0.32, V::UnitY()));
+	const Q g2(Eigen::AngleAxisd(0.345, V::UnitY()));
+	const V t0(0, 0, 0), u0(0.5, 0, 0.2), u1(0.53, 0, 0.21), u2(0.57, 0, 0.22);
+	const V at9(0.4, 1.0, -0.6), at10(-0.3, 0.9, 0.5), jump(0.05, 0, 0);
+	for (double t = 10.0; t < 17.0; t += 0.05)
+	{
+		Q r9 = g0, r10 = e0;
+		V tr9 = u0, tr10 = t0, local10 = at10;
+		if (t >= 10.3 - 1e-9) { r9 = g1; tr9 = u1; }                                  // G0 to G1, a move
+		if (t >= 10.5 - 1e-9) { r10 = g1; tr10 = u1; local10 = at10 + jump; }         // into G1, its pose jumping
+		if (t >= 11.5 - 1e-9) { r9 = g2; tr9 = u2; }                                  // G1 to G2, a move
+		if (t >= 11.6 - 1e-9) { r10 = g2; tr10 = u2; local10 = at10 + jump + jump; }  // G2, its pose jumping again
+		rig.watch.Note(ReplaySample(1, t, V::Zero(), e0, t0), TickScale, true);
+		rig.watch.Note(ReplaySample(9, t, at9, r9, tr9), TickScale, false);
+		rig.watch.Note(ReplaySample(10, t, local10, r10, tr10), TickScale, false);
+		if (std::fmod(t + 1e-9, 0.25) < 0.05)
+			rig.Tick(t);
+	}
+	// The headset tracker's correction had it followed G1 to G2 from its own,
+	// the identity.
+	questcal::TrackerFrameCorrections expected;
+	LighthouseFrameWatch::Move m;
+	m.id = 10;
+	m.time = 11.6;
+	m.frameTime = 11.5;
+	m.rotation = (g2 * g1.conjugate()).normalized();
+	m.translation = u2 - m.rotation * u1;
+	const bool followed = expected.Follow(m);
+	const double off10 = CorrectionShift(rig.frames.Snapshot()[10], expected.Snapshot()[10], at10 + jump + jump);
+	const double off9 = CorrectionShift(rig.frames.Snapshot()[9], expected.Snapshot()[10], at9);
+	char detail[900];
+	std::snprintf(detail, sizeof detail, "%s; short of G1 to G2 (expected followed %d): device 10 %.1f mm, device 9 %.1f mm",
+		rig.log.c_str(), followed ? 1 : 0, off10 * 1000.0, off9 * 1000.0);
+	check("frame watch: a change merged into one no move leads still follows its own lead", followed && off10 < 1e-6,
+		detail);
+}
+
 void RunTrackerFrameCorrectionScenarios(Check check)
 {
 	SplitFrames(check);
@@ -2136,4 +2186,5 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	MoveKeptAcrossStreamRestart(check);
 	ChainRecordedOutOfOrder(check);
 	MergeAcrossFollowedMove(check);
+	MergedIntoUnleadable(check);
 }
