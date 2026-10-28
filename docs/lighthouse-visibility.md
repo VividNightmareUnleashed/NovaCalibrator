@@ -171,9 +171,11 @@ was placed 26 ms after the universe was chosen (`Moving base F210FBA6 1205mm
 and 42.7 deg`), carrying four trackers 120 cm and 30.5 deg of yaw, and two
 more stations moved 0.5 and 1.3 m in the next 2.5 s. So no frame move is
 followed from SteamVR's start until ten seconds after it chose a universe.
-When the log names no universe (it is unreadable, or the part replayed at
-startup holds none), the first fifteen seconds after the lighthouse devices
-start tracking stand in for it.
+A move is timed by when its station moved, not by when a device shows it,
+so a tracker switched off through the setup leaves the placement alone when
+it comes back. When the log names no universe (it is unreadable, or the part
+replayed at startup holds none), the first fifteen seconds after the
+lighthouse devices start tracking stand in for it.
 
 The driver's own account of these moves goes into the session log, so a
 frame move can be read against its cause:
@@ -219,7 +221,10 @@ neutralization does not overwrite the checkpoint. Every restored publication
 is pinned to the driver's session ID, so reconnecting to a new SteamVR process
 cannot replay old corrections. No frame matrices are persisted across SteamVR
 sessions. Corrections cannot recover disagreement that existed before observation,
-or infer frame changes during an interval when the overlay was closed.
+or infer frame changes during an interval when the overlay was closed. When the
+overlay's own pose stream starts over within one driver session, it keeps the
+corrections it holds instead: the checkpoint can lack a move followed just
+before, still on its way to the driver.
 
 The raw pose ring stays unchanged. Continuous calibration waits for the frame
 watch to examine each pose, then normalizes the mounted tracker before solving
