@@ -183,7 +183,9 @@ public:
 	// minutes. It takes the correction of the calibrated devices already in its
 	// frame: the headset tracker's when that is one of them, since the
 	// continuous loop holds that one to the headset, otherwise theirs when they
-	// all agree; alone, or among devices that disagree, it keeps its own. The
+	// all agree; alone, or among devices that disagree, it keeps its own,
+	// unless a calibrated device is still to come into the frame by a move it
+	// follows (LighthouseFrameWatch::Behind), which it waits for. The
 	// headset tracker coming into a frame gives its correction to the devices
 	// there instead, and never takes one. `member` says which devices are
 	// calibrated, `keep` is one whose correction stays put (a measurement's
@@ -218,6 +220,20 @@ public:
 				mates.push_back(other);
 		if (mates.empty())
 		{
+			// A calibrated device whose last frame the recorded moves lead to
+			// this one, switched off or a solve behind, comes into it by a move
+			// it follows: wait for it, and join it then. Kept now, the
+			// device's correction stayed beside the one that arrives, two in
+			// one frame (the 2026-10-03 stations with the headset tracker off
+			// through the move, replayed: 7.4 cm at the device).
+			for (uint32_t other = 0; other < frames.size(); ++other)
+				if (other != id && member(other) && !Parked(other) &&
+					watch.Behind(other, frameRotation, frameTranslation))
+				{
+					result.kept = "a calibrated device of that frame is still to come into it";
+					result.retry = true;
+					return result;
+				}
 			result.kept = "no other calibrated device is in that frame";
 			return result;
 		}

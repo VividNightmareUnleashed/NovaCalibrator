@@ -292,6 +292,24 @@ public:
 		return true;
 	}
 
+	// The device, switched off or a solve behind, last showed a frame that the
+	// moves recorded since then lead to the given one: it is still to come into
+	// that frame, by a move its correction can follow.
+	bool Behind(uint32_t id, const Eigen::Quaterniond &rotation, const Eigen::Vector3d &translation) const
+	{
+		Eigen::Quaterniond r;
+		Eigen::Vector3d t;
+		if (!LastFrame(id, r, t) || !questcal::WorldFromDriverChanged(r, t, rotation, translation))
+			return false;
+		Inference f;
+		f.since = Since(devices[id]);
+		f.fromRot = r;
+		f.fromTrans = t;
+		f.toRot = rotation;
+		f.toTrans = translation;
+		return !Lead(f).empty();
+	}
+
 	// Where the device last was: its local position in its last frame.
 	bool LastPosition(uint32_t id, Eigen::Vector3d &position) const
 	{

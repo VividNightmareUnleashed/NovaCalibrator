@@ -812,13 +812,17 @@ struct JoinRig
 			moves += frames.Follow(move) ? 1 : 0;
 		for (const auto &change : watch.TakeSwitches())
 		{
-			switches.push_back(change);
+			if (!change.held)
+				switches.push_back(change);
 			if (!join)
 				continue;
 			const auto result = frames.Join(change, watch, headset, keep,
 				[this](uint32_t id) { return devices.count(id) > 0; });
 			joined.insert(joined.end(), result.joined.begin(), result.joined.end());
-			if (result.kept)
+			// Refused for now, as JoinSwitches does: given back, said once.
+			if (result.retry)
+				watch.Hold(change);
+			if (result.kept && !(result.retry && change.held))
 				kept.emplace_back(result.kept);
 		}
 	}
@@ -1666,6 +1670,41 @@ void LeadByAnyChain(Check check)
 	check("frame watch: a change any chain of the other devices' moves leads to is handed as a move", pass, out.c_str());
 }
 
+// A device that comes into a frame SteamVR moved, while the only other
+// calibrated device whose frame it is (the headset tracker) is switched off,
+// waits for it rather than keep its own correction: the headset tracker comes
+// back into the frame by the move read off the station's samples and follows
+// it, and the waiting device joins it then. Kept at once, the frame ended with
+// two corrections.
+void FrameJoinedOnReturn(Check check)
+{
+	JoinRig rig{ StationS3(), StationS13() };
+	rig.headset = 9;
+	rig.devices[9] = { 0, V(-1.530, -0.433, -1.262), true };
+	rig.devices[10] = { 1, V(-1.463, -1.426, -1.018), true };
+	rig.RunUntil(12.0);
+	rig.devices[9].station = -1;           // switched off: its last frame is S-3's before the move
+	rig.devices[9].connected = false;
+	rig.RunUntil(13.0);
+	rig.MoveStation(0, S3MoveAt0045());    // SteamVR moves S-3 while it is off
+	rig.RunUntil(14.0);
+	rig.devices[10].station = 0;           // device 10 starts a new solution from S-3
+	rig.RunUntil(22.0);
+	rig.devices[9].station = 0;            // the headset tracker comes back
+	rig.devices[9].connected = true;
+	rig.RunUntil(30.0);
+	const bool one = questcal::TrackerFrameCorrections::Agree(rig.frames.Snapshot()[9], rig.frames.Snapshot()[10]);
+	std::string kept;
+	for (const auto &k : rig.kept)
+		kept += (kept.empty() ? "" : ", ") + k;
+	char detail[480];
+	std::snprintf(detail, sizeof detail,
+		"one correction in S-3's frame %d; error at device 9 %.2f mm, at device 10 %.1f cm; moves followed %zu; "
+		"joins %zu; kept: %s", one ? 1 : 0, rig.Error(9) * 1000.0, rig.Error(10) * 100.0, rig.moves,
+		rig.joined.size(), kept.c_str());
+	check("frame corrections: a device alone in a moved frame joins the calibrated device that comes back into it", one, detail);
+}
+
 // The headset tracker's own pose jumps at two re-solves of its station in a
 // row; the lead for the first comes a moment after the second, from a device a
 // solve behind. The two changes wait as one, and the headset tracker follows
@@ -1746,5 +1785,6 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	CollectionFallback(check);
 	SetupPlacementOnReturn(check);
 	LeadByAnyChain(check);
+	FrameJoinedOnReturn(check);
 	ChangesInARow(check);
 }
