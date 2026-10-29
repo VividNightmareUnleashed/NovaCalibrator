@@ -1209,13 +1209,13 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 			};
 			// One move per re-solve, each `f`, handed at the return `at` and
 			// stamped with when its station moved (`movedAt`).
-			auto exactly = [&](const Result &r, const Pose &f, double at, const std::vector<double> &movedAt)
+			auto exactly = [&](const Result &got, const Pose &f, double at, const std::vector<double> &movedAt)
 			{
-				if (r.moves.size() != movedAt.size())
+				if (got.moves.size() != movedAt.size())
 					return false;
-				for (size_t k = 0; k < r.moves.size(); ++k)
+				for (size_t k = 0; k < got.moves.size(); ++k)
 				{
-					const auto &m = r.moves[k];
+					const auto &m = got.moves[k];
 					if (!m.returned || m.ownJump || m.rotation.angularDistance(f.first) >= 1e-9 ||
 						(m.translation - f.second).norm() >= 1e-9 || std::abs(m.time - at) >= 0.01 ||
 						m.frameTime < movedAt[k] - 1e-9 || m.frameTime > movedAt[k] + 0.02 || m.shiftM <= 0.05)
