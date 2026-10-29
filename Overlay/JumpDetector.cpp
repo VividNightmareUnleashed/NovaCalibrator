@@ -535,6 +535,15 @@ bool JumpDetector::HeldPositionSignature(const std::vector<Hist> &window)
 	return false;
 }
 
+bool JumpDetector::AwaitsFittedStep(const Candidate &c0, double now) const
+{
+	return std::any_of(candidates.begin(), candidates.end(), [&](const Candidate &o) {
+		return o.deviceId != c0.deviceId && o.PendingHeuristic() &&
+			o.t - c0.t >= -config.controllerLeadSeconds && o.t <= c0.followDeadline &&
+			now <= o.t + config.window + config.maxFrameGap;
+	});
+}
+
 JumpDetector::AcceptedStep *JumpDetector::OwedFollowUp(const Candidate &c)
 {
 	if (c.deviceId == vr::k_unTrackedDeviceIndex_Hmd)
@@ -766,6 +775,7 @@ void JumpDetector::TryAccept()
 			}
 		}
 		c0.lastHoldCheck = now;
+		c0.awaitingFit = false;
 		if (!solo && now <= c0.followDeadline)
 		{
 			// Other reference devices are tracking and stayed continuous: on a
@@ -778,6 +788,16 @@ void JumpDetector::TryAccept()
 					"pose discontinuity on device %u not confirmed at once; holding up to %.0f s for a controller to follow",
 					c0.deviceId, config.controllerFollowSeconds));
 			}
+			continue;
+		}
+		// A step made in the wait's last fit window is fitted after the
+		// deadline. Expired first, the switch was lost, and the step then
+		// confirmed the headset's next step of the same size, each later
+		// switch on the evidence of the one before (the jump detector's
+		// model, three switches of one size).
+		if (!solo && AwaitsFittedStep(c0, now))
+		{
+			c0.awaitingFit = true;
 			continue;
 		}
 		c0.life = Life::Dead;
@@ -800,9 +820,9 @@ void JumpDetector::TryAccept()
 	}
 
 	// Prune stale entries. A held HMD candidate lives until its follow-up
-	// deadline; a controller step is kept long enough to confirm an HMD
-	// step that trails it by the lead window; everything else has no use
-	// past a few seconds.
+	// deadline, or past it while it waits for a step still being fitted; a
+	// controller step is kept long enough to confirm an HMD step that trails
+	// it by the lead window; everything else has no use past a few seconds.
 	candidates.erase(
 		std::remove_if(candidates.begin(), candidates.end(),
 			[&](const Candidate &c) {
@@ -810,7 +830,7 @@ void JumpDetector::TryAccept()
 					? c.followDeadline - c.t
 					: std::max(5.0, config.controllerLeadSeconds + config.window + config.agreeWindow);
 				return c.life == Life::Dead ||
-					devices[c.deviceId].lastValidTime - c.t > keep;
+					(devices[c.deviceId].lastValidTime - c.t > keep && !c.awaitingFit);
 			}),
 		candidates.end());
 }

@@ -348,6 +348,27 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 	check("recovery: controller step after the follow-up window does not confirm",
 		Replay([](int f, uint32_t id) { return f >= (id == 0 ? 150 : 3300) ? .4 : 0.; }, {0, 1}, 3600, true).count == 0,
 		"tracking controller, 31.5 s later");
+	// Inside the window, in its last fit window: the controller's step is
+	// fitted after the deadline, and the held headset step waits for that fit
+	// rather than expiring first.
+	r = Replay([](int f, uint32_t id) { return f >= (id == 0 ? 150 : 3160) ? .4 : 0.; }, {0, 1}, 3500, true);
+	check("recovery: a controller step at the end of the follow-up window confirms",
+		r.count == 1 && std::abs(r.last.translation.x() - .4) < 1e-8 &&
+		std::abs(r.last.confirmationLagSeconds - 30.1) < 1e-6,
+		"tracking controller, 30.1 s later; its step is fitted 0.1 s past the deadline");
+	// Three switches of one size, the controller following the first 30.1 s
+	// later, as above, and the others a second after the headset. Had the
+	// first expired before that step was fitted, the step would have
+	// confirmed the second switch, and the controller's step for the second
+	// the third.
+	r = Replay([](int f, uint32_t id)
+	{
+		if (id == 0) return (f >= 150 ? .4 : 0.) + (f >= 3200 ? .4 : 0.) + (f >= 3400 ? .4 : 0.);
+		return (f >= 3160 ? .4 : 0.) + (f >= 3300 ? .4 : 0.) + (f >= 3500 ? .4 : 0.);
+	}, {0, 1}, 3700, true);
+	check("recovery: three switches of one size are each confirmed by their own follow-up",
+		r.count == 3 && std::abs(r.total - 1.2) < 1e-8 && std::abs(r.last.confirmationLagSeconds - 1.0) < 1e-6,
+		"tracking controller, 30.1 s, 1 s and 1 s after each headset step");
 
 	// Two headset map switches 3 s apart. The first controller follows the
 	// first switch late (5.4 s); the second controller's follow-up of the

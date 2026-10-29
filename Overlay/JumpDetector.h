@@ -287,6 +287,9 @@ private:
 		double followDeadline = 0.0;
 		double lastHoldCheck = -1.0;
 		bool heldLocked = false;
+		// HMD heuristic: kept past its deadline for a step inside its windows
+		// that is still being fitted (AwaitsFittedStep).
+		bool awaitingFit = false;
 		// HMD heuristic, decided once when the fit completes. `heldPosition`:
 		// the pre-window shows the 3DoF fallback, so this is a catch-up onto
 		// resumed tracking. `driftCatchUp`: shaped like the smoother's reset
@@ -380,6 +383,10 @@ private:
 	// True when at least one other reference device is tracking and every
 	// one of them is locked still (position repeated over the last samples).
 	bool OthersLockedStill(double now) const;
+	// A step of another device inside a held HMD candidate's windows that is
+	// still being fitted, and still can be by `now` (its fit is due a window
+	// after it).
+	bool AwaitsFittedStep(const Candidate &c0, double now) const;
 
 	Config config;
 	double qpcToSeconds;
