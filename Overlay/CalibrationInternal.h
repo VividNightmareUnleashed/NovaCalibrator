@@ -103,6 +103,9 @@ void AbortCalibration(CalibrationContext &ctx, const StopReason &reason);
 std::string DeviceName(const CalibrationContext &ctx, const std::string &model,
 	const std::string &serial, bool reference);
 uint32_t LighthouseRestarts(const CalibrationContext &ctx, const std::string &serial);
+// A lighthouse frame that moved at `moveTime` moved during SteamVR's universe
+// setup: the move places a station it guessed, and corrections leave it alone.
+bool DuringUniverseSetup(const CalibrationContext &ctx, double moveTime);
 void NotifyOnce(CalibrationContext &ctx, bool &notified, const char *line,
 	CalibrationContext::Tone tone, const char *toast, bool showToast,
 	CalibrationContext::Event event = CalibrationContext::Event::Other);

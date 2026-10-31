@@ -417,24 +417,18 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 		ctx.Log("Recalibration retained the devices' relative lighthouse frame corrections\n");
 
 		// Recalibrating is what players do when trackers look off, so it also
-		// realigns every tracker reported against the target's base station:
-		// they share SteamVR's geometry, so a correction differing from the
-		// target's is a move it missed. Trackers in other stations' frames
-		// keep their own.
+		// realigns every tracker reported against the target's base station,
+		// and against the frames the recorded moves lead to from it: they share
+		// SteamVR's geometry, so a correction differing from the target's is a
+		// move it missed (TrackerFrameCorrections::Anchor). Trackers in other
+		// stations' frames keep their own.
 		if (run.targetFrame.valid)
 		{
-			int aligned = 0;
-			for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
-			{
-				Eigen::Quaterniond frameRotation;
-				Eigen::Vector3d frameTranslation;
-				if (id != run.targetId && ctx.targetDeviceMask[id] &&
-					FrameWatch.LastFrame(id, frameRotation, frameTranslation) &&
-					!questcal::WorldFromDriverChanged(frameRotation, frameTranslation,
-						run.targetFrame.wfdRot, run.targetFrame.wfdTrans) &&
-					ctx.trackerFrames.Align(id, run.targetId))
-					++aligned;
-			}
+			const auto realigned = ctx.trackerFrames.Anchor(run.targetId, FrameWatch,
+				[&ctx](uint32_t id) { return id < vr::k_unMaxTrackedDeviceCount && ctx.targetDeviceMask[id]; },
+				[&ctx](double time) { return DuringUniverseSetup(ctx, time); });
+			const int aligned = static_cast<int>(std::count_if(realigned.begin(), realigned.end(),
+				[&run](const auto &c) { return c.id != run.targetId; }));
 			if (aligned > 0)
 			{
 				snprintf(buf, sizeof buf,

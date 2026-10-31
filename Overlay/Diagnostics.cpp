@@ -633,7 +633,8 @@ void DescribeTrackerFrames(std::ostream &out, const CalibrationContext &ctx, con
 	const uint32_t headsetTracker = ctx.ContinuousArmed() ? ctx.continuousTrackerId : vr::k_unTrackedDeviceIndexInvalid;
 	const int headsetGroup = headsetTracker < vr::k_unMaxTrackedDeviceCount ? capture.frameGroup[headsetTracker] : -1;
 	// Devices in one frame share SteamVR's geometry, so their corrections
-	// should match; one that does not is named (TrackerFrameCorrections::Join).
+	// match (TrackerFrameCorrections::Update gives each its frame's); one that
+	// does not, a measurement's target or one still to settle, is named.
 	const auto &frames = ctx.trackerFrames.Snapshot();
 	int differing = 0;
 	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)

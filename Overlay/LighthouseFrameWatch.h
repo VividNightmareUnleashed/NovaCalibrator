@@ -61,8 +61,8 @@
 // A device that came into a frame without a move its correction can follow
 // (back in another station's frame, re-expressed, or first seen) is handed
 // out as a switch instead (TakeSwitches): its correction belongs to the
-// frame it left, and the caller gives it the one of the devices already in
-// the new frame (TrackerFrameCorrections::Join).
+// frame it left, and the caller gives it the new frame's
+// (TrackerFrameCorrections::Update).
 //
 // A device another driver hides from applications is watched all the same:
 // Standable hooks the body trackers it republishes as its own and passes the
@@ -164,6 +164,17 @@ public:
 		bool held = false;
 	};
 
+	// A frame some device, base station or not, moved with: `from` became `to`.
+	struct Transition
+	{
+		uint64_t seq = 0;
+		double time = 0.0;   // of the sample that first showed it
+		Eigen::Quaterniond fromRot{ 1, 0, 0, 0 };
+		Eigen::Vector3d fromTrans{ 0, 0, 0 };
+		Eigen::Quaterniond toRot{ 1, 0, 0, 0 };
+		Eigen::Vector3d toTrans{ 0, 0, 0 };
+	};
+
 	LighthouseFrameWatch() = default;
 	explicit LighthouseFrameWatch(const Config &c) : config(c) {}
 
@@ -210,6 +221,10 @@ public:
 		latestTime = (std::max)(latestTime, now.time);
 		if (!baseStation && trackingSince > 1e299)
 			trackingSince = now.time;
+		if (firstSample > 1e299)
+			firstSample = now.time;
+		if (!first[s.deviceId].seen)
+			first[s.deviceId] = { true, baseStation, now.time, now.wfdRot, now.wfdTrans };
 		const bool appeared = !d.valid && !d.away;
 		const bool changed = (d.valid || d.away) &&
 			questcal::WorldFromDriverChanged(d.wfdRot, d.wfdTrans, now.wfdRot, now.wfdTrans);
@@ -254,6 +269,26 @@ public:
 	// started or was reset; far in the future until one has.
 	double TrackingSince() const { return trackingSince; }
 
+	// The same for any device, base stations included, and when the first
+	// move was recorded: between the two, every frame a device shows is one
+	// the watch's start saw unmoved.
+	double FirstSampleTime() const { return firstSample; }
+	double FirstMoveTime() const { return firstMove; }
+
+	// The frame a device, base station or not, showed in its first tracked
+	// sample since the watch started, was reset or forgot it, and when.
+	bool FirstFrame(uint32_t id, Eigen::Quaterniond &rotation, Eigen::Vector3d &translation, double &time,
+		bool &baseStation) const
+	{
+		if (id >= vr::k_unMaxTrackedDeviceCount || !first[id].seen)
+			return false;
+		rotation = first[id].rot;
+		translation = first[id].trans;
+		time = first[id].time;
+		baseStation = first[id].baseStation;
+		return true;
+	}
+
 	// The frame a device, base stations aside, was last seen tracking in,
 	// kept while it is switched off; false for one not seen since the watch
 	// started or was reset.
@@ -292,43 +327,26 @@ public:
 		return true;
 	}
 
-	// The device, switched off or a solve behind, last showed a frame that the
-	// moves recorded since then lead to the given one: it is still to come into
-	// that frame, by a move its correction can follow.
-	bool Behind(uint32_t id, const Eigen::Quaterniond &rotation, const Eigen::Vector3d &translation) const
+	// Every move recorded since the watch started or was reset, oldest first
+	// (at most MaxTransitions): whatever device showed it, a base station or a
+	// device that is not a target one included.
+	const std::vector<Transition> &Record() const { return transitions; }
+
+	// The recorded moves lead from one frame to the other, step by step and
+	// recorded in any order (Lead over the whole record).
+	bool Leads(const Eigen::Quaterniond &fromRot, const Eigen::Vector3d &fromTrans,
+		const Eigen::Quaterniond &toRot, const Eigen::Vector3d &toTrans) const
 	{
-		Eigen::Quaterniond r;
-		Eigen::Vector3d t;
-		if (!LastFrame(id, r, t) || !questcal::WorldFromDriverChanged(r, t, rotation, translation))
+		if (!questcal::WorldFromDriverChanged(fromRot, fromTrans, toRot, toTrans))
 			return false;
 		Inference f;
-		f.since = Since(devices[id]);
-		f.fromRot = r;
-		f.fromTrans = t;
-		f.toRot = rotation;
-		f.toTrans = translation;
+		f.since = 0;
+		f.fromRot = fromRot;
+		f.fromTrans = fromTrans;
+		f.toRot = toRot;
+		f.toTrans = toTrans;
 		return !Lead(f).empty();
 	}
-
-	// A move recorded out of the device's last frame that the device has not
-	// shown yet (Since): a solve behind, it is still to follow it.
-	bool Leaving(uint32_t id) const
-	{
-		Eigen::Quaterniond r;
-		Eigen::Vector3d t;
-		if (!LastFrame(id, r, t))
-			return false;
-		const uint64_t since = Since(devices[id]);
-		for (const auto &tr : transitions)
-			if (tr.seq >= since && !questcal::WorldFromDriverChanged(tr.fromRot, tr.fromTrans, r, t))
-				return true;
-		return false;
-	}
-
-	// A frame change at `time` is recent enough that a device a solve behind
-	// can still show the move that made it (lagSeconds), the bound included,
-	// as Since reads a move exactly that old.
-	bool WithinLag(double time) const { return latestTime <= time + config.lagSeconds; }
 
 	// Where the device last was: its local position in its last frame.
 	bool LastPosition(uint32_t id, Eigen::Vector3d &position) const
@@ -447,6 +465,10 @@ public:
 		inferences.clear();
 		latestTime = -1e300;
 		trackingSince = 1e300;
+		firstSample = 1e300;
+		firstMove = 1e300;
+		for (auto &f : first)
+			f = First{};
 	}
 
 	// A reused slot must not bridge two physical devices. Other devices' frame
@@ -454,7 +476,10 @@ public:
 	void ForgetDevice(uint32_t id)
 	{
 		if (id < vr::k_unMaxTrackedDeviceCount)
+		{
 			devices[id] = Device{};
+			first[id] = First{};
+		}
 		for (auto *list : { &moves, &heldMoves })
 			list->erase(std::remove_if(list->begin(), list->end(),
 				[id](const Move &m) { return m.id == id; }), list->end());
@@ -630,17 +655,6 @@ private:
 		open.clear();
 	}
 
-	// A frame some device, base station or not, moved with: `from` became `to`.
-	struct Transition
-	{
-		uint64_t seq = 0;
-		double time = 0.0;   // of the sample that first showed it
-		Eigen::Quaterniond fromRot{ 1, 0, 0, 0 };
-		Eigen::Vector3d fromTrans{ 0, 0, 0 };
-		Eigen::Quaterniond toRot{ 1, 0, 0, 0 };
-		Eigen::Vector3d toTrans{ 0, 0, 0 };
-	};
-
 	// The first transition a change of `was`'s frame can have come from: the
 	// ones recorded since its last sample, and the ones shown by other
 	// devices up to lagSeconds before it, which it reached late.
@@ -697,6 +711,7 @@ private:
 		if (transitions.size() >= MaxTransitions)
 			transitions.erase(transitions.begin());
 		transitions.push_back({ nextTransition++, is.time, was.wfdRot, was.wfdTrans, is.wfdRot, is.wfdTrans });
+		firstMove = (std::min)(firstMove, is.time);
 
 		for (size_t i = 0; i < inferences.size();)
 		{
@@ -954,4 +969,15 @@ private:
 	uint64_t nextTransition = 0;
 	double latestTime = -1e300;
 	double trackingSince = 1e300;
+	double firstSample = 1e300;
+	double firstMove = 1e300;
+	struct First
+	{
+		bool seen = false;
+		bool baseStation = false;
+		double time = 0.0;
+		Eigen::Quaterniond rot{ 1, 0, 0, 0 };
+		Eigen::Vector3d trans{ 0, 0, 0 };
+	};
+	First first[vr::k_unMaxTrackedDeviceCount];
 };

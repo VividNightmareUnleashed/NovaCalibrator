@@ -21,11 +21,16 @@ public:
 	using Frames = std::array<protocol::FrameCorrection, vr::k_unMaxTrackedDeviceCount>;
 
 	void Reset() { *this = TrackerFrameCorrections{}; }
+	// The watch starts over after a restore (the epoch it bumps): each device
+	// shows its frame again, and the start anchors it with the restored
+	// correction (Update).
 	void Restore(const Frames &saved, const FrameSerialKeys &keys)
 	{
 		frames = saved;
 		restoredKeys = keys;
 		usableAfter.fill(-1e300);
+		table.clear();
+		fresh = false;
 	}
 
 	// The corrections a new frame session resets, with the driver session they
@@ -110,28 +115,37 @@ public:
 		return replaced || relocated;
 	}
 
+	// One device's correction carried across a move it showed, on its own: a
+	// measurement's target between its frame's corrections (Update's `held`).
 	bool Follow(const LighthouseFrameWatch::Move &move)
 	{
-		if (move.id >= frames.size() || !std::isfinite(move.time) ||
-			(restoredKeys[move.id] != 0 && serials[move.id].empty()) ||
-			move.time < usableAfter[move.id] ||
-			!IsValidCalibrationTransform(move.rotation, move.translation, 1.0))
+		if (move.id >= frames.size() || !std::isfinite(move.time) || Parked(move.id) ||
+			move.time < usableAfter[move.id] || !Compose(frames[move.id], move.rotation, move.translation))
 			return false;
-		const auto &old = frames[move.id];
-		const Eigen::Quaterniond rotation(old.rotation.w, old.rotation.x, old.rotation.y, old.rotation.z);
-		const Eigen::Vector3d translation(old.translation.v);
-		// N' F = N. Translation here is unscaled; C applies its scale later.
-		const Eigen::Quaterniond nextRotation = (rotation * move.rotation.conjugate()).normalized();
-		const Eigen::Vector3d nextTranslation = translation - nextRotation * move.translation;
-		if (!IsValidCalibrationTransform(nextRotation, nextTranslation, 1.0))
-			return false;
-		frames[move.id].rotation = { nextRotation.w(), nextRotation.x(), nextRotation.y(), nextRotation.z() };
-		for (int axis = 0; axis < 3; ++axis)
-			frames[move.id].translation.v[axis] = nextTranslation(axis);
 		// The monitor and solver drain separately. Discard samples preceding the
 		// most recent move, including a move inferred after a tracker returned,
 		// rather than applying the latest correction to the old frame.
 		usableAfter[move.id] = move.time;
+		return true;
+	}
+
+	// N' F = N: a correction carried across a frame move (new world =
+	// rotation * old world + translation). Translation here is unscaled; C
+	// applies its scale later.
+	static bool Compose(protocol::FrameCorrection &frame, const Eigen::Quaterniond &moveRotation,
+		const Eigen::Vector3d &moveTranslation)
+	{
+		if (!IsValidCalibrationTransform(moveRotation, moveTranslation, 1.0))
+			return false;
+		const Eigen::Quaterniond rotation(frame.rotation.w, frame.rotation.x, frame.rotation.y, frame.rotation.z);
+		const Eigen::Vector3d translation(frame.translation.v);
+		const Eigen::Quaterniond nextRotation = (rotation * moveRotation.conjugate()).normalized();
+		const Eigen::Vector3d nextTranslation = translation - nextRotation * moveTranslation;
+		if (!IsValidCalibrationTransform(nextRotation, nextTranslation, 1.0))
+			return false;
+		frame.rotation = { nextRotation.w(), nextRotation.x(), nextRotation.y(), nextRotation.z() };
+		for (int axis = 0; axis < 3; ++axis)
+			frame.translation.v[axis] = nextTranslation(axis);
 		return true;
 	}
 
@@ -190,305 +204,272 @@ public:
 			Eigen::Quaterniond(now.rotation.w, now.rotation.x, now.rotation.y, now.rotation.z),
 			Eigen::Vector3d(now.translation.v));
 	}
-	// After a recalibration measured on `source`, a device reported against the
-	// same base station takes its correction: the two share SteamVR's geometry,
-	// so a difference between them can only be a move one of them missed. A
-	// parked recovery entry stays with its own device.
-	bool Align(uint32_t id, uint32_t source)
+	// Frame-anchored corrections. A correction belongs to a lighthouse frame,
+	// not to a device: the devices reported against one base station share
+	// SteamVR's geometry, so a difference between their corrections can only
+	// be a move one of them missed. Each frame a calibrated device was seen in
+	// has one entry, and every calibrated device takes its frame's. An entry is
+	// anchored when it is derived through recorded moves from a frame whose
+	// correction is known: a base station's at a fresh start, or a
+	// recalibration's target's. It is provisional when a device carried its own
+	// correction into a frame no anchored one reaches yet. An anchored entry is
+	// never replaced but by a later recalibration (Anchor); a provisional one
+	// gives way to an anchored one, or to one with an older root.
+	//
+	// The joins this replaces decided once, at a moment, whose correction a
+	// device that came into a frame took, and whether the right one was there
+	// by then depended on the order the devices arrived in. Each round of wait
+	// and order rules left a narrower race (replayed on the last of them: two
+	// devices that both moved on into a frame, 18.1 and 43.1 mm; a frame the
+	// station's record steps over, 43.1 mm). An entry is derived from the
+	// record whenever its moves show, in whatever order, so a device a solve
+	// behind is corrected by the frame it still shows, and one that arrives
+	// late finds the right correction there.
+	struct Root
 	{
-		if (id >= frames.size() || source >= frames.size() || id == source ||
-			Parked(id) || frames[id] == frames[source])
-			return false;
-		frames[id] = frames[source];
-		return true;
-	}
+		// Oldest first: the session start or a recalibration; a frame a device
+		// carried its own correction into; a change no move leads (its pose
+		// jumping with it, or back from a loss into a frame since moved).
+		enum class Kind { Start, Carried, Unclear };
+		Kind kind = Kind::Start;
+		// Carried: the frame the correction was carried into.
+		Eigen::Quaterniond rot{ 1, 0, 0, 0 };
+		Eigen::Vector3d trans{ 0, 0, 0 };
+	};
+	struct Entry
+	{
+		// The frame (worldFromDriver): the newest one a device in it showed,
+		// so a station refined by less than WorldFromDriverChanged's tolerance
+		// stays the same frame, as it does for the watch.
+		Eigen::Quaterniond rot{ 1, 0, 0, 0 };
+		Eigen::Vector3d trans{ 0, 0, 0 };
+		protocol::FrameCorrection correction;
+		bool anchored = false;
+		// The recalibration that anchored it (Anchor); 0 for the session start.
+		uint64_t generation = 0;
+		Root root;
+		// A derivation that disagreed with this anchored entry was seen.
+		bool disagreed = false;
+	};
 
-	// One device Join gave another's correction.
-	struct Joined
+	// How long after the watch's first sample a frame shown for the first time
+	// is still the session start's, unless a move was recorded before it.
+	static constexpr double StartSeconds = 5.0;
+
+	// A device whose correction an update changed.
+	struct Changed
 	{
+		enum class How
+		{
+			Moved,      // it showed a move and took the new frame's correction
+			Switched,   // it came into a frame with no move and took its correction
+			Replaced,   // its frame's entry gave way to an anchored one or an older root's
+			Anchored,   // a recalibration anchored its frame anew (Anchor)
+		};
 		uint32_t id = 0;
-		uint32_t source = 0;
-		bool fromHeadsetTracker = false;
-		// How many devices in the frame shared the correction it took.
-		size_t sharedBy = 0;
+		How how = How::Replaced;
 		protocol::FrameCorrection before;
 	};
-	struct JoinResult
+	struct UpdateResult
 	{
-		std::vector<Joined> joined;
-		// Why nothing was taken, for the detailed log; null when something was.
-		const char *kept = nullptr;
-		// Nothing was taken yet: the device's recovered correction is not
-		// bound to it, or a later change of its frame is still being read.
-		// The caller gives the switch back (LighthouseFrameWatch::Hold).
-		bool retry = false;
+		std::vector<Changed> changed;
+		// Devices with a move no correction can follow (an unsafe composition).
+		std::vector<uint32_t> refused;
 	};
 
-	// The same rule between recalibrations. A device that came into a frame
-	// with no move its correction followed (LighthouseFrameWatch::Switch)
-	// carries a correction made for the frame it left: live 2026-10-03, a body
-	// tracker bootstrapped from S-13 while SteamVR moved S-3 under every other
-	// device, came back into S-3's frame 7.4 cm off them and stayed so for 92
-	// minutes. It takes the correction of the calibrated devices already in its
-	// frame: the headset tracker's when that is one of them, since the
-	// continuous loop holds that one to the headset, otherwise theirs when they
-	// all agree; alone, or among devices that disagree, it keeps its own,
-	// unless a calibrated device is still to come into the frame by a move it
-	// follows (LighthouseFrameWatch::Behind), which it waits for, as it waits
-	// out the time such a move takes to show on any device. The headset tracker
-	// coming into a frame gives its correction to the devices there instead,
-	// and never takes one. `member` says which devices are calibrated, `keep`
-	// is one whose correction stays put (a measurement's target), a change
-	// still being read off other devices' moves (LighthouseFrameWatch::Settled)
-	// waits for its own switch, and a device still to show a move out of its
-	// frame (LighthouseFrameWatch::Leaving) joins in the frame it follows into.
-	// A device the caller still has a switch for is not calibrated here: its
-	// correction is the one the switch is about to replace. Such a device is
-	// still waited for when it is to come into the frame by a move, since its
-	// own join comes once it is there: `calibrated` says which devices are
-	// calibrated whatever switches the caller still has for them. So is one
-	// that came into the frame by a move with its switch still to join
-	// (`arriving`): its join comes next, and decides its correction there.
-	template <class Member, class Calibrated, class Arriving>
-	JoinResult Join(const LighthouseFrameWatch::Switch &change, const LighthouseFrameWatch &watch,
-		uint32_t headsetTracker, uint32_t keep, Member member, Calibrated calibrated, Arriving arriving)
+	// One drain of the watch: the target devices' moves and switches (the
+	// caller holds back those of devices not yet known to be target ones), and
+	// the watch's record of every move. `held` is a device whose correction
+	// stays as a measurement began with it but for the moves it shows
+	// (FollowedRun), `calibrated` says which devices are target ones, and
+	// `setup(time)` whether a frame moved during SteamVR's universe setup: those
+	// moves place a station it guessed, and a frame that moved so keeps the
+	// correction it had.
+	template <class Calibrated, class Setup>
+	UpdateResult Update(const LighthouseFrameWatch &watch, const std::vector<LighthouseFrameWatch::Move> &moves,
+		const std::vector<LighthouseFrameWatch::Switch> &switches, uint32_t held, Calibrated calibrated, Setup setup)
 	{
-		JoinResult result;
-		const uint32_t id = change.id;
-		Eigen::Quaterniond frameRotation;
-		Eigen::Vector3d frameTranslation;
-		if (id >= frames.size() || !member(id))
-			result.kept = "it is not calibrated";
-		else if (Parked(id))
-			result.kept = "its recovered correction is not bound to it yet";
-		else if (!watch.LastFrame(id, frameRotation, frameTranslation))
-			result.kept = "it has no frame any more";
-		else if (!watch.Settled(id))
-			result.kept = "a later change of its frame is still being read";
-		// Joined in the frame it still shows, it found no mate there and kept
-		// its own, then followed the move beside the correction of the frame
-		// it came into (its change settled while it was a solve behind,
-		// replayed: two corrections 18.6 mm apart).
-		else if (watch.Leaving(id))
-			result.kept = "it is still to show a move out of its frame";
-		result.retry = result.kept && id < frames.size() && member(id) &&
-			(Parked(id) || watch.LastFrame(id, frameRotation, frameTranslation));
-		if (result.kept)
-			return result;
-		std::vector<uint32_t> mates;
-		for (uint32_t other = 0; other < frames.size(); ++other)
-			if (other != id && member(other) && !Parked(other) && watch.Settled(other) &&
-				watch.InFrame(other, frameRotation, frameTranslation))
-				mates.push_back(other);
-		if (mates.empty())
-		{
-			// A calibrated device that followed a move into this frame with
-			// its own switch still to join: wait for its join, and join it
-			// then. Not waited for, this device kept its own once its wait
-			// for a move was over, and that device's join, which waits out
-			// the same, then took it (replayed: 18.0 mm, this device 43.1 mm).
-			for (uint32_t other = 0; other < frames.size(); ++other)
-				if (other != id && arriving(other) && !Parked(other) && watch.Settled(other) &&
-					watch.InFrame(other, frameRotation, frameTranslation))
-				{
-					result.kept = "a calibrated device that followed a move into that frame is still to join it";
-					result.retry = true;
-					return result;
-				}
-			// A calibrated device whose last frame the recorded moves lead to
-			// this one, switched off or a solve behind, comes into it by a move
-			// it follows: wait for it, and join it then. Kept now, the
-			// device's correction stayed beside the one that arrives, two in
-			// one frame (the 2026-10-03 stations with the headset tracker off
-			// through the move, replayed: 7.4 cm at the device). That device
-			// is waited for even with a switch of its own still to join, which
-			// waits for it to show the move: left out, it came back and took
-			// the correction this device had kept alone (replayed: 18.0 mm).
-			for (uint32_t other = 0; other < frames.size(); ++other)
-				if (other != id && calibrated(other) && !Parked(other) &&
-					watch.Behind(other, frameRotation, frameTranslation))
-				{
-					result.kept = "a calibrated device of that frame is still to come into it";
-					result.retry = true;
-					return result;
-				}
-			// No device has shown a move into that frame yet, and one a solve
-			// behind can still show it (a device switched on in a frame SteamVR
-			// had just moved kept its own, beside the one the headset tracker
-			// then followed in, replayed: 43.1 mm).
-			if (watch.WithinLag(change.time))
+		using Cause = LighthouseFrameWatch::Switch::Cause;
+		UpdateResult result;
+		const Frames before = frames;
+		std::array<Changed::How, vr::k_unMaxTrackedDeviceCount> how;
+		how.fill(Changed::How::Replaced);
+		auto usable = [&](uint32_t id) { return id < frames.size() && calibrated(id) && !Parked(id); };
+
+		// The base stations' frames the start saw are anchored, so the moves
+		// they show anchor the frames they lead to, for a device switched on
+		// after a move no tracker showed. A base station shows every re-solve
+		// of its own frame, so the frame it shows at the start is the start's.
+		// Only in a session that started fresh, with every correction the
+		// identity: a recovered one knows a station's correction only from a
+		// device in its frame.
+		if (fresh)
+			for (uint32_t id = 0; id < frames.size(); ++id)
 			{
-				result.kept = "a move into that frame can still show on another device";
-				result.retry = true;
-				return result;
-			}
-			result.kept = "no other calibrated device is in that frame";
-			return result;
-		}
-		auto take = [&](uint32_t to, uint32_t from, bool fromHeadsetTracker, size_t sharedBy)
-		{
-			if (to == keep || Agree(frames[to], frames[from]))
-				return;
-			result.joined.push_back({ to, from, fromHeadsetTracker, sharedBy, frames[to] });
-			frames[to] = frames[from];
-		};
-		if (id == headsetTracker)
-		{
-			for (const uint32_t mate : mates)
-				take(mate, id, true, 1);
-			if (result.joined.empty())
-				result.kept = "the devices in that frame already have its correction";
-			return result;
-		}
-		if (std::find(mates.begin(), mates.end(), headsetTracker) != mates.end())
-		{
-			take(id, headsetTracker, true, 1);
-		}
-		else
-		{
-			for (const uint32_t mate : mates)
-				if (!Agree(frames[mate], frames[mates.front()]))
+				Entry station;
+				double time = 0.0;
+				bool baseStation = false;
+				if (watch.FirstFrame(id, station.rot, station.trans, time, baseStation) && baseStation &&
+					AtStart(watch, time))
 				{
-					result.kept = "the devices in that frame disagree";
-					return result;
+					station.anchored = true;
+					station.generation = generation;
+					Offer(station, watch);
 				}
-			take(id, mates.front(), false, mates.size());
-		}
-		if (result.joined.empty())
+			}
+
+		for (const auto &m : moves)
 		{
-			result.kept = id == keep ? "it is being measured" : "it already has their correction";
-			return result;
+			if (!usable(m.id))
+				continue;
+			how[m.id] = Changed::How::Moved;
+			const bool followed = !setup(m.frameTime);
+			// The held device follows its moves on its own, and refuses one
+			// older than a move it followed, as a measurement checks at its end
+			// (FollowedRun).
+			if (m.id == held)
+			{
+				if (followed && !Follow(m))
+					result.refused.push_back(m.id);
+				else if (!followed)
+					usableAfter[m.id] = (std::max)(usableAfter[m.id], m.time);
+				continue;
+			}
+			usableAfter[m.id] = (std::max)(usableAfter[m.id], m.time);
+			// The move is in the watch's record, a lead read off other devices'
+			// moves as a chain of them, so propagation derives the frame it led
+			// to; the device takes it once settled there.
+			protocol::FrameCorrection probe = frames[m.id];
+			if (followed && !Compose(probe, m.rotation, m.translation))
+				result.refused.push_back(m.id);
 		}
-		// Samples from before the change are from the frame it left.
-		usableAfter[id] = (std::max)(usableAfter[id], change.time);
+		Propagate(watch, setup);
+
+		for (const auto &s : switches)
+		{
+			if (!usable(s.id) || s.id == held)
+				continue;
+			usableAfter[s.id] = (std::max)(usableAfter[s.id], s.time);
+			how[s.id] = Changed::How::Switched;
+			// The correction the device brings is that of the frame it left (a
+			// device that came into a frame and jumped out of it within one
+			// drain has not taken it yet), else its own. A device first seen,
+			// even in the watch's first samples, carries its own in, unanchored:
+			// one first seen in a station's frame that SteamVR re-solved before
+			// any device there showed it is already off by that re-solve, and
+			// only a root the record orders before its own can put that right (a
+			// station seen only through its trackers: 18.0 and 43.1 mm at its
+			// two).
+			const Entry *from = s.cause == Cause::Appeared ? nullptr : Find(s.fromRot, s.fromTrans);
+			Entry next = from ? *from : Entry{};
+			if (!from)
+				next.correction = frames[s.id];
+			next.rot = s.toRot;
+			next.trans = s.toTrans;
+			next.disagreed = false;
+			// The same pose put in another frame: the correction that was right
+			// in the frame it left is right in this one, from the same root.
+			if (s.cause == Cause::ReExpressed && from)
+				Offer(next, watch);
+			else if (!Find(s.toRot, s.toTrans))
+			{
+				next.anchored = false;
+				next.generation = 0;
+				next.root.kind = s.cause == Cause::Appeared || s.cause == Cause::ReExpressed
+					? Root::Kind::Carried : Root::Kind::Unclear;
+				next.root.rot = s.toRot;
+				next.root.trans = s.toTrans;
+				Offer(next, watch);
+			}
+			Propagate(watch, setup);
+		}
+
+		Assign(watch, held, usable);
+		for (uint32_t id = 0; id < frames.size(); ++id)
+			if (!(frames[id] == before[id]))
+				result.changed.push_back({ id, how[id], before[id] });
 		return result;
 	}
-	// For a caller with no switches of other devices still to join.
-	template <class Member>
-	JoinResult Join(const LighthouseFrameWatch::Switch &change, const LighthouseFrameWatch &watch,
-		uint32_t headsetTracker, uint32_t keep, Member member)
+
+	// After a recalibration measured on `source`: recalibrating is what
+	// players do when trackers look off, so its frame is anchored anew with
+	// its correction, and so are the frames the recorded moves lead to from
+	// it, replacing what they had. Every calibrated device there takes it;
+	// the devices in the other stations' frames keep theirs.
+	template <class Calibrated, class Setup>
+	std::vector<Changed> Anchor(uint32_t source, const LighthouseFrameWatch &watch, Calibrated calibrated, Setup setup)
 	{
-		return Join(change, watch, headsetTracker, keep, member, member, [](uint32_t) { return false; });
+		std::vector<Changed> out;
+		Entry anchor;
+		if (source >= frames.size() || Parked(source) || !watch.LastFrame(source, anchor.rot, anchor.trans))
+			return out;
+		const Frames before = frames;
+		anchor.correction = frames[source];
+		anchor.anchored = true;
+		anchor.generation = ++generation;
+		Offer(anchor, watch);
+		Propagate(watch, setup);
+		Assign(watch, vr::k_unTrackedDeviceIndexInvalid,
+			[&](uint32_t id) { return id < frames.size() && calibrated(id) && !Parked(id); });
+		for (uint32_t id = 0; id < frames.size(); ++id)
+			if (!(frames[id] == before[id]))
+				out.push_back({ id, Changed::How::Anchored, before[id] });
+		return out;
 	}
+
+	// Anchored derivations of one frame that disagreed (beyond what counts as
+	// one frame, Agree): two chains of moves that should compose alike did not.
+	size_t Disagreements() const { return disagreements; }
+	// Propagations stopped at their bound with entries still changing.
+	size_t Unsettled() const { return unsettled; }
+	const std::vector<Entry> &Table() const { return table; }
+
 	// Whether a device's frame changes are the target side's: Target once the
 	// caller marked it a calibrated device, Waiting while that can still come
 	// (its moves and switches are given back to the watch until it does), and
 	// Other for a device that is not ours.
 	enum class Membership { Target, Waiting, Other };
 
-	struct SwitchOutcome
+	// One drain's moves and switches by their device's membership
+	// (`membership(id, changeTime)`): a target device's are for Update, a
+	// waiting one's are given back to the watch (LighthouseFrameWatch::Hold)
+	// to come again, and one given back before, of a device that turned out
+	// not ours, is dropped.
+	struct Admitted
 	{
-		enum class Kind
-		{
-			Joined,    // result.joined took or gave a correction
-			Kept,      // result.kept says why nothing changed
-			Held,      // given back to the watch: membership or join waits
-			Dropped,   // a held switch of a device that turned out not ours
-		};
-		LighthouseFrameWatch::Switch change;
-		Kind kind = Kind::Kept;
-		JoinResult result;
+		std::vector<LighthouseFrameWatch::Move> moves, waitingMoves, droppedMoves;
+		std::vector<LighthouseFrameWatch::Switch> switches, waitingSwitches, droppedSwitches;
 	};
-
-	// Joins the watch's switches in the order they came (Join), each device's
-	// newest only, those of devices that have since followed a move out of the
-	// switch's frame first, giving back the ones that must wait
-	// (LighthouseFrameWatch::Hold): a device not yet known to be a target one,
-	// or one whose join is refused for now (JoinResult::retry). A device with
-	// a switch still to join is not calibrated for the others' joins: its
-	// correction is the one the switch replaces (live 2026-10-15: a controller
-	// whose dropped switch left it 8 deg off its frame made the next device's
-	// join read "the devices in that frame disagree"). Of devices new to a
-	// frame together, the first keeps its correction and the later ones take
-	// it, as before.
-	// `membership(id, changeTime)` classifies a device; `calibrated(id)` is
-	// the caller's target mask.
-	template <class Classify, class Calibrated>
-	std::vector<SwitchOutcome> JoinSwitches(const std::vector<LighthouseFrameWatch::Switch> &switches,
-		LighthouseFrameWatch &watch, uint32_t headsetTracker, uint32_t keep, Classify membership, Calibrated calibrated)
+	template <class Classify>
+	static Admitted Admit(LighthouseFrameWatch &watch, const std::vector<LighthouseFrameWatch::Move> &moves,
+		const std::vector<LighthouseFrameWatch::Switch> &switches, Classify membership)
 	{
-		std::vector<SwitchOutcome> out;
-		// A device's newest switch stands for its older ones: a join reads the
-		// frame the device is in now. Joined there, an older one counted the
-		// device as joined for the others before its newest was, and a device
-		// that had followed a move into that frame took the correction it had
-		// not followed one with (replayed: 44.5 mm).
-		std::vector<const LighthouseFrameWatch::Switch *> order;
-		for (size_t i = 0; i < switches.size(); ++i)
-			if (std::none_of(switches.begin() + static_cast<std::ptrdiff_t>(i) + 1, switches.end(),
-				[&](const LighthouseFrameWatch::Switch &s) { return s.id == switches[i].id; }))
-				order.push_back(&switches[i]);
-		std::array<bool, vr::k_unMaxTrackedDeviceCount> unresolved{};
-		for (const auto *change : order)
-			if (change->id < unresolved.size())
-				unresolved[change->id] = true;
-		uint32_t joining = vr::k_unTrackedDeviceIndexInvalid;
-		auto member = [&](uint32_t id)
+		Admitted out;
+		for (const auto &m : moves)
 		{
-			return id < unresolved.size() && calibrated(id) && (id == joining || !unresolved[id]);
-		};
-		auto targeted = [&](uint32_t id) { return id < unresolved.size() && calibrated(id); };
-		// A device that has left its switch's frame since, by a move it
-		// followed, joins in the frame it is in now (Join: Leaving), and is
-		// joined first, so that a device that came into that frame meanwhile
-		// finds it there. Joined after that device, it was none of its mates,
-		// and then took the correction the other had kept alone (replayed:
-		// 18.0 mm). While its own join still waits, the other waits for it;
-		// such devices do not wait for each other, joined in order.
-		std::array<bool, vr::k_unMaxTrackedDeviceCount> movedOn{};
-		for (const auto *change : order)
-		{
-			Eigen::Quaterniond r;
-			Eigen::Vector3d t;
-			if (change->id < movedOn.size() && watch.LastFrame(change->id, r, t))
-				movedOn[change->id] = questcal::WorldFromDriverChanged(r, t, change->toRot, change->toTrans);
+			const Membership kind = membership(m.id, m.time);
+			if (kind == Membership::Target)
+				out.moves.push_back(m);
+			else if (kind == Membership::Waiting)
+			{
+				out.waitingMoves.push_back(m);
+				watch.Hold(m);
+			}
+			else if (m.held)
+				out.droppedMoves.push_back(m);
 		}
-		auto arriving = [&](uint32_t id)
+		for (const auto &s : switches)
 		{
-			return targeted(id) && unresolved[id] && movedOn[id] && !(joining < movedOn.size() && movedOn[joining]);
-		};
-		std::stable_partition(order.begin(), order.end(), [&](const LighthouseFrameWatch::Switch *change)
-		{
-			return change->id < movedOn.size() && movedOn[change->id];
-		});
-		for (const auto *next : order)
-		{
-			const auto &change = *next;
-			SwitchOutcome outcome;
-			outcome.change = change;
-			const Membership m = change.id < unresolved.size() ? membership(change.id, change.time) : Membership::Other;
-			if (m == Membership::Waiting)
+			const Membership kind = membership(s.id, s.time);
+			if (kind == Membership::Target)
+				out.switches.push_back(s);
+			else if (kind == Membership::Waiting)
 			{
-				outcome.kind = SwitchOutcome::Kind::Held;
-				watch.Hold(change);
-				out.push_back(outcome);
-				continue;
+				out.waitingSwitches.push_back(s);
+				watch.Hold(s);
 			}
-			if (m == Membership::Other)
-			{
-				if (change.id < unresolved.size())
-					unresolved[change.id] = false;
-				if (change.held)
-				{
-					outcome.kind = SwitchOutcome::Kind::Dropped;
-					out.push_back(outcome);
-				}
-				continue;
-			}
-			joining = change.id;
-			outcome.result = Join(change, watch, headsetTracker, keep, member, targeted, arriving);
-			joining = vr::k_unTrackedDeviceIndexInvalid;
-			if (outcome.result.retry)
-			{
-				outcome.kind = SwitchOutcome::Kind::Held;
-				watch.Hold(change);
-			}
-			else
-			{
-				unresolved[change.id] = false;
-				outcome.kind = outcome.result.joined.empty() ? SwitchOutcome::Kind::Kept : SwitchOutcome::Kind::Joined;
-			}
-			out.push_back(outcome);
+			else if (s.held)
+				out.droppedSwitches.push_back(s);
 		}
 		return out;
 	}
@@ -516,6 +497,167 @@ private:
 	// A recovered correction whose device has not been identified in its slot yet.
 	bool Parked(uint32_t id) const { return restoredKeys[id] != 0 && serials[id].empty(); }
 
+	// Between the watch's first sample and its first recorded move, and
+	// within StartSeconds of the first: a frame first shown then is one the
+	// session start had.
+	static bool AtStart(const LighthouseFrameWatch &watch, double time)
+	{
+		return time >= watch.FirstSampleTime() &&
+			time < (std::min)(watch.FirstMoveTime(), watch.FirstSampleTime() + StartSeconds);
+	}
+
+	// Root `a` is older than `b`: of the kinds, the session start's, then a
+	// carried correction's, then an unclear change's; of two carried ones,
+	// the frame the recorded moves lead from to the other's, and not back. The
+	// code has no count of a station's re-solves, only its record of moves:
+	// roots the record does not order are equals, and the entry there stays.
+	static bool Older(const Root &a, const Root &b, const LighthouseFrameWatch &watch)
+	{
+		if (a.kind != b.kind)
+			return a.kind < b.kind;
+		return a.kind == Root::Kind::Carried && watch.Leads(a.rot, a.trans, b.rot, b.trans) &&
+			!watch.Leads(b.rot, b.trans, a.rot, a.trans);
+	}
+
+	Entry *Find(const Eigen::Quaterniond &rotation, const Eigen::Vector3d &translation)
+	{
+		for (auto &e : table)
+			if (!questcal::WorldFromDriverChanged(e.rot, e.trans, rotation, translation))
+				return &e;
+		return nullptr;
+	}
+	const Entry *Find(const Eigen::Quaterniond &rotation, const Eigen::Vector3d &translation) const
+	{
+		return const_cast<TrackerFrameCorrections *>(this)->Find(rotation, translation);
+	}
+
+	// Offers the frame `candidate` names its correction: a frame with no entry
+	// takes it, a provisional entry when it is anchored or its root is older,
+	// an anchored one only from a later recalibration. An anchored derivation
+	// of the same anchoring that disagrees is counted, once per entry. True
+	// when the entry changed.
+	bool Offer(Entry candidate, const LighthouseFrameWatch &watch)
+	{
+		Entry *e = Find(candidate.rot, candidate.trans);
+		if (!e)
+		{
+			if (table.size() >= MaxEntries)
+				table.erase(table.begin());
+			candidate.disagreed = false;
+			table.push_back(candidate);
+			stale = true;
+			return true;
+		}
+		const bool take = e->anchored ? candidate.anchored && candidate.generation > e->generation
+			: candidate.anchored || Older(candidate.root, e->root, watch);
+		if (!take)
+		{
+			if (candidate.anchored && e->anchored && candidate.generation == e->generation && !e->disagreed &&
+				!Agree(candidate.correction, e->correction))
+			{
+				e->disagreed = true;
+				++disagreements;
+			}
+			return false;
+		}
+		candidate.rot = e->rot;
+		candidate.trans = e->trans;
+		candidate.disagreed = false;
+		*e = candidate;
+		stale = true;
+		return true;
+	}
+
+	// Every recorded move from a frame with an entry offers the frame it led
+	// to the entry carried across it (unchanged for one in the universe
+	// setup), until no entry changes. Each change makes an entry new, anchored
+	// or anchored later, or its root older, so this ends; a station re-solved
+	// back to a frame offers an equal root, which nothing takes. Frames are
+	// matched within a tolerance, though, which is not transitive: should two
+	// roots ever each read as the older, the passes are bounded (a pass
+	// carries every entry at least one recorded move further), and the stop
+	// is counted rather than the tick hanging; the entries stay as they are
+	// until a move or an entry changes.
+	template <class Setup>
+	void Propagate(const LighthouseFrameWatch &watch, Setup setup)
+	{
+		// Nothing to do while no entry changed and no move was recorded since.
+		const uint64_t newest = watch.Record().empty() ? 0 : watch.Record().back().seq + 1;
+		if (!stale && newest == propagatedThrough)
+			return;
+		propagatedThrough = newest;
+		const size_t passes = watch.Record().size() + table.size() + 2;
+		bool changed = true;
+		for (size_t pass = 0; changed && pass < passes; ++pass)
+		{
+			changed = false;
+			for (const auto &t : watch.Record())
+			{
+				const Entry *from = Find(t.fromRot, t.fromTrans);
+				if (!from)
+					continue;
+				Entry next = *from;
+				next.rot = t.toRot;
+				next.trans = t.toTrans;
+				if (!setup(t.time))
+				{
+					const Eigen::Quaterniond rotation = (t.toRot * t.fromRot.conjugate()).normalized();
+					if (!Compose(next.correction, rotation, t.toTrans - rotation * t.fromTrans))
+						continue;
+				}
+				changed = Offer(next, watch) || changed;
+			}
+		}
+		if (changed)
+			++unsettled;
+		stale = false;
+	}
+
+	// Each calibrated device in a frame with an entry takes its correction,
+	// once its frame is settled (a change of it still being read off other
+	// devices' moves keeps what it has until it is). One in a frame with none,
+	// which no switch has brought it into (its own was dropped before it was
+	// known to be ours), carries its own in.
+	template <class Usable>
+	void Assign(const LighthouseFrameWatch &watch, uint32_t held, Usable usable)
+	{
+		for (uint32_t id = 0; id < frames.size(); ++id)
+		{
+			Eigen::Quaterniond rotation;
+			Eigen::Vector3d translation;
+			if (!usable(id) || id == held || !watch.Settled(id) || !watch.LastFrame(id, rotation, translation))
+				continue;
+			Entry *e = Find(rotation, translation);
+			if (!e)
+			{
+				Entry own;
+				own.rot = rotation;
+				own.trans = translation;
+				own.correction = frames[id];
+				own.root = { Root::Kind::Carried, rotation, translation };
+				Offer(own, watch);
+				continue;
+			}
+			e->rot = rotation;
+			e->trans = translation;
+			frames[id] = e->correction;
+		}
+	}
+
+	// Far more than the record's frames and the devices', so propagation never
+	// drops an entry it is still deriving.
+	static constexpr size_t MaxEntries = 2048;
+
+	std::vector<Entry> table;
+	uint64_t generation = 0;
+	// No correction was restored since the reset: every one is the identity.
+	bool fresh = true;
+	size_t disagreements = 0;
+	size_t unsettled = 0;
+	// An entry changed since the last propagation, or the record grew past
+	// propagatedThrough (the newest move's sequence number, plus one).
+	bool stale = false;
+	uint64_t propagatedThrough = 0;
 	Frames frames{};
 	FrameSerialKeys restoredKeys{};
 	std::array<std::string, vr::k_unMaxTrackedDeviceCount> serials{};
