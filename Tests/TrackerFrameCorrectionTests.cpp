@@ -2238,6 +2238,217 @@ void JoinInStaleOwnFrame(Check check)
 		one, detail);
 }
 
+// Device 10 is switched on in a frame SteamVR just moved (E1); the headset
+// tracker (device 9) and the station, a solve behind, show the move exactly
+// lagSeconds later, the headset tracker with its pose jumping, and the
+// monitor's tick runs between their two samples. The join's wait for the move
+// ended at that tick with the headset tracker's change still waiting for its
+// lead, so neither in the frame for the join nor still to come into it:
+// device 10 kept its own, and the station's move then led the headset
+// tracker into E1 beside it.
+void JoinAtLagBound(Check check)
+{
+	MonitorRig rig;
+	rig.headset = 9;
+	const Q e0 = Q::Identity();
+	const Q e1(Eigen::AngleAxisd(0.020, V::UnitY()));
+	const V t0(0, 0, 0), t1(0.03, 0, 0.01);
+	const V at9(0.4, 1.0, -0.6), at10(-0.3, 0.9, 0.5), jump(0.05, 0, 0);
+	for (int k = 0; k < 140; ++k)
+	{
+		const double t = 10.0 + 0.05 * k;
+		const bool shown = k >= 30;   // 11.5 s: lagSeconds after device 10 came on
+		const bool tick = k % 5 == 0;
+		rig.watch.Note(ReplaySample(9, t, shown ? at9 + jump : at9, shown ? e1 : e0, shown ? t1 : t0), TickScale, false);
+		if (k >= 10)
+			rig.watch.Note(ReplaySample(10, t, at10, e1, t1), TickScale, false);   // switched on in the moved frame
+		if (tick && k == 30)
+			rig.Tick(t);   // between the headset tracker's sample and the station's
+		rig.watch.Note(ReplaySample(1, t, V::Zero(), shown ? e1 : e0, shown ? t1 : t0), TickScale, true);
+		if (tick && k != 30)
+			rig.Tick(t);
+	}
+	const bool one = questcal::TrackerFrameCorrections::Agree(rig.frames.Snapshot()[9], rig.frames.Snapshot()[10]);
+	const auto right = BackToStart(e1, t1);
+	const double off9 = CorrectionShift(rig.frames.Snapshot()[9], right, at9 + jump);
+	const double off10 = CorrectionShift(rig.frames.Snapshot()[10], right, at10);
+	char detail[900];
+	std::snprintf(detail, sizeof detail, "%s; one correction in E1 %d; off the right correction: device 9 %.1f mm, device 10 %.1f mm",
+		rig.log.c_str(), one ? 1 : 0, off9 * 1000.0, off10 * 1000.0);
+	check("frame corrections: a device in a moved frame waits through the lag bound for the device the move leads in",
+		one, detail);
+}
+
+// Device 9 is switched off just after SteamVR moved its station's frame (E0
+// to E1), before it showed the move, so its own join waits for it to show
+// that move; device 10 is switched on in E1. With device 9's switch still to
+// join, device 10's join counted it neither as a calibrated device in the
+// frame nor as one still to come into it: alone, device 10 kept its own.
+// Back 5.65 s later, device 9 followed the move, and its join, free at last,
+// took device 10's correction.
+void JoinWaitsForDeviceOffThroughMove(Check check)
+{
+	MonitorRig rig;   // no headset tracker
+	const Q e0 = Q::Identity();
+	const Q e1(Eigen::AngleAxisd(0.020, V::UnitY()));
+	const V t0(0, 0, 0), t1(0.03, 0, 0.01);
+	const V at9(0.4, 1.0, -0.6), at10(-0.3, 0.9, 0.5);
+	for (int k = 0; k < 170; ++k)
+	{
+		const double t = 10.0 + 0.05 * k;
+		const bool moved = k >= 6;   // 10.3 s
+		rig.watch.Note(ReplaySample(1, t, V::Zero(), moved ? e1 : e0, moved ? t1 : t0), TickScale, true);
+		if (k <= 6)
+			rig.watch.Note(ReplaySample(9, t, at9, e0, t0), TickScale, false);     // still E0 at 10.3 s
+		else if (k < 120)
+			rig.watch.Note(ReplayOff(9, t), TickScale, false);                     // off from 10.35 s to 16 s
+		else
+			rig.watch.Note(ReplaySample(9, t, at9, e1, t1), TickScale, false);
+		if (k >= 12)
+			rig.watch.Note(ReplaySample(10, t, at10, e1, t1), TickScale, false);   // switched on in E1 at 10.6 s
+		if (k % 5 == 0)
+			rig.Tick(t);
+	}
+	const auto right = BackToStart(e1, t1);
+	const double off9 = CorrectionShift(rig.frames.Snapshot()[9], right, at9);
+	const double off10 = CorrectionShift(rig.frames.Snapshot()[10], right, at10);
+	char detail[900];
+	std::snprintf(detail, sizeof detail, "%s; off the right correction: device 9 %.1f mm, device 10 %.1f mm",
+		rig.log.c_str(), off9 * 1000.0, off10 * 1000.0);
+	check("frame corrections: a device in a moved frame waits for a calibrated device off through the move",
+		off9 < 1e-6 && off10 < 1e-6, detail);
+}
+
+// As above, with device 9 first seen after device 10 came into E1: in E0, a
+// solve behind the station's move, and off before it shows it. Back, it
+// followed the move into E1, but its switch, still to join, came after
+// device 10's: device 10's join, first, found it none of its mates and kept
+// its own, and device 9's then took that correction.
+void JoinAfterDeviceOffThroughMove(Check check)
+{
+	MonitorRig rig;   // no headset tracker
+	const Q e0 = Q::Identity();
+	const Q e1(Eigen::AngleAxisd(0.020, V::UnitY()));
+	const V t0(0, 0, 0), t1(0.03, 0, 0.01);
+	const V at9(0.4, 1.0, -0.6), at10(-0.3, 0.9, 0.5);
+	for (int k = 0; k < 170; ++k)
+	{
+		const double t = 10.0 + 0.05 * k;
+		const bool moved = k >= 6;   // 10.3 s
+		rig.watch.Note(ReplaySample(1, t, V::Zero(), moved ? e1 : e0, moved ? t1 : t0), TickScale, true);
+		if (k >= 14 && k <= 15)
+			rig.watch.Note(ReplaySample(9, t, at9, e0, t0), TickScale, false);     // first seen at 10.7 s, in E0
+		else if (k > 15 && k < 120)
+			rig.watch.Note(ReplayOff(9, t), TickScale, false);                     // off from 10.8 s to 16 s
+		else if (k >= 120)
+			rig.watch.Note(ReplaySample(9, t, at9, e1, t1), TickScale, false);
+		if (k >= 12)
+			rig.watch.Note(ReplaySample(10, t, at10, e1, t1), TickScale, false);   // switched on in E1 at 10.6 s
+		if (k % 5 == 0)
+			rig.Tick(t);
+	}
+	const auto right = BackToStart(e1, t1);
+	const double off9 = CorrectionShift(rig.frames.Snapshot()[9], right, at9);
+	const double off10 = CorrectionShift(rig.frames.Snapshot()[10], right, at10);
+	char detail[900];
+	std::snprintf(detail, sizeof detail, "%s; off the right correction: device 9 %.1f mm, device 10 %.1f mm",
+		rig.log.c_str(), off9 * 1000.0, off10 * 1000.0);
+	check("frame corrections: a device back by a move joins before the devices that came into its frame meanwhile",
+		off9 < 1e-6 && off10 < 1e-6, detail);
+}
+
+// Device 10 is switched on in E1 just after SteamVR moved the frame, and
+// device 9 is first seen in E0 a moment later, a solve behind, and shows the
+// move, which it follows. Joined first, device 9's switch still waits out
+// the lag after it; device 10's wait was over a tick earlier, with device 9
+// still to join and so no mate: device 10 kept its own, and device 9's join
+// took it.
+void JoinWaitsForDeviceThatFollowedIn(Check check)
+{
+	MonitorRig rig;   // no headset tracker
+	const Q e0 = Q::Identity();
+	const Q e1(Eigen::AngleAxisd(0.020, V::UnitY()));
+	const V t0(0, 0, 0), t1(0.03, 0, 0.01);
+	const V at9(0.4, 1.0, -0.6), at10(-0.3, 0.9, 0.5);
+	for (int k = 0; k < 100; ++k)
+	{
+		const double t = 10.0 + 0.05 * k;
+		const bool moved = k >= 6;   // 10.3 s
+		rig.watch.Note(ReplaySample(1, t, V::Zero(), moved ? e1 : e0, moved ? t1 : t0), TickScale, true);
+		if (k >= 9)
+			rig.watch.Note(ReplaySample(10, t, at10, e1, t1), TickScale, false);   // switched on in E1 at 10.45 s
+		if (k == 14)
+			rig.watch.Note(ReplaySample(9, t, at9, e0, t0), TickScale, false);     // first seen at 10.7 s, in E0
+		else if (k > 14)
+			rig.watch.Note(ReplaySample(9, t, at9, e1, t1), TickScale, false);     // the move, at 10.75 s
+		if (k % 5 == 0)
+			rig.Tick(t);
+	}
+	const auto right = BackToStart(e1, t1);
+	const double off9 = CorrectionShift(rig.frames.Snapshot()[9], right, at9);
+	const double off10 = CorrectionShift(rig.frames.Snapshot()[10], right, at10);
+	char detail[900];
+	std::snprintf(detail, sizeof detail, "%s; off the right correction: device 9 %.1f mm, device 10 %.1f mm",
+		rig.log.c_str(), off9 * 1000.0, off10 * 1000.0);
+	check("frame corrections: a device in a moved frame waits for a device that followed the move in to join first",
+		off9 < 1e-6 && off10 < 1e-6, detail);
+}
+
+// With no monitor tick from 10 s to 15.5 s. Device 9 is seen in E0 and
+// device 10 in the other station's frame (G0); SteamVR re-solves that
+// station (G1), which device 10 shows as a move, and device 9 comes into G1
+// with its own pose jumping, a change no move leads, settled as a switch
+// when it runs out of time; the station is then re-solved again (G2), which
+// both show as a move. The next tick had three switches, all of devices
+// that had followed a move since: device 9's first (E0), device 10's (G0)
+// and device 9's own jump (G1). Device 9's first, joined in G2 where
+// device 10, still to join, was no mate, kept its own, and device 10's join
+// then took it, losing the moves it had followed.
+void NewestSwitchStandsForOlder(Check check)
+{
+	MonitorRig rig;   // no headset tracker
+	const Q e0 = Q::Identity();
+	const Q g0(Eigen::AngleAxisd(0.30, V::UnitY()));
+	const Q g1(Eigen::AngleAxisd(0.32, V::UnitY()));
+	const Q g2(Eigen::AngleAxisd(0.345, V::UnitY()));
+	const V t0(0, 0, 0), u0(0.5, 0, 0.2), u1(0.53, 0, 0.21), u2(0.57, 0, 0.22);
+	const V at9(0.4, 1.0, -0.6), at10(-0.3, 0.9, 0.5), jump(0.05, 0, 0);
+	for (int k = 0; k < 140; ++k)
+	{
+		const double t = 10.0 + 0.05 * k;
+		Q r9 = e0, r10 = g0;
+		V tr9 = t0, tr10 = u0, local9 = at9;
+		if (k >= 4) { r10 = g1; tr10 = u1; }                       // 10.2 s: G0 to G1, a move
+		if (k >= 6) { r9 = g1; tr9 = u1; local9 = at9 + jump; }   // 10.3 s: into G1, its pose jumping
+		if (k >= 108) { r9 = r10 = g2; tr9 = tr10 = u2; }         // 15.4 s: G1 to G2, a move for both
+		rig.watch.Note(ReplaySample(1, t, V::Zero(), e0, t0), TickScale, true);
+		rig.watch.Note(ReplaySample(9, t, local9, r9, tr9), TickScale, false);
+		rig.watch.Note(ReplaySample(10, t, at10, r10, tr10), TickScale, false);
+		if (k >= 110 && k % 5 == 0)   // the monitor ticks again from 15.5 s
+			rig.Tick(t);
+	}
+	// Device 10's correction had it followed G0 to G1 and G1 to G2 from its
+	// own, the identity.
+	questcal::TrackerFrameCorrections expected;
+	auto follow = [&](const Q &fromR, const V &fromT, const Q &toR, const V &toT, double at)
+	{
+		LighthouseFrameWatch::Move m;
+		m.id = 10;
+		m.time = at;
+		m.frameTime = at;
+		m.rotation = (toR * fromR.conjugate()).normalized();
+		m.translation = toT - m.rotation * fromT;
+		return expected.Follow(m);
+	};
+	const bool followed = follow(g0, u0, g1, u1, 10.2) && follow(g1, u1, g2, u2, 15.4);
+	const double off10 = CorrectionShift(rig.frames.Snapshot()[10], expected.Snapshot()[10], at10);
+	char detail[900];
+	std::snprintf(detail, sizeof detail, "%s; device 10 off the correction it followed (expected followed %d): %.1f mm",
+		rig.log.c_str(), followed ? 1 : 0, off10 * 1000.0);
+	check("frame corrections: a device's older switch is not joined in the frame its newer one brought it to",
+		followed && off10 < 1e-6, detail);
+}
+
 void RunTrackerFrameCorrectionScenarios(Check check)
 {
 	SplitFrames(check);
@@ -2266,4 +2477,9 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	MergedIntoUnleadable(check);
 	JoinBeforeMoveShown(check);
 	JoinInStaleOwnFrame(check);
+	JoinAtLagBound(check);
+	JoinWaitsForDeviceOffThroughMove(check);
+	JoinAfterDeviceOffThroughMove(check);
+	JoinWaitsForDeviceThatFollowedIn(check);
+	NewestSwitchStandsForOlder(check);
 }

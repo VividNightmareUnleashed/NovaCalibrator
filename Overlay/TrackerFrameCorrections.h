@@ -243,10 +243,15 @@ public:
 	// waits for its own switch, and a device still to show a move out of its
 	// frame (LighthouseFrameWatch::Leaving) joins in the frame it follows into.
 	// A device the caller still has a switch for is not calibrated here: its
-	// correction is the one the switch is about to replace.
-	template <class Member>
+	// correction is the one the switch is about to replace. Such a device is
+	// still waited for when it is to come into the frame by a move, since its
+	// own join comes once it is there: `calibrated` says which devices are
+	// calibrated whatever switches the caller still has for them. So is one
+	// that came into the frame by a move with its switch still to join
+	// (`arriving`): its join comes next, and decides its correction there.
+	template <class Member, class Calibrated, class Arriving>
 	JoinResult Join(const LighthouseFrameWatch::Switch &change, const LighthouseFrameWatch &watch,
-		uint32_t headsetTracker, uint32_t keep, Member member)
+		uint32_t headsetTracker, uint32_t keep, Member member, Calibrated calibrated, Arriving arriving)
 	{
 		JoinResult result;
 		const uint32_t id = change.id;
@@ -277,14 +282,30 @@ public:
 				mates.push_back(other);
 		if (mates.empty())
 		{
+			// A calibrated device that followed a move into this frame with
+			// its own switch still to join: wait for its join, and join it
+			// then. Not waited for, this device kept its own once its wait
+			// for a move was over, and that device's join, which waits out
+			// the same, then took it (replayed: 18.0 mm, this device 43.1 mm).
+			for (uint32_t other = 0; other < frames.size(); ++other)
+				if (other != id && arriving(other) && !Parked(other) && watch.Settled(other) &&
+					watch.InFrame(other, frameRotation, frameTranslation))
+				{
+					result.kept = "a calibrated device that followed a move into that frame is still to join it";
+					result.retry = true;
+					return result;
+				}
 			// A calibrated device whose last frame the recorded moves lead to
 			// this one, switched off or a solve behind, comes into it by a move
 			// it follows: wait for it, and join it then. Kept now, the
 			// device's correction stayed beside the one that arrives, two in
 			// one frame (the 2026-10-03 stations with the headset tracker off
-			// through the move, replayed: 7.4 cm at the device).
+			// through the move, replayed: 7.4 cm at the device). That device
+			// is waited for even with a switch of its own still to join, which
+			// waits for it to show the move: left out, it came back and took
+			// the correction this device had kept alone (replayed: 18.0 mm).
 			for (uint32_t other = 0; other < frames.size(); ++other)
-				if (other != id && member(other) && !Parked(other) &&
+				if (other != id && calibrated(other) && !Parked(other) &&
 					watch.Behind(other, frameRotation, frameTranslation))
 				{
 					result.kept = "a calibrated device of that frame is still to come into it";
@@ -342,6 +363,13 @@ public:
 		usableAfter[id] = (std::max)(usableAfter[id], change.time);
 		return result;
 	}
+	// For a caller with no switches of other devices still to join.
+	template <class Member>
+	JoinResult Join(const LighthouseFrameWatch::Switch &change, const LighthouseFrameWatch &watch,
+		uint32_t headsetTracker, uint32_t keep, Member member)
+	{
+		return Join(change, watch, headsetTracker, keep, member, member, [](uint32_t) { return false; });
+	}
 	// Whether a device's frame changes are the target side's: Target once the
 	// caller marked it a calibrated device, Waiting while that can still come
 	// (its moves and switches are given back to the watch until it does), and
@@ -362,15 +390,17 @@ public:
 		JoinResult result;
 	};
 
-	// Joins the watch's switches in the order they came (Join), giving back
-	// the ones that must wait (LighthouseFrameWatch::Hold): a device not yet
-	// known to be a target one, or one whose join is refused for now
-	// (JoinResult::retry). A device with a switch still to join is not
-	// calibrated for the others' joins: its correction is the one the switch
-	// replaces (live 2026-10-15: a controller whose dropped switch left it
-	// 8 deg off its frame made the next device's join read "the devices in
-	// that frame disagree"). Of devices new to a frame together, the first
-	// keeps its correction and the later ones take it, as before.
+	// Joins the watch's switches in the order they came (Join), each device's
+	// newest only, those of devices that have since followed a move out of the
+	// switch's frame first, giving back the ones that must wait
+	// (LighthouseFrameWatch::Hold): a device not yet known to be a target one,
+	// or one whose join is refused for now (JoinResult::retry). A device with
+	// a switch still to join is not calibrated for the others' joins: its
+	// correction is the one the switch replaces (live 2026-10-15: a controller
+	// whose dropped switch left it 8 deg off its frame made the next device's
+	// join read "the devices in that frame disagree"). Of devices new to a
+	// frame together, the first keeps its correction and the later ones take
+	// it, as before.
 	// `membership(id, changeTime)` classifies a device; `calibrated(id)` is
 	// the caller's target mask.
 	template <class Classify, class Calibrated>
@@ -378,17 +408,52 @@ public:
 		LighthouseFrameWatch &watch, uint32_t headsetTracker, uint32_t keep, Classify membership, Calibrated calibrated)
 	{
 		std::vector<SwitchOutcome> out;
+		// A device's newest switch stands for its older ones: a join reads the
+		// frame the device is in now. Joined there, an older one counted the
+		// device as joined for the others before its newest was, and a device
+		// that had followed a move into that frame took the correction it had
+		// not followed one with (replayed: 44.5 mm).
+		std::vector<const LighthouseFrameWatch::Switch *> order;
+		for (size_t i = 0; i < switches.size(); ++i)
+			if (std::none_of(switches.begin() + static_cast<std::ptrdiff_t>(i) + 1, switches.end(),
+				[&](const LighthouseFrameWatch::Switch &s) { return s.id == switches[i].id; }))
+				order.push_back(&switches[i]);
 		std::array<bool, vr::k_unMaxTrackedDeviceCount> unresolved{};
-		for (const auto &change : switches)
-			if (change.id < unresolved.size())
-				unresolved[change.id] = true;
+		for (const auto *change : order)
+			if (change->id < unresolved.size())
+				unresolved[change->id] = true;
 		uint32_t joining = vr::k_unTrackedDeviceIndexInvalid;
 		auto member = [&](uint32_t id)
 		{
 			return id < unresolved.size() && calibrated(id) && (id == joining || !unresolved[id]);
 		};
-		for (const auto &change : switches)
+		auto targeted = [&](uint32_t id) { return id < unresolved.size() && calibrated(id); };
+		// A device that has left its switch's frame since, by a move it
+		// followed, joins in the frame it is in now (Join: Leaving), and is
+		// joined first, so that a device that came into that frame meanwhile
+		// finds it there. Joined after that device, it was none of its mates,
+		// and then took the correction the other had kept alone (replayed:
+		// 18.0 mm). While its own join still waits, the other waits for it;
+		// such devices do not wait for each other, joined in order.
+		std::array<bool, vr::k_unMaxTrackedDeviceCount> movedOn{};
+		for (const auto *change : order)
 		{
+			Eigen::Quaterniond r;
+			Eigen::Vector3d t;
+			if (change->id < movedOn.size() && watch.LastFrame(change->id, r, t))
+				movedOn[change->id] = questcal::WorldFromDriverChanged(r, t, change->toRot, change->toTrans);
+		}
+		auto arriving = [&](uint32_t id)
+		{
+			return targeted(id) && unresolved[id] && movedOn[id] && !(joining < movedOn.size() && movedOn[joining]);
+		};
+		std::stable_partition(order.begin(), order.end(), [&](const LighthouseFrameWatch::Switch *change)
+		{
+			return change->id < movedOn.size() && movedOn[change->id];
+		});
+		for (const auto *next : order)
+		{
+			const auto &change = *next;
 			SwitchOutcome outcome;
 			outcome.change = change;
 			const Membership m = change.id < unresolved.size() ? membership(change.id, change.time) : Membership::Other;
@@ -411,7 +476,7 @@ public:
 				continue;
 			}
 			joining = change.id;
-			outcome.result = Join(change, watch, headsetTracker, keep, member);
+			outcome.result = Join(change, watch, headsetTracker, keep, member, targeted, arriving);
 			joining = vr::k_unTrackedDeviceIndexInvalid;
 			if (outcome.result.retry)
 			{
