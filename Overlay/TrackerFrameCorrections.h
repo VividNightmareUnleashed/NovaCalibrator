@@ -31,6 +31,9 @@ public:
 		usableAfter.fill(-1e300);
 		table.clear();
 		fresh = false;
+		// A measurement's derivation names entries the table no longer has:
+		// the next update starts it again from the frame the device shows.
+		heldId = vr::k_unTrackedDeviceIndexInvalid;
 	}
 
 	// The corrections a new frame session resets, with the driver session they
@@ -302,7 +305,11 @@ public:
 		// of its own frame, so the frame it shows at the start is the start's.
 		// Only in a session that started fresh, with every correction the
 		// identity: a recovered one knows a station's correction only from a
-		// device in its frame.
+		// device in its frame. It is offered on every update, always as the
+		// start's (generation 0): offered as a later recalibration's, its
+		// derivation competed with that recalibration's own and, reaching a
+		// frame first, refused it there (replayed: 43.1 mm at the
+		// recalibrated device).
 		if (fresh)
 			for (uint32_t id = 0; id < frames.size(); ++id)
 			{
@@ -313,36 +320,74 @@ public:
 					AtStart(watch, time))
 				{
 					station.anchored = true;
-					station.generation = generation;
+					station.generation = 0;
 					Offer(station, watch);
 				}
 			}
 
+		// A measured device offers nothing while held, and at its run's end
+		// offers its correction as derived from where the run began, along the
+		// moves and switches it showed since. Taking its frame's entry with
+		// nothing offered, it gave up a right correction for a younger guess
+		// (replayed: 9.1 mm at it, 34.9 mm at the device switched on beside it).
+		if (held != heldId)
+		{
+			if (heldId < frames.size() && usable(heldId))
+			{
+				Entry release = heldEntry;
+				release.correction = frames[heldId];
+				Offer(release, watch);
+			}
+			heldId = held;
+			heldEntry = Entry{};
+			Eigen::Quaterniond rotation;
+			Eigen::Vector3d translation;
+			if (usable(held) && watch.LastFrame(held, rotation, translation))
+			{
+				if (const Entry *e = Find(rotation, translation))
+					heldEntry = *e;
+				else
+					heldEntry.root = { Root::Kind::Carried, rotation, translation };
+				heldEntry.rot = rotation;
+				heldEntry.trans = translation;
+				heldEntry.disagreed = false;
+			}
+		}
+		if (usable(held))
+		{
+			heldHow = Changed::How::Replaced;
+			FollowHeld(moves, switches, setup, result);
+		}
+
 		for (const auto &m : moves)
 		{
-			if (!usable(m.id))
+			if (!usable(m.id) || m.id == held)
 				continue;
 			how[m.id] = Changed::How::Moved;
 			const bool followed = !setup(m.frameTime);
-			// The held device follows its moves on its own, and refuses one
-			// older than a move it followed, as a measurement checks at its end
-			// (FollowedRun).
-			if (m.id == held)
-			{
-				if (followed && !Follow(m))
-					result.refused.push_back(m.id);
-				else if (!followed)
-					usableAfter[m.id] = (std::max)(usableAfter[m.id], m.time);
-				continue;
-			}
 			usableAfter[m.id] = (std::max)(usableAfter[m.id], m.time);
 			// The move is in the watch's record, a lead read off other devices'
 			// moves as a chain of them, so propagation derives the frame it led
-			// to; the device takes it once settled there.
-			protocol::FrameCorrection probe = frames[m.id];
-			if (followed && !Compose(probe, m.rotation, m.translation))
+			// to; the device takes it once settled there. From a frame with no
+			// entry (the device's switch into it was dropped, or skipped while it
+			// was measured), the device's own correction carried across the move
+			// is offered, rooted in the frame it left: nothing else derives the
+			// frame it led to (replayed: 13.2 mm).
+			protocol::FrameCorrection carried = frames[m.id];
+			if (followed && !Compose(carried, m.rotation, m.translation))
 				result.refused.push_back(m.id);
+			else if (!Find(m.fromRot, m.fromTrans))
+			{
+				Entry next;
+				next.rot = m.toRot;
+				next.trans = m.toTrans;
+				next.correction = carried;
+				next.root = { Root::Kind::Carried, m.fromRot, m.fromTrans };
+				Offer(next, watch);
+			}
 		}
+		if (usable(held))
+			how[held] = heldHow;
 		Propagate(watch, setup);
 
 		for (const auto &s : switches)
@@ -369,9 +414,13 @@ public:
 			next.disagreed = false;
 			// The same pose put in another frame: the correction that was right
 			// in the frame it left is right in this one, from the same root.
+			// Otherwise the device's root is offered whatever the frame has, and
+			// the order of roots decides: a device first seen in a frame whose
+			// entry an unclear change made took that one, though its own root
+			// is the older (replayed: 43.1 mm).
 			if (s.cause == Cause::ReExpressed && from)
 				Offer(next, watch);
-			else if (!Find(s.toRot, s.toTrans))
+			else
 			{
 				next.anchored = false;
 				next.generation = 0;
@@ -613,6 +662,63 @@ private:
 		stale = false;
 	}
 
+	// The held device's moves and switches, in the order it showed them: it
+	// follows each move on its own, refusing one older than a move it
+	// followed (FollowedRun checks the run against them), and heldEntry keeps
+	// the frame its correction is for and the root it is derived from. A
+	// re-expression keeps the root; a change no move leads, or a move it
+	// could not follow, makes it unclear.
+	template <class Setup>
+	void FollowHeld(const std::vector<LighthouseFrameWatch::Move> &moves,
+		const std::vector<LighthouseFrameWatch::Switch> &switches, Setup setup, UpdateResult &result)
+	{
+		using Cause = LighthouseFrameWatch::Switch::Cause;
+		struct Event
+		{
+			double time;
+			const LighthouseFrameWatch::Move *move;
+			const LighthouseFrameWatch::Switch *change;
+		};
+		std::vector<Event> events;
+		for (const auto &m : moves)
+			if (m.id == heldId)
+				events.push_back({ m.time, &m, nullptr });
+		for (const auto &s : switches)
+			if (s.id == heldId)
+				events.push_back({ s.time, nullptr, &s });
+		std::stable_sort(events.begin(), events.end(), [](const Event &a, const Event &b) { return a.time < b.time; });
+		for (const auto &e : events)
+		{
+			if (e.move)
+			{
+				const auto &m = *e.move;
+				heldHow = Changed::How::Moved;
+				if (setup(m.frameTime))
+					usableAfter[m.id] = (std::max)(usableAfter[m.id], m.time);
+				else if (!Follow(m))
+				{
+					result.refused.push_back(m.id);
+					heldEntry.anchored = false;
+					heldEntry.generation = 0;
+					heldEntry.root = { Root::Kind::Unclear, m.toRot, m.toTrans };
+				}
+				heldEntry.rot = m.toRot;
+				heldEntry.trans = m.toTrans;
+				continue;
+			}
+			const auto &s = *e.change;
+			heldHow = Changed::How::Switched;
+			usableAfter[s.id] = (std::max)(usableAfter[s.id], s.time);
+			heldEntry.rot = s.toRot;
+			heldEntry.trans = s.toTrans;
+			if (s.cause == Cause::ReExpressed)
+				continue;
+			heldEntry.anchored = false;
+			heldEntry.generation = 0;
+			heldEntry.root = { s.cause == Cause::Appeared ? Root::Kind::Carried : Root::Kind::Unclear, s.toRot, s.toTrans };
+		}
+	}
+
 	// Each calibrated device in a frame with an entry takes its correction,
 	// once its frame is settled (a change of it still being read off other
 	// devices' moves keeps what it has until it is). One in a frame with none,
@@ -654,6 +760,11 @@ private:
 	bool fresh = true;
 	size_t disagreements = 0;
 	size_t unsettled = 0;
+	// The measured device (Update's `held`), what its correction is derived
+	// from (heldEntry's frame and root), and how its last drain changed it.
+	uint32_t heldId = vr::k_unTrackedDeviceIndexInvalid;
+	Entry heldEntry;
+	Changed::How heldHow = Changed::How::Replaced;
 	// An entry changed since the last propagation, or the record grew past
 	// propagatedThrough (the newest move's sequence number, plus one).
 	bool stale = false;

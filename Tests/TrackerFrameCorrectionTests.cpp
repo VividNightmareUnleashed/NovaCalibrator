@@ -2887,6 +2887,325 @@ void AnchoredRestoredStationNotAnchored(Check check)
 	check("frame anchors: a restored session does not anchor a base station's frame with the identity",
 		rig.frames.Unsettled() == 0 && rig.frames.Snapshot()[10] == saved[10], rig.log.c_str());
 }
+
+// The correction a device in `from` carries across the move to `to`.
+protocol::FrameCorrection AnchoredAcross(protocol::FrameCorrection c, const Q &fromR, const V &fromT, const Q &toR,
+	const V &toT)
+{
+	const Q r = (toR * fromR.conjugate()).normalized();
+	questcal::TrackerFrameCorrections::Compose(c, r, toT - r * fromT);
+	return c;
+}
+
+bool AnchoredTargets(uint32_t id) { return id == 9 || id == 10; }
+bool AnchoredNoSetup(double) { return false; }
+
+// A fresh session, the base station in E0. SteamVR moves the frame E0 to E1
+// (10.3 s) and E1 to E2 (11.0 s); the station, a solve behind, shows E0 to E2
+// in one step. Device 10, switched on in E1 short of E0 to E1, is measured and
+// recalibrated (Anchor) while it still shows E1, then shows E2: its
+// recalibrated correction carried across E1 to E2 is E2's. The base station's
+// start, offered again on the next update at the recalibration's generation,
+// reached E2 first along E0 to E2 and refused it there (43.1 mm).
+void AnchoredStationAtStartGeneration(Check check)
+{
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections frames;
+	uint32_t held = vr::k_unTrackedDeviceIndexInvalid;
+	protocol::FrameCorrection atRecalibration;
+	for (int k = 0; k < 80; ++k)
+	{
+		const double t = 10.0 + 0.05 * k;
+		watch.Note(ReplaySample(1, t, V::Zero(), k >= 21 ? AnchorE2 : AnchorE0, k >= 21 ? AnchorT2 : AnchorT0), TickScale,
+			true);
+		if (k >= 9)
+			watch.Note(ReplaySample(10, t, AnchorAt10, k >= 24 ? AnchorE2 : AnchorE1, k >= 24 ? AnchorT2 : AnchorT1),
+				TickScale, false);
+		if (k == 22)
+		{
+			atRecalibration = frames.Snapshot()[10];
+			frames.Anchor(10, watch, AnchoredTargets, AnchoredNoSetup);
+			held = vr::k_unTrackedDeviceIndexInvalid;
+		}
+		if (k % 5 == 0)
+			frames.Update(watch, watch.TakeMoves(), watch.TakeSwitches(), held, AnchoredTargets, AnchoredNoSetup);
+		if (k == 10)
+			held = 10;
+	}
+	const auto expected = AnchoredAcross(atRecalibration, AnchorE1, AnchorT1, AnchorE2, AnchorT2);
+	const double off10 = CorrectionShift(frames.Snapshot()[10], expected, AnchorAt10);
+	char detail[160];
+	std::snprintf(detail, sizeof detail, "device 10 %.1f mm off its recalibration carried into E2; disagreements %zu",
+		off10 * 1000.0, frames.Disagreements());
+	check("frame anchors: a base station's start does not compete with a later recalibration",
+		frames.Unsettled() == 0 && off10 < 1e-6 && frames.Disagreements() == 0, detail);
+}
+
+// Then device 9, in a station seen only through its trackers, is recalibrated
+// too: the base station's start, offered at the second recalibration's
+// generation, replaced the first one's derivation in E2, and device 10 lost its
+// realignment (43.1 mm).
+void AnchoredLaterRecalibrationKeepsEarlier(Check check)
+{
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections frames;
+	uint32_t held = vr::k_unTrackedDeviceIndexInvalid;
+	const Q g0(Eigen::AngleAxisd(-0.25, V::UnitY()));
+	const V u0(-0.4, 0.0, 0.3);
+	protocol::FrameCorrection afterFirst;
+	for (int k = 0; k < 80; ++k)
+	{
+		const double t = 10.0 + 0.05 * k;
+		watch.Note(ReplaySample(1, t, V::Zero(), k >= 24 ? AnchorE2 : AnchorE0, k >= 24 ? AnchorT2 : AnchorT0), TickScale,
+			true);
+		if (k >= 9)
+			watch.Note(ReplaySample(10, t, AnchorAt10, k >= 21 ? AnchorE2 : AnchorE1, k >= 21 ? AnchorT2 : AnchorT1),
+				TickScale, false);
+		watch.Note(ReplaySample(9, t, AnchorAt9, g0, u0), TickScale, false);
+		if (k == 18)
+		{
+			frames.Anchor(10, watch, AnchoredTargets, AnchoredNoSetup);
+			held = vr::k_unTrackedDeviceIndexInvalid;
+		}
+		if (k == 40)
+		{
+			afterFirst = frames.Snapshot()[10];
+			frames.Anchor(9, watch, AnchoredTargets, AnchoredNoSetup);
+		}
+		if (k % 5 == 0)
+			frames.Update(watch, watch.TakeMoves(), watch.TakeSwitches(), held, AnchoredTargets, AnchoredNoSetup);
+		if (k == 10)
+			held = 10;
+	}
+	const double moved = CorrectionShift(frames.Snapshot()[10], afterFirst, AnchorAt10);
+	char detail[160];
+	std::snprintf(detail, sizeof detail, "device 10 moved %.1f mm off its first recalibration's correction; disagreements %zu",
+		moved * 1000.0, frames.Disagreements());
+	check("frame anchors: a recalibration elsewhere leaves an earlier one's realignment",
+		frames.Unsettled() == 0 && moved < 1e-6 && frames.Disagreements() == 0, detail);
+}
+
+// Device 9, measured, is re-expressed from E0 into G0 (a station seen only
+// through its trackers), its world pose kept, so E0's correction is right
+// there; SteamVR re-solves G0 to G1, which it follows. Device 10 is switched
+// on in G1 with its own, short of the re-solve. The run fails: device 9 offers
+// its correction as derived along what it showed, and G1 takes it. Taking G1's
+// entry with nothing offered, device 9 ended 9.1 mm off, device 10 34.9 mm.
+void AnchoredHeldDeviceOffersAtRelease(Check check)
+{
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections frames;
+	uint32_t held = vr::k_unTrackedDeviceIndexInvalid;
+	const Q g0(Eigen::AngleAxisd(-0.25, V::UnitY())), g1(Eigen::AngleAxisd(-0.23, V::UnitY()));
+	const V u0(-0.4, 0.0, 0.3), u1(-0.37, 0.0, 0.31);
+	const V at9InG = g0.conjugate() * (AnchorAt9 - u0);
+	for (int k = 0; k < 60; ++k)
+	{
+		const double t = 10.0 + 0.05 * k;
+		watch.Note(ReplaySample(1, t, V::Zero(), AnchorE0, AnchorT0), TickScale, true);
+		if (k < 4)
+			watch.Note(ReplaySample(9, t, AnchorAt9, AnchorE0, AnchorT0), TickScale, false);
+		else
+		{
+			auto s9 = ReplaySample(9, t, at9InG, k >= 10 ? g1 : g0, k >= 10 ? u1 : u0);
+			s9.rotation = questcal::WireQuaternion(g0.conjugate());   // its world rotation kept too
+			watch.Note(s9, TickScale, false);
+		}
+		if (k >= 8)
+			watch.Note(ReplaySample(10, t, AnchorAt10, g1, u1), TickScale, false);
+		if (k == 20)
+			held = vr::k_unTrackedDeviceIndexInvalid;   // the run fails
+		if (k % 5 == 0)
+			frames.Update(watch, watch.TakeMoves(), watch.TakeSwitches(), held, AnchoredTargets, AnchoredNoSetup);
+		if (k == 2)
+			held = 9;
+	}
+	const auto right = AnchoredAcross(protocol::FrameCorrection{}, g0, u0, g1, u1);
+	const double off9 = CorrectionShift(frames.Snapshot()[9], right, at9InG);
+	const double off10 = CorrectionShift(frames.Snapshot()[10], right, AnchorAt10);
+	char detail[160];
+	std::snprintf(detail, sizeof detail, "after the run: device 9 %.1f mm, device 10 %.1f mm", off9 * 1000.0, off10 * 1000.0);
+	check("frame anchors: a measured device whose run fails offers its correction as derived along what it showed",
+		frames.Unsettled() == 0 && off9 < 1e-6 && off10 < 1e-6, detail);
+}
+
+// Device 9 takes E1's anchored entry, then starts a new solution from a station
+// seen only through its trackers (G0, never re-solved), its pose jumping: G0's
+// entry is an unclear one with E1's correction. Device 10, switched on in G0
+// with its own, right there, offers it as the older root and G0 takes it. It
+// offered nothing into a frame with an entry, and took the unclear one
+// (43.1 mm).
+void AnchoredFirstSampleOverUnclear(Check check)
+{
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections frames;
+	const Q g0(Eigen::AngleAxisd(-0.25, V::UnitY()));
+	const V u0(-0.4, 0.0, 0.3);
+	for (int k = 0; k < 200; ++k)
+	{
+		const double t = 10.0 + 0.05 * k;
+		watch.Note(ReplaySample(1, t, V::Zero(), k >= 6 ? AnchorE1 : AnchorE0, k >= 6 ? AnchorT1 : AnchorT0), TickScale,
+			true);
+		if (k >= 10 && k < 20)
+			watch.Note(ReplaySample(9, t, AnchorAt9, AnchorE1, AnchorT1), TickScale, false);
+		else if (k >= 20)
+			watch.Note(ReplaySample(9, t, AnchorAt9 + AnchorJump, g0, u0), TickScale, false);
+		if (k >= 140)
+			watch.Note(ReplaySample(10, t, AnchorAt10, g0, u0), TickScale, false);
+		if (k % 5 == 0)
+			frames.Update(watch, watch.TakeMoves(), watch.TakeSwitches(), vr::k_unTrackedDeviceIndexInvalid,
+				AnchoredTargets, AnchoredNoSetup);
+	}
+	const double off10 = CorrectionShift(frames.Snapshot()[10], protocol::FrameCorrection{}, AnchorAt10);
+	const bool one = frames.Snapshot()[9] == frames.Snapshot()[10];
+	char detail[160];
+	std::snprintf(detail, sizeof detail, "device 10 %.1f mm off its own; one correction in G0 %d", off10 * 1000.0, one ? 1 : 0);
+	check("frame anchors: a device first seen in a frame an unclear change defined offers its older root",
+		frames.Unsettled() == 0 && off10 < 1e-6 && one, detail);
+}
+
+// Device 9, alone in a station seen only through its trackers, is measured
+// from before the monitor's first tick, so its first-seen switch is skipped.
+// SteamVR re-solves G0 to G1, which it shows, and the run ends before the tick
+// that takes the move. Its release defines G0, and G1 is derived from it. With
+// nothing defining G0, it carried its own into G1, short of the move (13.2 mm).
+void AnchoredMoveFromEmptyFrame(Check check)
+{
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections frames;
+	uint32_t held = 9;
+	const Q g0(Eigen::AngleAxisd(-0.25, V::UnitY())), g1(Eigen::AngleAxisd(-0.23, V::UnitY()));
+	const V u0(-0.4, 0.0, 0.3), u1(-0.37, 0.0, 0.31);
+	for (int k = 0; k < 60; ++k)
+	{
+		const double t = 10.0 + 0.05 * k;
+		watch.Note(ReplaySample(1, t, V::Zero(), AnchorE0, AnchorT0), TickScale, true);
+		watch.Note(ReplaySample(9, t, AnchorAt9, k >= 21 ? g1 : g0, k >= 21 ? u1 : u0), TickScale, false);
+		if (k == 22)
+			held = vr::k_unTrackedDeviceIndexInvalid;   // the run ends
+		if (k % 5 == 0)
+			frames.Update(watch, watch.TakeMoves(), watch.TakeSwitches(), held, AnchoredTargets, AnchoredNoSetup);
+	}
+	const auto right = AnchoredAcross(protocol::FrameCorrection{}, g0, u0, g1, u1);
+	const double off9 = CorrectionShift(frames.Snapshot()[9], right, AnchorAt9);
+	char detail[96];
+	std::snprintf(detail, sizeof detail, "device 9 %.1f mm off its correction carried across G0 to G1", off9 * 1000.0);
+	check("frame anchors: a measured device's move out of a frame nothing defined is carried once the run ends",
+		frames.Unsettled() == 0 && off9 < 1e-6, detail);
+}
+
+// The same station, device 9 not measured, its first-seen switch dropped (not
+// known to be a target device in time), and its move G0 to G1 in the first
+// drain it is a target device: no entry derives G1, so the move carries its own
+// correction there, rooted in G0. Assigned as it is, it carried its own into
+// G1, short of the move.
+void AnchoredMoveAfterDroppedSwitch(Check check)
+{
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections frames;
+	const Q g0(Eigen::AngleAxisd(-0.25, V::UnitY())), g1(Eigen::AngleAxisd(-0.23, V::UnitY()));
+	const V u0(-0.4, 0.0, 0.3), u1(-0.37, 0.0, 0.31);
+	std::vector<LighthouseFrameWatch::Move> moves;
+	for (int k = 0; k < 40; ++k)
+	{
+		const double t = 10.0 + 0.05 * k;
+		watch.Note(ReplaySample(9, t, AnchorAt9, k >= 10 ? g1 : g0, k >= 10 ? u1 : u0), TickScale, false);
+		for (const auto &m : watch.TakeMoves())
+			moves.push_back(m);
+		watch.TakeSwitches();   // dropped
+		if (k == 20)
+		{
+			frames.Update(watch, moves, {}, vr::k_unTrackedDeviceIndexInvalid, AnchoredTargets, AnchoredNoSetup);
+			moves.clear();
+		}
+		else if (k > 20 && k % 5 == 0)
+			frames.Update(watch, watch.TakeMoves(), {}, vr::k_unTrackedDeviceIndexInvalid, AnchoredTargets, AnchoredNoSetup);
+	}
+	const auto right = AnchoredAcross(protocol::FrameCorrection{}, g0, u0, g1, u1);
+	const double off9 = CorrectionShift(frames.Snapshot()[9], right, AnchorAt9);
+	char detail[96];
+	std::snprintf(detail, sizeof detail, "device 9 %.1f mm off its correction carried across G0 to G1", off9 * 1000.0);
+	check("frame anchors: a move out of a frame no switch defined carries the device's correction across it",
+		frames.Unsettled() == 0 && off9 < 1e-6, detail);
+}
+
+// Device 10, in a station seen only through its trackers (H), carries its own
+// in, and follows that station's re-solve to G: G's entry is derived from its
+// guess. Device 9 is then re-expressed from the base station's anchored E0 into
+// G, its world pose kept: SteamVR places G as it places E0, so E0's correction
+// is right there, and the re-expression anchors G with it over the derived
+// guess. Offered unanchored, as a first sample would be, it gave way to that
+// guess, the older root by the record.
+void AnchoredReexpressionAnchorsOverCarried(Check check)
+{
+	MonitorRig rig;
+	const Q h(Eigen::AngleAxisd(0.30, V::UnitY())), g(Eigen::AngleAxisd(0.32, V::UnitY()));
+	const V ht(0.5, 0, 0.2), gt(0.53, 0, 0.21);
+	const V at9InG = g.conjugate() * (AnchorAt9 - gt);
+	for (int k = 0; k < 60; ++k)
+	{
+		const double t = 10.0 + 0.05 * k;
+		rig.watch.Note(ReplaySample(1, t, V::Zero(), AnchorE0, AnchorT0), TickScale, true);
+		rig.watch.Note(ReplaySample(10, t, AnchorAt10, k >= 10 ? g : h, k >= 10 ? gt : ht), TickScale, false);
+		auto s9 = k >= 20 ? ReplaySample(9, t, at9InG, g, gt) : ReplaySample(9, t, AnchorAt9, AnchorE0, AnchorT0);
+		if (k >= 20)
+			s9.rotation = questcal::WireQuaternion(g.conjugate());   // its world rotation kept too
+		rig.watch.Note(s9, TickScale, false);
+		if (k % 5 == 0)
+			rig.Tick(t);
+	}
+	const bool anchored = rig.frames.Snapshot()[9] == protocol::FrameCorrection{} &&
+		rig.frames.Snapshot()[10] == protocol::FrameCorrection{};
+	check("frame anchors: a re-expression from an anchored frame anchors the frame over a derived guess",
+		rig.frames.Unsettled() == 0 && anchored, rig.log.c_str());
+}
+
+// Device 9 takes the base station's anchored E0 and is measured from the next
+// tick, still in E0; it is then re-expressed into G0 (a station seen only
+// through its trackers) and follows G0 to G1; device 10 is switched on in G1
+// short of the re-solve, and the run fails. Device 9's correction is derived
+// from E0's anchored one, and G1 takes it. Rooted as carried into E0, which the
+// record does not order against device 10's G1, it gave way. `oneDrain`: the
+// re-expression and the move come in one drain, and the correction is for the
+// frame after the move, not the one before it.
+void AnchoredHeldDerivationFromStart(Check check, bool oneDrain)
+{
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections frames;
+	uint32_t held = vr::k_unTrackedDeviceIndexInvalid;
+	const Q g0(Eigen::AngleAxisd(-0.25, V::UnitY())), g1(Eigen::AngleAxisd(-0.23, V::UnitY()));
+	const V u0(-0.4, 0.0, 0.3), u1(-0.37, 0.0, 0.31);
+	const V at9InG = g0.conjugate() * (AnchorAt9 - u0);
+	for (int k = 0; k < 60; ++k)
+	{
+		if (k == 1)
+			held = 9;   // measured from the tick at 10.1 s
+		const double t = 10.0 + 0.05 * k;
+		watch.Note(ReplaySample(1, t, V::Zero(), AnchorE0, AnchorT0), TickScale, true);
+		if (k < 4)
+			watch.Note(ReplaySample(9, t, AnchorAt9, AnchorE0, AnchorT0), TickScale, false);
+		else
+		{
+			auto s9 = ReplaySample(9, t, at9InG, k >= 10 ? g1 : g0, k >= 10 ? u1 : u0);
+			s9.rotation = questcal::WireQuaternion(g0.conjugate());
+			watch.Note(s9, TickScale, false);
+		}
+		if (k >= 8)
+			watch.Note(ReplaySample(10, t, AnchorAt10, g1, u1), TickScale, false);
+		if (k == 20)
+			held = vr::k_unTrackedDeviceIndexInvalid;   // the run fails
+		if (k == 0 || k == 2 || (k % 5 == 0 && (!oneDrain || k == 15 || k >= 20)))
+			frames.Update(watch, watch.TakeMoves(), watch.TakeSwitches(), held, AnchoredTargets, AnchoredNoSetup);
+	}
+	const auto right = AnchoredAcross(protocol::FrameCorrection{}, g0, u0, g1, u1);
+	const double off9 = CorrectionShift(frames.Snapshot()[9], right, at9InG);
+	const double off10 = CorrectionShift(frames.Snapshot()[10], right, AnchorAt10);
+	char detail[160];
+	std::snprintf(detail, sizeof detail, "after the run: device 9 %.1f mm, device 10 %.1f mm", off9 * 1000.0, off10 * 1000.0);
+	check(oneDrain ? "frame anchors: a measured device's switch and move in one drain are followed in the order they came"
+		: "frame anchors: a measured device's correction keeps the root of the frame its run began in",
+		frames.Unsettled() == 0 && off9 < 1e-6 && off10 < 1e-6, detail);
+}
 } // namespace
 
 void RunTrackerFrameCorrectionScenarios(Check check)
@@ -2936,4 +3255,13 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	AnchoredUnsettledWaits(check);
 	AnchoredDroppedSwitchDefinesFrame(check);
 	AnchoredRestoredStationNotAnchored(check);
+	AnchoredStationAtStartGeneration(check);
+	AnchoredLaterRecalibrationKeepsEarlier(check);
+	AnchoredHeldDeviceOffersAtRelease(check);
+	AnchoredFirstSampleOverUnclear(check);
+	AnchoredMoveFromEmptyFrame(check);
+	AnchoredMoveAfterDroppedSwitch(check);
+	AnchoredReexpressionAnchorsOverCarried(check);
+	AnchoredHeldDerivationFromStart(check, false);
+	AnchoredHeldDerivationFromStart(check, true);
 }
