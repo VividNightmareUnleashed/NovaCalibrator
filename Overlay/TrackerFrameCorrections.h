@@ -29,6 +29,7 @@ public:
 		frames = saved;
 		restoredKeys = keys;
 		usableAfter.fill(-1e300);
+		placed.fill(false);
 		table.clear();
 		fresh = false;
 		// A measurement's derivation names entries the table no longer has:
@@ -101,6 +102,8 @@ public:
 			if (old == id || restoredKeys[old] != key) continue;
 			frames[id] = frames[old];
 			usableAfter[id] = usableAfter[old];
+			placed[id] = placed[old];
+			placed[old] = false;
 			frames[old] = {};
 			usableAfter[old] = -1e300;
 			serials[old].clear();
@@ -114,6 +117,7 @@ public:
 		{
 			frames[id] = {};
 			usableAfter[id] = -1e300;
+			placed[id] = false;
 		}
 		return replaced || relocated;
 	}
@@ -330,13 +334,27 @@ public:
 		// moves and switches it showed since. Taking its frame's entry with
 		// nothing offered, it gave up a right correction for a younger guess
 		// (replayed: 9.1 mm at it, 34.9 mm at the device switched on beside it).
+		uint32_t released = vr::k_unTrackedDeviceIndexInvalid;
 		if (held != heldId)
 		{
 			if (heldId < frames.size() && usable(heldId))
 			{
+				heldHow = Changed::How::Replaced;
+				// Its moves and switches of this drain are still its run's, a
+				// lead's for a change it showed among them; and a change of its
+				// frame still being read leaves what it is derived from unclear.
+				FollowHeld(moves, switches, setup, result);
+				how[heldId] = heldHow;
 				Entry release = heldEntry;
 				release.correction = frames[heldId];
+				if (!watch.Settled(heldId))
+				{
+					release.anchored = false;
+					release.generation = 0;
+					release.root = { Root::Kind::Unclear, release.rot, release.trans };
+				}
 				Offer(release, watch);
+				released = heldId;
 			}
 			heldId = held;
 			heldEntry = Entry{};
@@ -344,6 +362,29 @@ public:
 			Eigen::Vector3d translation;
 			if (usable(held) && watch.LastFrame(held, rotation, translation))
 			{
+				// The frame its correction is for: the one its first move or
+				// switch of this drain left (FollowHeld replays them), else the
+				// one it shows.
+				double first = 1e300;
+				for (const auto &m : moves)
+					if (m.id == held && m.time < first)
+					{
+						first = m.time;
+						rotation = m.fromRot;
+						translation = m.fromTrans;
+					}
+				for (const auto &sw : switches)
+					if (sw.id == held && sw.time < first && sw.cause != LighthouseFrameWatch::Switch::Cause::Appeared)
+					{
+						first = sw.time;
+						rotation = sw.fromRot;
+						translation = sw.fromTrans;
+					}
+				// A frame change still being read when the run starts needs no
+				// rule here: settled as a switch it makes the record unclear
+				// (FollowHeld), led it carries the record across the record's
+				// own move, and still unread at the run's end it makes the
+				// release unclear.
 				if (const Entry *e = Find(rotation, translation))
 					heldEntry = *e;
 				else
@@ -355,15 +396,17 @@ public:
 		}
 		if (usable(held))
 		{
+			placed[held] = true;
 			heldHow = Changed::How::Replaced;
 			FollowHeld(moves, switches, setup, result);
 		}
 
 		for (const auto &m : moves)
 		{
-			if (!usable(m.id) || m.id == held)
+			if (!usable(m.id) || m.id == held || m.id == released)
 				continue;
 			how[m.id] = Changed::How::Moved;
+			placed[m.id] = true;
 			const bool followed = !setup(m.frameTime);
 			usableAfter[m.id] = (std::max)(usableAfter[m.id], m.time);
 			// The move is in the watch's record, a lead read off other devices'
@@ -383,6 +426,16 @@ public:
 				next.trans = m.toTrans;
 				next.correction = carried;
 				next.root = { Root::Kind::Carried, m.fromRot, m.fromTrans };
+				// Unless the device came into that frame by a change no move
+				// leads, still being read or settled in this drain: its
+				// correction is then the frame's before, and derives nothing.
+				bool unclear = !watch.Settled(m.id);
+				for (const auto &s : switches)
+					if (s.id == m.id && (s.cause == Cause::OwnJump || s.cause == Cause::Returned) &&
+						!questcal::WorldFromDriverChanged(s.toRot, s.toTrans, m.fromRot, m.fromTrans))
+						unclear = true;
+				if (unclear)
+					next.root = { Root::Kind::Unclear, m.toRot, m.toTrans };
 				Offer(next, watch);
 			}
 		}
@@ -392,10 +445,11 @@ public:
 
 		for (const auto &s : switches)
 		{
-			if (!usable(s.id) || s.id == held)
+			if (!usable(s.id) || s.id == held || s.id == released)
 				continue;
 			usableAfter[s.id] = (std::max)(usableAfter[s.id], s.time);
 			how[s.id] = Changed::How::Switched;
+			placed[s.id] = true;
 			// The correction the device brings is that of the frame it left (a
 			// device that came into a frame and jumped out of it within one
 			// drain has not taken it yet), else its own. A device first seen,
@@ -719,11 +773,9 @@ private:
 		}
 	}
 
-	// Each calibrated device in a frame with an entry takes its correction,
-	// once its frame is settled (a change of it still being read off other
-	// devices' moves keeps what it has until it is). One in a frame with none,
-	// which no switch has brought it into (its own was dropped before it was
-	// known to be ours), carries its own in.
+	// Each calibrated device takes its frame's entry once its frame is settled
+	// (a change of it still being read off other devices' moves keeps what it
+	// has until it is).
 	template <class Usable>
 	void Assign(const LighthouseFrameWatch &watch, uint32_t held, Usable usable)
 	{
@@ -733,16 +785,23 @@ private:
 			Eigen::Vector3d translation;
 			if (!usable(id) || id == held || !watch.Settled(id) || !watch.LastFrame(id, rotation, translation))
 				continue;
+			// One no switch or move has placed (its first-seen switch was
+			// dropped) offers its own as a first sample does, the older root
+			// over an unclear change's guess; so does one in a frame with no
+			// entry (one the table dropped at its bound).
 			Entry *e = Find(rotation, translation);
-			if (!e)
+			if (!placed[id] || !e)
 			{
+				placed[id] = true;
 				Entry own;
 				own.rot = rotation;
 				own.trans = translation;
 				own.correction = frames[id];
 				own.root = { Root::Kind::Carried, rotation, translation };
 				Offer(own, watch);
-				continue;
+				e = Find(rotation, translation);
+				if (!e)
+					continue;
 			}
 			e->rot = rotation;
 			e->trans = translation;
@@ -770,6 +829,9 @@ private:
 	bool stale = false;
 	uint64_t propagatedThrough = 0;
 	Frames frames{};
+	// A switch, a move or the assignment has put the device's correction in
+	// the table since its slot was bound or restored.
+	std::array<bool, vr::k_unMaxTrackedDeviceCount> placed{};
 	FrameSerialKeys restoredKeys{};
 	std::array<std::string, vr::k_unMaxTrackedDeviceCount> serials{};
 	std::array<double, vr::k_unMaxTrackedDeviceCount> usableAfter = []
