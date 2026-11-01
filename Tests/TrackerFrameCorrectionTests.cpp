@@ -3575,6 +3575,107 @@ void AnchoredMoveDuringChange(Check check)
 	check("frame anchors: a move of a device whose change is still being read derives nothing",
 		frames.Unsettled() == 0 && off10 < 1e-6, detail.c_str());
 }
+
+// The base station in E0, anchored at the start. SteamVR re-solves E0 to E1,
+// which device 9 shows first, and E1 to E2, which it shows with its own pose
+// jumping, a change still being read at the next tick: device 9 takes no entry
+// there and keeps E0's correction. The base station leads the change; device 9
+// is measured from before the next tick, which records the frame its first
+// move of the drain (the lead's) left, E1, and the run fails. E1's anchored
+// entry is not the one its correction holds, so the record's root is unclear.
+// Taken as E1's anchored entry, the release offered E0's correction carried
+// across E1 to E2 only (18.0 mm), and a disagreement was counted.
+void AnchoredCaptureOfAnEntryNotTaken(Check check)
+{
+	std::string detail;
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections frames;
+	uint32_t held = vr::k_unTrackedDeviceIndexInvalid;
+	protocol::FrameCorrection atRelease;
+	for (int k = 0; k < 60; ++k)
+	{
+		const double t = 10.0 + 0.05 * k;
+		const Q &e = k >= 12 ? AnchorE2 : k >= 7 ? AnchorE1 : AnchorE0;
+		const V &u = k >= 12 ? AnchorT2 : k >= 7 ? AnchorT1 : AnchorT0;
+		watch.Note(ReplaySample(1, t, V::Zero(), e, u), TickScale, true);
+		if (k < 6)
+			watch.Note(ReplaySample(9, t, AnchorAt9, AnchorE0, AnchorT0), TickScale, false);
+		else if (k < 8)
+			watch.Note(ReplaySample(9, t, AnchorAt9, AnchorE1, AnchorT1), TickScale, false);
+		else
+			watch.Note(ReplaySample(9, t, AnchorAt9 + AnchorJump, AnchorE2, AnchorT2), TickScale, false);
+		if (k == 13)
+			held = 9;
+		if (k == 18)
+			held = vr::k_unTrackedDeviceIndexInvalid;   // the run fails
+		if (k % 5 == 0)
+		{
+			if (k == 20)
+				atRelease = frames.Snapshot()[9];
+			frames.Update(watch, watch.TakeMoves(), watch.TakeSwitches(), held, AnchoredTargets, AnchoredNoSetup);
+			if (k == 10)
+				AnchoredNote(detail, "tick at 10.5 s: device 9 settled %d, %.1f mm off E1's entry\n", watch.Settled(9) ? 1 : 0,
+					CorrectionShift(frames.Snapshot()[9], AnchoredAcross(protocol::FrameCorrection{}, AnchorE0, AnchorT0,
+						AnchorE1, AnchorT1), AnchorAt9) * 1000.0);
+		}
+	}
+	const auto right = AnchoredAcross(protocol::FrameCorrection{}, AnchorE0, AnchorT0, AnchorE2, AnchorT2);
+	AnchoredNote(detail, "record of an entry the device had not taken: at the release device 9 %.1f mm off E2's, "
+		"disagreements %zu; at 13.0 s device 9 %.1f mm off\n", CorrectionShift(atRelease, right, AnchorAt9 + AnchorJump) * 1000.0,
+		frames.Disagreements(), CorrectionShift(frames.Snapshot()[9], right, AnchorAt9 + AnchorJump) * 1000.0);
+	check("frame anchors: a run's record takes no root from an entry its device has not taken",
+		frames.Unsettled() == 0 && frames.Disagreements() == 0 &&
+		CorrectionShift(frames.Snapshot()[9], right, AnchorAt9 + AnchorJump) < 1e-6, detail.c_str());
+}
+
+// The same, SteamVR re-solving E2 to E3, which device 9 shows before the tick
+// that releases it: the release follows that move and offers its correction to
+// E3. Rooted as E1's anchored entry, it anchored E3 before the record's
+// derivation reached it, and device 10, switched on there, took it: device 9
+// 17.8 mm off, device 10 42.9 mm, a disagreement counted.
+void AnchoredCaptureOfAnEntryNotTakenAnchors(Check check)
+{
+	std::string detail;
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections frames;
+	uint32_t held = vr::k_unTrackedDeviceIndexInvalid;
+	for (int k = 0; k < 80; ++k)
+	{
+		const double t = 10.0 + 0.05 * k;
+		const Q &e = k >= 19 ? AnchorE3 : k >= 12 ? AnchorE2 : k >= 7 ? AnchorE1 : AnchorE0;
+		const V &u = k >= 19 ? AnchorT3 : k >= 12 ? AnchorT2 : k >= 7 ? AnchorT1 : AnchorT0;
+		watch.Note(ReplaySample(1, t, V::Zero(), e, u), TickScale, true);
+		if (k < 6)
+			watch.Note(ReplaySample(9, t, AnchorAt9, AnchorE0, AnchorT0), TickScale, false);
+		else if (k < 8)
+			watch.Note(ReplaySample(9, t, AnchorAt9, AnchorE1, AnchorT1), TickScale, false);
+		else if (k < 16)
+			watch.Note(ReplaySample(9, t, AnchorAt9 + AnchorJump, AnchorE2, AnchorT2), TickScale, false);
+		else
+			watch.Note(ReplaySample(9, t, AnchorAt9 + AnchorJump, AnchorE3, AnchorT3), TickScale, false);
+		if (k >= 30)
+			watch.Note(ReplaySample(10, t, AnchorAt10, AnchorE3, AnchorT3), TickScale, false);
+		if (k == 13)
+			held = 9;
+		if (k == 18)
+			held = vr::k_unTrackedDeviceIndexInvalid;   // the run fails
+		if (k % 5 == 0)
+			frames.Update(watch, watch.TakeMoves(), watch.TakeSwitches(), held, AnchoredTargets, AnchoredNoSetup);
+	}
+	const auto right = AnchoredAcross(protocol::FrameCorrection{}, AnchorE0, AnchorT0, AnchorE3, AnchorT3);
+	bool anchoredWrong = false;
+	for (const auto &x : frames.Table())
+		if (!questcal::WorldFromDriverChanged(x.rot, x.trans, AnchorE3, AnchorT3))
+			anchoredWrong = anchoredWrong || (x.anchored && CorrectionShift(x.correction, right, AnchorAt10) > 1e-3);
+	AnchoredNote(detail, "the release reaching a frame before the record: at 14.0 s device 9 %.1f mm, device 10 %.1f mm off "
+		"E0's carried into E3; E3 anchored wrong %d; disagreements %zu\n",
+		CorrectionShift(frames.Snapshot()[9], right, AnchorAt9 + AnchorJump) * 1000.0,
+		CorrectionShift(frames.Snapshot()[10], right, AnchorAt10) * 1000.0, anchoredWrong ? 1 : 0, frames.Disagreements());
+	check("frame anchors: a release from such a record anchors nothing ahead of the record's derivation",
+		frames.Unsettled() == 0 && frames.Disagreements() == 0 && !anchoredWrong &&
+		CorrectionShift(frames.Snapshot()[9], right, AnchorAt9 + AnchorJump) < 1e-6 &&
+		CorrectionShift(frames.Snapshot()[10], right, AnchorAt10) < 1e-6, detail.c_str());
+}
 } // namespace
 
 void RunTrackerFrameCorrectionScenarios(Check check)
@@ -3642,4 +3743,6 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	AnchoredReleaseDuringChange(check);
 	AnchoredReleaseWithItsLead(check);
 	AnchoredMoveDuringChange(check);
+	AnchoredCaptureOfAnEntryNotTaken(check);
+	AnchoredCaptureOfAnEntryNotTakenAnchors(check);
 }

@@ -385,8 +385,14 @@ public:
 				// (FollowHeld), led it carries the record across the record's
 				// own move, and still unread at the run's end it makes the
 				// release unclear.
-				if (const Entry *e = Find(rotation, translation))
+				// An entry the device has not taken (a change of its frame was
+				// still being read when the drain assigned it) is not what its
+				// correction is derived from.
+				const Entry *e = Find(rotation, translation);
+				if (e && Agree(e->correction, frames[held]))
 					heldEntry = *e;
+				else if (e)
+					heldEntry.root = { Root::Kind::Unclear, rotation, translation };
 				else
 					heldEntry.root = { Root::Kind::Carried, rotation, translation };
 				heldEntry.rot = rotation;
