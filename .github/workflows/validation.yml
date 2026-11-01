@@ -30,7 +30,7 @@ name: Validation
 # a loosened bound in them, so the job fails on a skipped check as well as a
 # wrong outcome. The release workflow runs the same suite through
 # formal-assurance.yml. This job runs on six runners at once (check.ps1
-# -Shard, which balances them by the time each check last took), about 16
+# -Shard, which balances them by the time each check last took), about 22
 # minutes of checks each: when it runs it is the longest job a push waits for,
 # so it gets the runners the shorter jobs do not need. The image is cached by
 # its Dockerfile's hash. A pull request only reads caches saved on its own or
