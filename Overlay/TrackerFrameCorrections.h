@@ -72,7 +72,7 @@ public:
 	{
 		const bool own = kept.driverSession != 0 && kept.driverSession == answerSession && profileKey != 0 &&
 			kept.profileKey == profileKey;
-		if (!own && !(checkpointFound && checkpointProfileKey == profileKey))
+		if (!own && (!checkpointFound || checkpointProfileKey != profileKey))
 			return Recovered::None;
 		Frames recovered = own ? kept.frames : checkpoint;
 		FrameSerialKeys keys = own ? kept.keys : checkpointKeys;
