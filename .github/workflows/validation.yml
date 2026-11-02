@@ -8,7 +8,8 @@ name: Validation
 # in Debug and with AddressSanitizer (blocking), and Clang-Tidy over every
 # translation unit (clang-tidy.yml; blocking, since the tree has no findings).
 # Changes to documentation alone don't trigger it; the release workflow
-# builds, tests and analyzes the tagged commit anyway.
+# builds and tests the tagged commit anyway, and analyzes it unless this
+# workflow already passed on the same source (tools/ci/formal-scope.py).
 #
 # With the VIRTUALQUEST_DEPLOY_KEY secret (a read-only deploy key on the
 # private VirtualQuest repository) the harness also builds the simulated
@@ -290,8 +291,8 @@ jobs:
   # compiles and runs: a job runs when one of its inputs changed, when the
   # VirtualQuest pin moved, or when the workflows or tools that run the checks
   # changed, and always when the base cannot be compared (a new branch, a
-  # force push, a run started by hand). The release workflow runs the whole
-  # suite on the tag regardless.
+  # force push, a run started by hand). The release workflow decides the same
+  # way for the tag, and also for Clang-Tidy and the trace replay.
   formal-scope:
     if: github.repository == 'VividNightmareUnleashed/NovaCalibrator' && github.event.pull_request.head.repo.fork != true
     runs-on: ubuntu-24.04

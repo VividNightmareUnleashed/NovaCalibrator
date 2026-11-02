@@ -42,6 +42,11 @@ builds with the full solver suite (including the VirtualQuest scenarios and the
 formal-model links), and in parallel jobs replays the pose hub traces through their
 TLA+ model, runs the duplicate scan as an advisory gate, and runs Clang-Tidy over every
 translation unit (`clang-tidy.yml`, where any first-party finding stops the release).
+Validation runs those same checks on every push, so the release runs each only when
+the tag changes something since the last commit where it passed
+(`tools/ci/formal-scope.py --release`): a version bump or documentation alone does
+not. The build and the solver suite always run on the tag, since the package is
+made from them.
 It checks the version against the tag and packages, signs, scans and writes the notes
 with `install\package-release.ps1` (which runs `install\build-package.ps1`,
 `install\sign-package.ps1` and `install\virustotal-scan.ps1`), creates a **draft**
@@ -98,17 +103,14 @@ first.
   shipping.
 - Review `docs/vendored-dependencies.md`; resolve missing or changed notice material
   before producing a distributable binary.
-- Run the Release build and solver harness locally, which catches a broken version
-  edit and gives the scenario count for the tag message:
-
-  ```powershell
-  tools\validate-cpp.ps1 -Mode Build
-  ```
-
-- Push VirtualQuest's commits, then `alpha`, and wait for its validation workflow
-  (build, harness, hub trace replay, duplicate scan, input-validation proofs,
-  Clang-Tidy and the private core) on the exact release commit. Review every
-  advisory clone it reports.
+- Wait for the validation workflow (build, harness, hub trace replay, duplicate
+  scan, input-validation proofs, Clang-Tidy and the private core) to pass on the
+  commit the version change goes on, and review every advisory clone it reports.
+- Tag the version commit locally and run `install\release.ps1 -DryRun -SkipScan`.
+  It is the one local build, since validation tested everything but the version
+  change: the Release build with the full solver suite, which catches a broken
+  version edit, and the package, checked against the tag.
+- Push VirtualQuest's commits, then `alpha`.
 - A private check that fails in a hosted run is reproduced locally; its output
   never reaches the log:
 
@@ -142,11 +144,12 @@ inputs to this workflow and must not be committed.
 
 ## Commit, push, and tag
 
-- Commit the version and release-note changes, then push `alpha`. Verify the exact
-  release commit is visible on `origin`; do not tag an unpushed-only commit.
-- Create an annotated `novacalibrator-vMAJOR.MINOR.PATCH` tag on that reviewed
-  commit and include the version, validation result, and upstream base in its
-  message.
+- Commit the version and release-note changes. Create an annotated
+  `novacalibrator-vMAJOR.MINOR.PATCH` tag on that reviewed commit and include the
+  version, validation result, and upstream base in its message; the dry run above
+  needs it.
+- Push `alpha` and verify the exact release commit is visible on `origin`; never
+  push a tag whose commit is not there.
 - Push the tag explicitly and verify that the remote tag resolves to the recorded
   commit.
   Never use a force-updated release tag; issue a new patch version instead.

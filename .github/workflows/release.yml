@@ -6,7 +6,9 @@ name: Release
 # it against VirtualQuest's formal suite on Linux (formal-assurance.yml),
 # packages it, scans it on VirusTotal, creates a DRAFT release here, and runs
 # the install test on that draft. Nothing reaches users until the draft is
-# published by hand.
+# published by hand. A check validation already passed on the same source
+# (the version header and documentation aside) is not run again; the tag is
+# still built, tested and packaged here.
 #
 # Installed copies look for updates only in VividNightmareUnleashed/NovaCalibrator,
 # so a run anywhere else (a fork, or this repository under another name) stops
@@ -48,13 +50,14 @@ env:
   MINISIGN_SHA256: 37b600344e20c19314b2e82813db2bfdcc408b77b876f7727889dbd46d539479
 
 # Jobs: check refuses what must not be built, in seconds; build tests, packages
-# and scans, and keeps the result with the run; beside it, traces replays the
+# and scans, and keeps the result with the run; beside it, formal-scope picks
+# the checks whose inputs changed since the last commit where each passed (in
+# validation or an earlier release), and only those run: traces replays the
 # pose hub and universe verdict traces through their models and runs the
-# duplicate scan, and clang-tidy analyzes the tagged source (clang-tidy.yml),
-# where any first-party finding stops the release; formal-scope picks the formal
-# jobs whose inputs changed since the last commit where each passed, and
-# formal-assurance runs those; publish creates the draft from the kept package
-# once all of them passed. A failed publish is repeated with
+# duplicate scan, clang-tidy analyzes the tagged source (clang-tidy.yml),
+# where any first-party finding stops the release, and formal-assurance runs
+# the formal jobs; publish creates the draft from the kept package once all of
+# them passed or were proved already. A failed publish is repeated with
 # "Re-run failed jobs" in a minute, without building again.
 #
 # A tag on a commit whose message contains [skip release] starts nothing
@@ -190,9 +193,11 @@ jobs:
           retention-days: 90
 
   # Its own build of the tag, so neither check waits on the other or holds up
-  # packaging and the VirusTotal scan.
+  # packaging and the VirusTotal scan. Skipped when validation's validate job
+  # passed on the same source.
   traces:
-    needs: check
+    needs: [check, formal-scope]
+    if: needs.formal-scope.outputs.traces == 'true'
     runs-on: windows-2022
     timeout-minutes: 45
 
@@ -246,18 +251,21 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Host '::warning::The duplicate scan reported clones; review them before publishing.'; exit 1 }
 
   # The env context is not available where a reusable workflow is called, so
-  # the tag is spelled out as TAG is above.
+  # the tag is spelled out as TAG is above. Skipped when Clang-Tidy passed on
+  # the same source.
   clang-tidy:
-    needs: check
+    needs: [check, formal-scope]
+    if: needs.formal-scope.outputs.clang_tidy == 'true'
     uses: ./.github/workflows/clang-tidy.yml
     with:
       ref: refs/tags/${{ inputs.tag || github.ref_name }}
     secrets:
       VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
 
-  # The formal jobs are deterministic, so one whose inputs are unchanged since
-  # the last commit where it passed (in validation or an earlier release) would
-  # pass again; tools/ci/formal-scope.py says which still need to run.
+  # The formal jobs, Clang-Tidy and the trace replay are deterministic, so one
+  # whose inputs are unchanged since the last commit where it passed (in
+  # validation or an earlier release) would pass again; tools/ci/formal-scope.py
+  # says which still need to run. A version bump alone changes none of them.
   formal-scope:
     needs: check
     runs-on: ubuntu-24.04
@@ -268,6 +276,8 @@ jobs:
     outputs:
       input_validation: ${{ steps.scope.outputs.input_validation }}
       core: ${{ steps.scope.outputs.core }}
+      clang_tidy: ${{ steps.scope.outputs.clang_tidy }}
+      traces: ${{ steps.scope.outputs.traces }}
     steps:
       - name: Check out the tagged source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -280,11 +290,11 @@ jobs:
         env:
           VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
         run: tools/ci/checkout-virtualquest.ps1
-      - name: Work out which formal jobs the tag needs
+      - name: Work out which checks the tag needs
         id: scope
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python tools/ci/formal-scope.py --last-green
+        run: python tools/ci/formal-scope.py --last-green --release
 
   formal-assurance:
     needs: [check, formal-scope]
@@ -297,13 +307,17 @@ jobs:
     secrets:
       VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
 
-  # formal-assurance is skipped when every formal job's inputs are proved
-  # already, so publish asks for each result rather than plain needs.
+  # traces, clang-tidy and formal-assurance are skipped when formal-scope found
+  # them proved already, so publish asks for each result rather than plain
+  # needs, and takes a skip only where formal-scope said so.
   publish:
     needs: [build, traces, clang-tidy, formal-scope, formal-assurance]
     if: >-
-      always() && needs.build.result == 'success' && needs.traces.result == 'success' &&
-      needs.clang-tidy.result == 'success' && needs.formal-scope.result == 'success' &&
+      always() && needs.build.result == 'success' && needs.formal-scope.result == 'success' &&
+      (needs.traces.result == 'success' ||
+        (needs.traces.result == 'skipped' && needs.formal-scope.outputs.traces == 'false')) &&
+      (needs.clang-tidy.result == 'success' ||
+        (needs.clang-tidy.result == 'skipped' && needs.formal-scope.outputs.clang_tidy == 'false')) &&
       (needs.formal-assurance.result == 'success' || needs.formal-assurance.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 15

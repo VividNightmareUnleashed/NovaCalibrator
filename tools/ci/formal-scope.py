@@ -21,14 +21,22 @@ with the previous push: a run cancelled by a newer push never proved its
 change, so the push after it must not count it as proved. A release skips a
 job the same way. With no such run, or no way to ask, the job runs.
 
+A release also repeats two checks of the whole tree that validation runs on
+every push: Clang-Tidy, and the trace replay with the duplicate scan.
+--release decides those too. Any change runs them, except one to a file that
+cannot change their outcome (UNREAD), so a release whose version bump is the
+only change since validation passed does not run them again.
+
   python tools/ci/formal-scope.py --base <commit>       # what the change needs
   python tools/ci/formal-scope.py --last-green          # as CI decides (GITHUB_TOKEN)
+  python tools/ci/formal-scope.py --last-green --release  # as the release decides
   python tools/ci/formal-scope.py --list core           # a job's public inputs
 
 With GITHUB_OUTPUT set it also writes <job>=true|false lines there. Needs
 VirtualQuest checked out at the pinned commit.
 """
 import argparse
+import functools
 import json
 import os
 import re
@@ -64,8 +72,26 @@ PROVING = {
     'input_validation': ('input-validation (', 'formal-assurance / numeric ('),
     'core': ('private-core / private-core (', 'formal-assurance / private-core (',
              'private-core / traces', 'formal-assurance / traces'),
+    # The release's checks of the whole tree (--release): validation runs the
+    # trace replay and the duplicate scan in its validate job, the release in
+    # its traces job.
+    'clang_tidy': ('clang-tidy / analyze (',),
+    'traces': ('validate', 'traces'),
 }
 PROVING_WORKFLOWS = ('validation.yml', 'release.yml')
+REPO = os.environ.get('GITHUB_REPOSITORY', 'VividNightmareUnleashed/NovaCalibrator')
+
+# The checks of the whole tree a release would repeat, and the changes that
+# cannot change their outcome: what validation.yml's paths-ignore leaves out,
+# and the version header, whose macros are only values unless a source tests
+# one in the preprocessor (VERSION_TEST), which compiles it differently by the
+# version. The release's build job builds and tests the tagged commit anyway.
+RELEASE_CHECKS = ('clang_tidy', 'traces')
+UNREAD = [re.compile(p) for p in (
+    r'\.md$', r'^docs/', r'^math\.pdf$', r'^LICENSE$', r'^THIRD-PARTY-NOTICES\.txt$',
+)]
+VERSION_HEADER = 'common/Version.h'
+VERSION_TEST = re.compile(r'^\s*#\s*(?:if|elif|ifdef|ifndef)\b.*\bQUESTCAL_VERSION_', re.M)
 
 # A change to any of these reruns every job: they run or judge the checks.
 SHARED = [re.compile(p) for p in (
@@ -198,10 +224,9 @@ def github(path, attempts=3):
     failed read is retried: one that fails for good makes the search look
     further back, which runs more checks than needed rather than fewer."""
     token = os.environ.get('GITHUB_TOKEN') or os.environ.get('GH_TOKEN')
-    repo = os.environ.get('GITHUB_REPOSITORY', 'VividNightmareUnleashed/NovaCalibrator')
     if not token:
         return None
-    request = urllib.request.Request(f'https://api.github.com/repos/{repo}/{path}', headers={
+    request = urllib.request.Request(f'https://api.github.com/repos/{REPO}/{path}', headers={
         'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json'})
     for attempt in range(1, attempts + 1):
         try:
@@ -219,25 +244,28 @@ def github(path, attempts=3):
     return None
 
 
-def last_green():
+def last_green(wanted):
     """For each job, the newest commit where every workflow job proving it ran
-    and passed, from the latest completed validation and release runs."""
+    and passed, from the latest completed validation and release runs. Only
+    this repository's own commits count: a pull request from a fork builds
+    without VirtualQuest, so its passing validate job replayed no traces."""
     runs = []
     for workflow in PROVING_WORKFLOWS:
         page = github(f'actions/workflows/{workflow}/runs?status=completed&per_page=30')
         runs += (page or {}).get('workflow_runs', [])
+    runs = [run for run in runs if (run.get('head_repository') or {}).get('full_name') == REPO]
     runs.sort(key=lambda run: run['created_at'], reverse=True)
     found = {}
     for run in runs:
-        if len(found) == len(JOBS):
+        if len(found) == len(wanted):
             break
         listing = github(f'actions/runs/{run["id"]}/jobs?per_page=100')
         if listing is None:
             print(f'The jobs of {run["name"]} run {run["id"]} could not be read; looking further back.')
             continue
         jobs = listing.get('jobs', [])
-        for job, prefixes in PROVING.items():
-            proving = [j for j in jobs if j['name'].startswith(prefixes)]
+        for job in wanted:
+            proving = [j for j in jobs if j['name'].startswith(PROVING[job])]
             if job not in found and proving and all(j['conclusion'] == 'success' for j in proving):
                 found[job] = run['head_sha']
                 print(f'{job}: last passed in {run["name"]} run {run["id"]}, at {run["head_sha"][:8]}')
@@ -253,8 +281,33 @@ def fetch(commit):
                           capture_output=True).returncode == 0
 
 
+@functools.lru_cache(maxsize=None)
+def version_tested():
+    """A first-party source that tests a version macro in the preprocessor, or
+    None: one that does compiles differently by the version."""
+    for name in sorted(TRACKED):
+        path = ROOT / name
+        if path.suffix in CODE and not name.startswith('lib/'):
+            try:
+                if VERSION_TEST.search(path.read_text(encoding='utf-8', errors='replace')):
+                    return name
+            except OSError:
+                continue
+    return None
+
+
+def unread(name):
+    """Whether a change to the file cannot change a release check's outcome."""
+    if name == VERSION_HEADER:
+        return version_tested() is None
+    return any(p.search(name) for p in UNREAD)
+
+
 def reason_to_run(job, files):
     """Why the job must run given the files changed since its base, or ''."""
+    if job in RELEASE_CHECKS:
+        hit = next((f for f in files if not unread(f)), None)
+        return f'{hit} changed' if hit else ''
     shared = next((f for f in files if any(p.search(f) for p in SHARED)), None)
     if shared:
         return f'{shared} changed'
@@ -270,6 +323,8 @@ def main():
     parser.add_argument('--last-green', action='store_true')
     # Another commit than HEAD, to see what a past change would have run.
     parser.add_argument('--head', default='HEAD')
+    # Also the checks of the whole tree a release would repeat.
+    parser.add_argument('--release', action='store_true')
     parser.add_argument('--list', choices=sorted(JOBS))
     args = parser.parse_args()
     if not (FORMAL / 'check.ps1').is_file():
@@ -278,10 +333,11 @@ def main():
         print('\n'.join(inputs(args.list)))
         return
 
+    wanted = list(JOBS) + (list(RELEASE_CHECKS) if args.release else [])
     verdict = {}
     if args.last_green:
-        bases = last_green()
-        for job in JOBS:
+        bases = last_green(wanted)
+        for job in wanted:
             base = bases.get(job)
             files = changed(base, args.head) if base and fetch(base) else None
             if files is None:
@@ -291,7 +347,7 @@ def main():
                 verdict[job] = reason_to_run(job, files), base
     else:
         files = changed(args.base, args.head)
-        for job in JOBS:
+        for job in wanted:
             verdict[job] = ('the base cannot be compared, so every job runs' if files is None
                             else reason_to_run(job, files)), args.base
     lines = []
