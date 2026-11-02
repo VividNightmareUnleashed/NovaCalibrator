@@ -813,7 +813,7 @@ struct JoinRig
 			watch.Note(s, TickScale, false);
 		}
 		auto handed = watch.TakeMoves();
-		std::stable_sort(handed.begin(), handed.end(), [](const auto &a, const auto &b) { return a.time < b.time; });
+		LighthouseFrameWatch::SortByTime(handed);
 		const auto taken = watch.TakeSwitches();
 		for (const auto &change : taken)
 			if (!change.held)
@@ -1560,7 +1560,7 @@ struct MonitorRig
 	void Tick(double t)
 	{
 		auto moves = watch.TakeMoves();
-		std::stable_sort(moves.begin(), moves.end(), [](const auto &a, const auto &b) { return a.time < b.time; });
+		LighthouseFrameWatch::SortByTime(moves);
 		const auto switches = watch.TakeSwitches();
 		const auto result = frames.Update(watch, moves, switches, vr::k_unTrackedDeviceIndexInvalid,
 			[](uint32_t id) { return id == 9 || id == 10; }, [](double) { return false; });
@@ -1806,7 +1806,7 @@ void ChangesInARow(Check check)
 		watch.Note(ReplaySample(9, t, local9, r9, tr9), TickScale, false);
 		watch.Note(ReplaySample(10, t, at10, r10, tr10), TickScale, false);
 		auto moves = watch.TakeMoves();
-		std::stable_sort(moves.begin(), moves.end(), [](const auto &a, const auto &b) { return a.time < b.time; });
+		LighthouseFrameWatch::SortByTime(moves);
 		const auto result = frames.Update(watch, moves, watch.TakeSwitches(), vr::k_unTrackedDeviceIndexInvalid,
 			[](uint32_t id) { return id == 9 || id == 10; }, [](double) { return false; });
 		followed += moves.size() - result.refused.size();

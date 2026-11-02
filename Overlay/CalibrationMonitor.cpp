@@ -405,10 +405,7 @@ static void UpdateTrackerFrames(CalibrationContext &ctx)
 		SynchronizeCalibrationDriver(ctx);
 		return;
 	}
-	// Stable: one change read off other devices' moves comes as several moves
-	// of one time, to be followed in the order they were made.
-	std::stable_sort(moves.begin(), moves.end(), [](const auto &a, const auto &b)
-	{ return a.time < b.time; });
+	LighthouseFrameWatch::SortByTime(moves);
 	const auto admitted = questcal::TrackerFrameCorrections::Admit(FrameWatch, moves, switches,
 		[&ctx](uint32_t id, double time) { return TargetMembership(ctx, id, time); });
 	for (const auto &move : admitted.waitingMoves)

@@ -14,6 +14,7 @@
 #include <initializer_list>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Moves of the lighthouse side's frame, which nothing else watches: the jump
@@ -141,6 +142,26 @@ public:
 		// Given back by the caller (Hold) at least once.
 		bool held = false;
 	};
+
+	// Moves in time order, those of one time in the order they came (one
+	// change read off other devices' moves comes as several moves of one
+	// time, to be followed in the order they were made). Not std::stable_sort
+	// on the moves: MSVC's takes a buffer of the element type, which it does
+	// not make for one aligned past max_align_t, as the Eigen members make
+	// Move. Sorting their positions keeps the same order.
+	static void SortByTime(std::vector<Move> &moves)
+	{
+		std::vector<size_t> order(moves.size());
+		for (size_t i = 0; i < order.size(); ++i)
+			order[i] = i;
+		std::stable_sort(order.begin(), order.end(), [&moves](size_t a, size_t b)
+		{ return moves[a].time < moves[b].time; });
+		std::vector<Move> sorted;
+		sorted.reserve(moves.size());
+		for (const size_t i : order)
+			sorted.push_back(std::move(moves[i]));
+		moves = std::move(sorted);
+	}
 
 	// A device, not a base station, in a frame its correction did not follow
 	// it into: the same pose put in another station's frame, a frame change
