@@ -56,6 +56,11 @@ $duplicateMinLines = [int]$config.duplicateMinLines
 $duplicateMinTokens = [int]$config.duplicateMinTokens
 $minScenarios = [int]$config.minScenarios
 $minScenariosWithVirtualQuest = [int]$config.minScenariosWithVirtualQuest
+# The private suite's randomized sweep: its sessions in Release, and the first
+# of them in Debug, where the unoptimized build takes many times as long and
+# the debug runtime's checks need its code paths, not every seed.
+$sweepSessions = [int]$config.sweepSessions
+$debugSweepSessions = [int]$config.debugSweepSessions
 if (-not $solution.StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCase) -or
     -not [string]$config.testExecutable -or
     -not $testExecutable.StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCase) -or
@@ -63,7 +68,9 @@ if (-not $solution.StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCas
     -not $testProject.StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCase) -or
     -not $configuration -or -not $platform -or
     $duplicateMinLines -lt 1 -or $duplicateMinTokens -lt 1 -or $minScenarios -lt 1 -or
-    $minScenariosWithVirtualQuest -lt $minScenarios) {
+    $minScenariosWithVirtualQuest -lt $minScenarios -or
+    $sweepSessions -lt 1 -or $debugSweepSessions -lt 1 -or $debugSweepSessions -gt $sweepSessions -or
+    $minScenariosWithVirtualQuest - ($sweepSessions - $debugSweepSessions) -lt $minScenarios) {
     Write-Output "Invalid C++ validation config: $configPath"
     exit 2
 }
@@ -386,6 +393,12 @@ function Invoke-SolverTests {
         exit 2
     }
 
+    # The same test SolverTests.vcxproj uses to compile the private scenarios.
+    $withVirtualQuest = Test-Path -LiteralPath (Join-Path (Split-Path -Parent $testProject) `
+        '..\VirtualQuest\Tests\VirtualQuestTests.cpp') -PathType Leaf
+    $sweepRun = if ($configuration -eq 'Debug') { $debugSweepSessions } else { $sweepSessions }
+    $testArguments = if ($withVirtualQuest) { @('--sweep-sessions', [string]$sweepRun) } else { @() }
+
     # The IPC rejection tests intentionally log to stderr. Windows PowerShell
     # promotes native stderr records to non-terminating ErrorRecords; with the
     # script-wide Stop policy that aborts the validation before the executable's
@@ -399,7 +412,7 @@ function Invoke-SolverTests {
             # from the toolset that built it, which a plain shell has no path to.
             $env:Path = (Get-AddressSanitizerRuntime) + ';' + $env:Path
         }
-        $output = @(& $testExecutable 2>&1 | ForEach-Object { [string]$_ })
+        $output = @(& $testExecutable @testArguments 2>&1 | ForEach-Object { [string]$_ })
         $exitCode = $LASTEXITCODE
     }
     finally {
@@ -424,20 +437,21 @@ function Invoke-SolverTests {
         exit 2
     }
     $ran = [int]$Matches[1]
-    # The same test SolverTests.vcxproj uses to compile the private scenarios.
-    $withVirtualQuest = Test-Path -LiteralPath (Join-Path (Split-Path -Parent $testProject) `
-        '..\VirtualQuest\Tests\VirtualQuestTests.cpp') -PathType Leaf
     $floorName = if ($withVirtualQuest) { 'minScenariosWithVirtualQuest' } else { 'minScenarios' }
-    $floor = if ($withVirtualQuest) { $minScenariosWithVirtualQuest } else { $minScenarios }
+    # Each sweep session is one scenario, so a run of fewer sessions has the
+    # floor less the sessions it left out.
+    $leftOut = if ($withVirtualQuest) { $sweepSessions - $sweepRun } else { 0 }
+    $floor = $(if ($withVirtualQuest) { $minScenariosWithVirtualQuest } else { $minScenarios }) - $leftOut
+    $sweepNote = if ($leftOut -gt 0) { " ($sweepRun of the $sweepSessions sweep sessions)" } else { '' }
     if ($ran -lt $floor) {
-        Write-Output "Solver harness ran $ran scenario(s), below the $floorName floor of $floor."
+        Write-Output "Solver harness ran $ran scenario(s)$sweepNote, below the $floorName floor of $floor."
         Write-Output "Coverage regressed, or $floorName in cpp-validation.json needs lowering on purpose."
         exit 1
     }
 
-    Write-Output "Solver tests passed: $summary"
+    Write-Output "Solver tests passed: $summary$sweepNote"
     if ($ran -gt $floor) {
-        Write-Output "Raise $floorName in cpp-validation.json to $ran so a later deletion fails."
+        Write-Output "Raise $floorName in cpp-validation.json to $($ran + $leftOut) so a later deletion fails."
     }
 }
 

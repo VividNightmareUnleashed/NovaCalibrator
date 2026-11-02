@@ -7,6 +7,8 @@
   "testProject": "Tests/SolverTests.vcxproj",
   "minScenarios": 578,
   "minScenariosWithVirtualQuest": 776,
+  "sweepSessions": 120,
+  "debugSweepSessions": 12,
   "duplicateMinLines": 20,
   "duplicateMinTokens": 120
 }

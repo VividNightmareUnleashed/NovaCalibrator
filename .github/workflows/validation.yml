@@ -236,7 +236,9 @@ jobs:
   # The harness in Debug, with the debug runtime's checks and asserts on, and
   # in Release with AddressSanitizer, which turns a stray read or write in the
   # pose ring or the pipe code into a report naming the line instead of a
-  # crash inside vrserver. On a runner of its own, beside the build job.
+  # crash inside vrserver. On a runner of its own, beside the build job. Debug
+  # runs the first debugSweepSessions of the private suite's randomized sweep
+  # (cpp-validation.json): all of them took it past its 30 minutes.
   harness-checks:
     name: harness (Debug, AddressSanitizer)
     runs-on: windows-2022
