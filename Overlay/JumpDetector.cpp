@@ -192,7 +192,8 @@ void JumpDetector::Push(const protocol::DevicePoseSample &s)
 	h.pos = world.position;
 	h.vel = world.velocity;
 	h.yaw = YawOf(world.rotation);
-	h.yawRate = world.angularVelocity.y();
+	h.yawRateWorld = (p.wfdRot * driverAngularVelocity).y();
+	h.yawRateDevice = (world.rotation * driverAngularVelocity).y();
 
 	bool rebased = false;
 	if (dev.wfdValid)
@@ -211,16 +212,26 @@ void JumpDetector::Push(const protocol::DevicePoseSample &s)
 			previous.rotation = dev.drvRot;
 			previous.position = dev.drvPos;
 			previous.velocity = dev.drvVel;
-			previous.angularVelocity = dev.drvAngVel;
 			ringpose::DriverLocalPoseSample current;
 			current.time = t;
 			current.rotation = p.drvRot;
 			current.position = p.drvPos;
 			current.velocity = driverVelocity;
-			current.angularVelocity = driverAngularVelocity;
-			bool localContinuous = ringpose::IsDriverLocalPoseContinuous(
-				previous, current, config.maxFrameGap,
-				config.localContinuityPos, config.localContinuityRotRad);
+			// In the frame the probe judged; until it has, either reading.
+			auto continuousAs = [&](ringpose::AngularVelocityFrame frame)
+			{
+				previous.angularVelocity =
+					ringpose::AngularVelocityInDriverWorld(dev.drvAngVel, dev.drvRot, frame);
+				current.angularVelocity =
+					ringpose::AngularVelocityInDriverWorld(driverAngularVelocity, p.drvRot, frame);
+				return ringpose::IsDriverLocalPoseContinuous(
+					previous, current, config.maxFrameGap,
+					config.localContinuityPos, config.localContinuityRotRad);
+			};
+			bool localContinuous = dev.angularFrame == ringpose::AngularVelocityFrame::Unknown
+				? continuousAs(ringpose::AngularVelocityFrame::DriverWorld) ||
+					continuousAs(ringpose::AngularVelocityFrame::Device)
+				: continuousAs(dev.angularFrame);
 
 			if (localContinuous)
 			{
@@ -312,19 +323,28 @@ void JumpDetector::DetectDiscontinuity(uint32_t id, DeviceState &dev, const Hist
 		return;
 
 	double posErr = (incoming.pos - questcal::PredictPosition(prev.pos, prev.vel, incoming.vel, dt)).norm();
-	double yawErr = std::abs(WrapAngle(incoming.yaw - prev.yaw - prev.yawRate * dt));
+	// The yaw rate in the frame the probe judged. Until it has, a step must
+	// exceed both readings: a Quest controller held at an angle turns fast
+	// enough for the wrong reading alone to make a 2-4 degree "jump".
+	const double yawErrWorld = std::abs(WrapAngle(incoming.yaw - prev.yaw - prev.yawRateWorld * dt));
+	const double yawErrDevice = std::abs(WrapAngle(incoming.yaw - prev.yaw - prev.yawRateDevice * dt));
+	const bool deviceFrame = dev.angularFrame == ringpose::AngularVelocityFrame::Device ||
+		(dev.angularFrame == ringpose::AngularVelocityFrame::Unknown && yawErrDevice < yawErrWorld);
+	double yawErr = deviceFrame ? yawErrDevice : yawErrWorld;
+	const double yawRate = deviceFrame ? incoming.yawRateDevice : incoming.yawRateWorld;
 
 	if (posErr < config.corroboratedPos && yawErr < config.corroboratedYawRad)
 		return;
 
-	// One pending candidate per device per window.
-	for (const auto &c : candidates)
+	// One pending candidate per device per window. A later jump inside it is
+	// counted for the candidate's line.
+	for (auto &c : candidates)
 		if (c.deviceId == id && c.life != Life::Dead &&
 			std::abs(c.t - incoming.t) < config.window)
 		{
-			if (detailed)
-				details.push_back(Format("frame jump on device %u at %.3f s (%.3f m / %.2f deg) falls inside the candidate at %.3f s",
-					id, incoming.t, posErr, yawErr * 180.0 / questcal::Pi, c.t));
+			c.jumpsInside++;
+			c.largestInsidePos = (std::max)(c.largestInsidePos, posErr);
+			c.largestInsideYawRad = (std::max)(c.largestInsideYawRad, yawErr);
 			return;
 		}
 
@@ -347,9 +367,9 @@ void JumpDetector::DetectDiscontinuity(uint32_t id, DeviceState &dev, const Hist
 		++first;
 	c.preWindow.assign(dev.hist.begin() + first, dev.hist.end());
 	if (detailed)
-		details.push_back(Format("candidate on device %u at %.3f s: frame jump %.3f m / %.2f deg over %.1f ms, moving %.3f m/s, turning %.3f rad/s%s",
-			id, c.t, posErr, yawErr * 180.0 / questcal::Pi, dt * 1000.0, incoming.vel.norm(), std::abs(incoming.yawRate),
-			c.needsCorroboration ? "; under the solo floor, needs another device or a settled stream" : ""));
+		c.raisedText = Format("frame jump %.3f m / %.2f deg over %.1f ms, moving %.3f m/s, turning %.3f rad/s%s",
+			posErr, yawErr * 180.0 / questcal::Pi, dt * 1000.0, incoming.vel.norm(), std::abs(yawRate),
+			c.needsCorroboration ? "; under the solo floor, needs another device or a settled stream" : "");
 	// For the log: the other devices whose own frames jumped with this one.
 	for (auto &o : candidates)
 		if (o.kind == Kind::Heuristic && o.life != Life::Dead && o.deviceId != id &&
@@ -435,9 +455,9 @@ void JumpDetector::EvaluatePendingCandidates()
 		}
 		if (detailed)
 		{
-			details.push_back(Format(
-				"candidate on device %u at %.3f s fitted: before (%.4f, %.4f, %.4f) m yaw %.3f deg, after (%.4f, %.4f, %.4f) m yaw %.3f deg, %.3f m from the stream origin horizontally; ",
-				c.deviceId, c.t, prePos.x(), prePos.y(), prePos.z(), preYaw * 180.0 / questcal::Pi,
+			WriteCandidateLine(c, Format(
+				"fitted: before (%.4f, %.4f, %.4f) m yaw %.3f deg, after (%.4f, %.4f, %.4f) m yaw %.3f deg, %.3f m from the stream origin horizontally; ",
+				prePos.x(), prePos.y(), prePos.z(), preYaw * 180.0 / questcal::Pi,
 				postPos.x(), postPos.y(), postPos.z(), postYaw * 180.0 / questcal::Pi,
 				std::hypot(prePos.x(), prePos.z())) + fitText);
 			// The raw evidence, so the step can be refitted offline.
@@ -743,6 +763,14 @@ void JumpDetector::TryAccept()
 					usedUntil[id] == -std::numeric_limits<double>::infinity())
 					step.owed.set(id);
 			recentAccepts.push_back(step);
+			// The candidates the step takes with it that never reached an
+			// outcome of their own (the fitted ones have their line).
+			for (auto &c : candidates)
+				if (!c.lineWritten && c.life != Life::Dead &&
+					((c.deviceId == vr::k_unTrackedDeviceIndex_Hmd &&
+						(c.kind != Kind::Heuristic || c.t <= stepTime)) ||
+						c.t <= usedUntil[c.deviceId]))
+					WriteCandidateLine(c, "taken into the accepted step");
 			candidates.erase(
 				std::remove_if(candidates.begin(), candidates.end(),
 					[&](const Candidate &c) {
@@ -823,16 +851,17 @@ void JumpDetector::TryAccept()
 	// deadline, or past it while it waits for a step still being fitted; a
 	// controller step is kept long enough to confirm an HMD step that trails
 	// it by the lead window; everything else has no use past a few seconds.
-	candidates.erase(
-		std::remove_if(candidates.begin(), candidates.end(),
-			[&](const Candidate &c) {
-				double keep = c.kind == Kind::Heuristic && c.deviceId == vr::k_unTrackedDeviceIndex_Hmd
-					? c.followDeadline - c.t
-					: std::max(5.0, config.controllerLeadSeconds + config.window + config.agreeWindow);
-				return c.life == Life::Dead ||
-					(devices[c.deviceId].lastValidTime - c.t > keep && !c.awaitingFit);
-			}),
-		candidates.end());
+	auto stale = [&](const Candidate &c) {
+		double keep = c.kind == Kind::Heuristic && c.deviceId == vr::k_unTrackedDeviceIndex_Hmd
+			? c.followDeadline - c.t
+			: std::max(5.0, config.controllerLeadSeconds + config.window + config.agreeWindow);
+		return c.life == Life::Dead ||
+			(devices[c.deviceId].lastValidTime - c.t > keep && !c.awaitingFit);
+	};
+	for (auto &c : candidates)
+		if (!c.lineWritten && c.life != Life::Dead && stale(c))
+			WriteCandidateLine(c, "pruned with no outcome");
+	candidates.erase(std::remove_if(candidates.begin(), candidates.end(), stale), candidates.end());
 }
 
 std::string JumpDetector::StepCompanions(const Candidate &c, double now) const
@@ -864,8 +893,12 @@ void JumpDetector::ProbeAngularFrame(uint32_t id, DeviceState &dev, double t,
 		if (dev.deviceFrameResidual.size() >= 120)
 		{
 			const double inDeviceFrame = MedianOf(dev.deviceFrameResidual), inWorldFrame = MedianOf(dev.worldFrameResidual);
-			const char *frame = inDeviceFrame < 0.5 * inWorldFrame ? "the device frame" :
-				inWorldFrame < 0.5 * inDeviceFrame ? "the world frame" : "neither frame clearly";
+			dev.angularFrame = inDeviceFrame < 0.5 * inWorldFrame ? ringpose::AngularVelocityFrame::Device :
+				inWorldFrame < 0.5 * inDeviceFrame ? ringpose::AngularVelocityFrame::DriverWorld :
+				ringpose::AngularVelocityFrame::Unknown;
+			const char *frame = dev.angularFrame == ringpose::AngularVelocityFrame::Device ? "the device frame" :
+				dev.angularFrame == ringpose::AngularVelocityFrame::DriverWorld ? "the world frame" :
+				"neither frame clearly";
 			notes.push_back(Format(
 				"angular velocity on device %u is reported in %s: over %zu turning samples it differs from the orientation's own rate by %.3f rad/s (median) taken in the device frame, %.3f rad/s in the world frame",
 				id, frame, dev.deviceFrameResidual.size(), inDeviceFrame, inWorldFrame));
@@ -915,8 +948,25 @@ void JumpDetector::Drop(Candidate &c, const std::string &reason)
 	if (c.life == Life::Dead)
 		return;
 	c.life = Life::Dead;
-	if (detailed)
-		details.push_back(Format("candidate on device %u at %.3f s dropped: %s", c.deviceId, c.t, reason.c_str()));
+	WriteCandidateLine(c, "dropped: " + reason);
+}
+
+void JumpDetector::WriteCandidateLine(Candidate &c, const std::string &outcome)
+{
+	if (!detailed)
+		return;
+	std::string line = Format("candidate on device %u at %.3f s", c.deviceId, c.t);
+	const bool raisedPart = !c.lineWritten && !c.raisedText.empty();
+	const bool insidePart = !c.lineWritten && c.jumpsInside > 0;
+	if (raisedPart)
+		line += ": " + c.raisedText;
+	if (insidePart)
+		line += Format("%s%d more frame jump(s) inside it, the largest %.3f m / %.2f deg",
+			raisedPart ? "; " : ": ", c.jumpsInside, c.largestInsidePos,
+			c.largestInsideYawRad * 180.0 / questcal::Pi);
+	line += (raisedPart || insidePart ? "; " : " ") + outcome;
+	details.push_back(line);
+	c.lineWritten = true;
 }
 
 void JumpDetector::NoteStreamHole()

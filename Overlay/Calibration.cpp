@@ -824,6 +824,7 @@ void CalibrationTick(double time)
 		}
 		run.lastIdentityCheck = time;
 		std::string hmdSystem;
+		run.hmdModel = questcal::ReadCurrentHmdModel();
 		if (!ReadCurrentHmdIdentity(hmdSystem, run.hmdSerial) ||
 			hmdSystem != run.referenceSystem)
 		{

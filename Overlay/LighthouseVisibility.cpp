@@ -91,6 +91,29 @@ std::string LighthouseVisibility::DescribeStationChange(const Event &e)
 
 std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 {
+	if (e.kind == Event::Kind::StationBumped)
+	{
+		// A burst of these lines (25 in a second on 2026-11-06) is one knock.
+		const auto known = bumps.find(e.stationId);
+		const bool already = known != bumps.end() && !known->second.replaced && known->second.at > -1e8;
+		Bump &bump = bumps[e.stationId];
+		bump.at = e.historical ? -1e9 : ringTime;
+		bump.replaced = false;
+		bump.replacedAt = -1e9;
+		if (e.historical || already)
+			return std::string();
+		return "SteamVR found base station " + StationNameById(e.stationId) +
+			" knocked or switched off and on; its next move corrects its pose";
+	}
+	if (e.kind == Event::Kind::StationMoved)
+	{
+		auto bump = bumps.find(e.stationId);
+		if (bump != bumps.end() && !bump->second.replaced)
+		{
+			bump->second.replaced = true;
+			bump->second.replacedAt = e.historical ? -1e9 : ringTime;
+		}
+	}
 	if (e.kind == Event::Kind::StationMoved || e.kind == Event::Kind::UniverseLevelled)
 		return DescribeStationChange(e);
 	if (e.kind == Event::Kind::ServerStarted || e.kind == Event::Kind::ServerQuitting ||
@@ -354,6 +377,7 @@ void LighthouseVisibility::ApplyUniverse(const Event &e, double ringTime)
 		// (the file is not always rotated at a start).
 		devices.clear();
 		stations.clear();
+		bumps.clear();
 		universe = UniverseStage::Down;
 		universeId = 0;
 		quitAt = -1e9;
@@ -406,6 +430,26 @@ bool LighthouseVisibility::Quitting(double ringTime) const
 	return since >= -1.0 && since <= config.quitPowerOffSeconds;
 }
 
+bool LighthouseVisibility::UniverseQuiet(double ringTime) const
+{
+	return Universe(ringTime) == UniverseSetup::SettingUp ||
+		(universe == UniverseStage::Chosen &&
+			Within(universeChosenAt, ringTime, config.universeQuietSeconds));
+}
+
+bool LighthouseVisibility::ReplacingBumped(uint32_t stationId, double ringTime) const
+{
+	const auto it = bumps.find(stationId);
+	if (it == bumps.end())
+		return false;
+	const Bump &bump = it->second;
+	if (bump.at > -1e8 && ringTime < bump.at - 1.0)
+		return false;   // a move before the knock
+	if (!bump.replaced)
+		return true;
+	return bump.replacedAt > -1e8 && ringTime <= bump.replacedAt + config.bumpReplaceSeconds;
+}
+
 bool LighthouseVisibility::Disturbed(const std::string &serial, double ringTime) const
 {
 	const Device *d = Find(serial);
@@ -437,6 +481,7 @@ void LighthouseVisibility::Reset()
 {
 	devices.clear();
 	stations.clear();
+	bumps.clear();
 	universe = UniverseStage::Unknown;
 	universeId = 0;
 	universeChosenAt = -1e9;

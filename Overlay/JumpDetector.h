@@ -160,6 +160,12 @@ public:
 		uint32_t deviceId = 0;
 		double duration = 0.0;             // seconds without valid reference samples
 		questcal::RingTime time;           // the sample that ended it
+
+		// Only a gap in the headset's stream can hide a universe move: the
+		// headset is what the universe is measured from. A controller that
+		// sleeps or leaves the headset's view stops its own stream while the
+		// headset goes on tracking (a tester's session had 42 such gaps of 43).
+		bool OnHeadset() const { return deviceId == 0; }   // k_unTrackedDeviceIndex_Hmd
 	};
 
 	explicit JumpDetector(double qpcToSeconds) : qpcToSeconds(qpcToSeconds) { }
@@ -175,6 +181,14 @@ public:
 	bool PollDelta(UniverseDelta &out) { return PopFront(accepted, out); }
 	bool PollGap(GapEvent &out) { return PopFront(gaps, out); }
 	bool PollNote(std::string &out) { return PopFront(notes, out); }
+
+	// The frame the device's reported angular velocity is in, as the probe
+	// judged it (ProbeAngularFrame); Unknown until it has.
+	ringpose::AngularVelocityFrame AngularFrameOf(uint32_t id) const
+	{
+		return id < vr::k_unMaxTrackedDeviceCount
+			? devices[id].angularFrame : ringpose::AngularVelocityFrame::Unknown;
+	}
 
 	// The caller's copy of the stream is missing a few samples (the driver
 	// drops an isolated pose when two device threads contend for a queue
@@ -223,7 +237,11 @@ private:
 		Eigen::Vector3d pos;               // composed world position
 		Eigen::Vector3d vel;               // world-rotated velocity
 		double yaw;                        // composed world heading
-		double yawRate;                    // rad/s around world +Y
+		// rad/s around world +Y, with the reported angular velocity read in
+		// the driver's world frame and in the device's own frame. The jump
+		// check takes the one the probe judged, and both until it has.
+		double yawRateWorld;
+		double yawRateDevice;
 	};
 
 	// Which detection path produced a candidate, and where it is in its life.
@@ -307,6 +325,14 @@ private:
 		// engine; self-tracked ones follow their own map).
 		bool catchUpShaped = false;
 		std::bitset<vr::k_unMaxTrackedDeviceCount> steppedWith;
+		// Detailed mode, for the candidate's one log line (WriteCandidateLine):
+		// the jump that raised it, and how many of its device's later frame
+		// jumps fell inside it. A line per such jump was 89% of a tester's
+		// session log and pushed its middle out (SessionLogTrim.h).
+		std::string raisedText;
+		int jumpsInside = 0;
+		double largestInsidePos = 0.0, largestInsideYawRad = 0.0;
+		bool lineWritten = false;
 
 		// The filters every consumer needs, once each.
 		bool LiveExact() const { return kind == Kind::Exact && life != Life::Dead; }
@@ -335,10 +361,12 @@ private:
 		bool holeNoted = false;
 		double usualInterval = 0.0;
 		// Which frame the reported angular velocity is in, judged once a
-		// session for the log only: the two samples before the latest (time
-		// and driver-local orientation, oldest first) with the middle one's
-		// reported rate, and that rate's residuals against the orientation's
-		// own rate taken in the device frame and in the world frame.
+		// session (and kept across Reset): the two samples before the latest
+		// (time and driver-local orientation, oldest first) with the middle
+		// one's reported rate, and that rate's residuals against the
+		// orientation's own rate taken in the device frame and in the world
+		// frame. The jump check reads the rate in the judged frame.
+		ringpose::AngularVelocityFrame angularFrame = ringpose::AngularVelocityFrame::Unknown;
 		int rateSamples = 0;
 		double rateTime[2] = { 0.0, 0.0 };
 		Eigen::Quaterniond rateRot[2] = { Eigen::Quaterniond::Identity(), Eigen::Quaterniond::Identity() };
@@ -377,7 +405,12 @@ private:
 	int ActiveDeviceCount(double now) const;
 	// For the log: which devices' frames jumped with an HMD candidate.
 	std::string StepCompanions(const Candidate &c, double now) const;
-	// For the log: the frame of a device's reported angular velocity, once.
+	// Detailed mode: the candidate's line with its outcome ("dropped: ...",
+	// "fitted: ..."). The first one carries how it was raised and the jumps
+	// inside it; a later one, for a fitted candidate dropped afterwards, only
+	// the outcome.
+	void WriteCandidateLine(Candidate &c, const std::string &outcome);
+	// The frame of a device's reported angular velocity, judged once and logged.
 	void ProbeAngularFrame(uint32_t id, DeviceState &dev, double t,
 	                       const Eigen::Quaterniond &rot, const Eigen::Vector3d &rate);
 	// True when at least one other reference device is tracking and every

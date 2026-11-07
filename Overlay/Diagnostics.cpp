@@ -509,7 +509,9 @@ void DescribeProfile(std::ostream &out, const CalibrationContext &ctx)
 	out << "valid: " << OnOff(ctx.validProfile) << ", enabled: " << OnOff(ctx.enabled) << "\n";
 	out << "disable reason: " << EnumName(ctx.disableReason, DisableReasonNames)
 		<< ", universe unsafe: " << OnOff(ctx.profileUniverseUnsafe)
-		<< ", owner HMD: " << ctx.profileHmdSerial << "\n";
+		<< ", owner HMD: " << ctx.profileHmdSerial
+		<< (ctx.profileHmdModel.empty() ? std::string() : " (" + ctx.profileHmdModel + ")")
+		<< "\n";
 	out << "base generation: " << ctx.baseGeneration << ", field generation: " << ctx.fieldGeneration << "\n";
 	out << "reference: " << ctx.referenceTrackingSystem << ", target: " << ctx.targetTrackingSystem << "\n";
 	const auto &q = ctx.transform.rotation;
@@ -623,6 +625,9 @@ void DescribeBaseStations(std::ostream &out, const CalibrationContext &ctx, cons
 	out << "\nframe moves left alone while SteamVR set up its base stations: " << ctx.frameMovesInSetup;
 	if (!ctx.lastFrameMoveInSetup.empty())
 		out << " (last: " << ctx.lastFrameMoveInSetup << ")";
+	out << "\nframe moves left alone as SteamVR corrected a knocked base station: " << ctx.bumpedStationCorrections;
+	if (!ctx.lastBumpedStationCorrection.empty())
+		out << " (last: " << ctx.lastBumpedStationCorrection << ")";
 	out << "\n\n";
 }
 

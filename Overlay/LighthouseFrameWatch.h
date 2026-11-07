@@ -325,6 +325,21 @@ public:
 		return true;
 	}
 
+	// The frame a base station's own device was last seen in: the frame of
+	// the devices anchored to that station (one frame per station, named by
+	// its pose). False for a device that is not a base station.
+	bool StationFrame(uint32_t id, Eigen::Quaterniond &rotation, Eigen::Vector3d &translation) const
+	{
+		if (id >= vr::k_unMaxTrackedDeviceCount)
+			return false;
+		const Device &d = devices[id];
+		if (!(d.valid || d.away) || !d.baseStation)
+			return false;
+		rotation = d.wfdRot;
+		translation = d.wfdTrans;
+		return true;
+	}
+
 	// Whether the device's last frame (LastFrame) is the given one.
 	bool InFrame(uint32_t id, const Eigen::Quaterniond &rotation, const Eigen::Vector3d &translation) const
 	{

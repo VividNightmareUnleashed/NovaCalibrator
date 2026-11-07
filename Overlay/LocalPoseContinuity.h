@@ -33,6 +33,23 @@ struct DriverLocalPoseSample
 	Eigen::Vector3d angularVelocity{ 0, 0, 0 };
 };
 
+// The frame a driver reports a pose's angular velocity in; OpenVR leaves it
+// open. A Quest headset through Virtual Desktop reports its own frame (the
+// jump detector's probe on 2026-11-03 and -06), and a rate in the device's
+// frame read as one in the driver's world makes every fast turn of a tilted
+// device look like a frame jump. Unknown until a probe has judged it, and
+// read then as the driver's world frame, as Nova always read it.
+enum class AngularVelocityFrame { Unknown, Device, DriverWorld };
+
+// The reported rate in the driver's world frame, the frame
+// ComposeWithWorldFromDriver and PredictRotation take.
+inline Eigen::Vector3d AngularVelocityInDriverWorld(const Eigen::Vector3d &reported,
+	const Eigen::Quaterniond &driverRotation, AngularVelocityFrame frame)
+{
+	return frame == AngularVelocityFrame::Device
+		? Eigen::Vector3d(driverRotation.normalized() * reported) : reported;
+}
+
 // The same sample in the raw universe: worldFromDriver o local pose.
 inline DriverLocalPoseSample ComposeWithWorldFromDriver(const DriverLocalPoseSample &local,
 	const Eigen::Quaterniond &worldFromDriverRotation, const Eigen::Vector3d &worldFromDriverTranslation)

@@ -127,6 +127,7 @@ struct CalibrationRun
 	std::string referenceModel;
 	std::string targetModel;
 	std::string hmdSerial;
+	std::string hmdModel;
 	bool anchor = false;
 	bool usesPoseRing = false;
 	// A same-active-profile recalibration changes C, retaining each device's N.

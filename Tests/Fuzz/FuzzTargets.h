@@ -97,6 +97,7 @@ inline std::string ProfileDifference(const questcal::ProfileRecord &a, const que
 	if (a.universeUnsafe != b.universeUnsafe) note("universeUnsafe");
 	if (a.universeValid != b.universeValid) note("universeValid");
 	if (a.universeHmdSerial != b.universeHmdSerial) note("universeSerial");
+	if (a.universeHmdModel != b.universeHmdModel) note("universeModel");
 	if (a.universeValid && b.universeValid &&
 		(!QuatNear(a.universeRotation, b.universeRotation) || a.universeTranslation != b.universeTranslation))
 		note("universeBaseline");
@@ -294,6 +295,13 @@ inline std::string CheckLighthouseLine(const uint8_t *data, size_t size)
 			return "a station move or tilt carries a value that is not finite";
 		if (e.kind == Event::Kind::UniverseLevelled && (e.relatedStationId != 0 || e.moveMeters != 0.0))
 			return "a tilt line claims a move";
+		return "";
+	}
+	if (e.kind == Event::Kind::StationBumped)
+	{
+		if (!e.serial.empty() || e.visibleKnown || e.channel >= 0 || e.stationId == 0 ||
+			!e.visibleChannels.empty() || e.standby || e.universeId != 0 || e.universeCreated)
+			return "a station's reset line claims a device, a visible set or a universe, or names no station";
 		return "";
 	}
 	const bool noDevice = e.kind == Event::Kind::ServerStarted || e.kind == Event::Kind::ServerQuitting ||
@@ -557,6 +565,7 @@ inline std::vector<std::string> ProfileSeeds()
 
 	r.universeValid = true;
 	r.universeHmdSerial = "1WMHH000X00000";
+	r.universeHmdModel = "Oculus Quest2";
 	r.universeRotation = Eigen::Quaterniond(0.7, 0.0, 0.7, 0.0).normalized();
 	r.universeTranslation = Eigen::Vector3d(0.1, 1.6, -0.2);
 	r.continuousEnabled = true;

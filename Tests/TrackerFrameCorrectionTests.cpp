@@ -1670,6 +1670,92 @@ void SetupPlacementOnReturn(Check check)
 		shift9 < 1e-9 && shift10 < 1e-9, detail);
 }
 
+// SteamVR re-placing a station it found knocked corrects that station's pose:
+// the trackers in its frame were off from the knock until then (2026-11-06:
+// S-16 re-placed 12.8 deg and 39 cm, 31 s after its reset line, and followed
+// as a frame move it split them from the other frames). The re-placement is
+// left alone, as during the universe setup; another station's re-solve at the
+// same moment is followed. The predicate is CalibrationMonitor.cpp's
+// ReplacesBumpedStation: the knocked station's own device in the frame.
+void KnockedStationReplacement(Check check)
+{
+	LighthouseFrameWatch watch;
+	questcal::TrackerFrameCorrections frames;
+	LighthouseVisibility visibility;
+	const uint32_t knocked = 0x04D47FB4;
+	const Q aR = Q(Eigen::AngleAxisd(0.8, V::UnitY()));
+	const V aT(1.1, 1.15, -0.58);
+	const Q aR2 = Q(Eigen::AngleAxisd(12.8 * questcal::Pi / 180.0, V(0.3, 0.2, 0.93).normalized())) * aR;
+	const V aT2 = aT + V(-0.014, -0.012, 0.005);
+	const Q bR = Q(Eigen::AngleAxisd(-1.1, V::UnitY()));
+	const V bT(-2.0, 1.5, -0.1);
+	const Q bR2 = Q(Eigen::AngleAxisd(1.0 * questcal::Pi / 180.0, V::UnitY())) * bR;
+	const V bT2 = bT + V(0.03, 0.0, 0.0);
+	const V at9(-1.0, -0.2, 1.5), at10(-0.5, -0.9, 1.2), at11(1.5, -0.3, 0.8);
+	auto leftAlone = [&](double time, const Q &fromR, const V &fromT, const Q &toR, const V &toT)
+	{
+		auto same = [](const Q &a, const V &aAt, const Q &b, const V &bAt)
+		{
+			return a.angularDistance(b) < 3.0 * questcal::Pi / 180.0 && (aAt - bAt).norm() < 0.10;
+		};
+		Q r;
+		V tr;
+		return visibility.ReplacingBumped(knocked, time) && watch.StationFrame(1, r, tr) &&
+			(same(r, tr, fromR, fromT) || same(r, tr, toR, toT));
+	};
+	lighthouselog::Event bump;
+	bump.kind = lighthouselog::Event::Kind::StationBumped;
+	bump.stationId = knocked;
+	lighthouselog::Event moved;
+	moved.kind = lighthouselog::Event::Kind::StationMoved;
+	moved.stationId = knocked;
+	moved.moveMeters = 0.019;
+	moved.moveDegrees = 0.1;
+	const std::string bumpNote = visibility.Apply(bump, 11.0);
+	const std::string burstNote = visibility.Apply(bump, 11.01);   // one knock, one note
+	const bool pendingBefore = !visibility.ReplacingBumped(knocked, 9.0) && visibility.ReplacingBumped(knocked, 14.0);
+	bool lineApplied = false;
+	int leftAloneMoves = 0, followedMoves = 0;
+	for (double t = 10.0; t < 25.0; t += 0.05)
+	{
+		const bool replaced = t >= 15.0;
+		const Q &a = replaced ? aR2 : aR;
+		const V &aAt = replaced ? aT2 : aT;
+		const Q &b = replaced ? bR2 : bR;
+		const V &bAt = replaced ? bT2 : bT;
+		watch.Note(ReplaySample(1, t, V::Zero(), a, aAt), TickScale, true);   // the knocked station
+		watch.Note(ReplaySample(9, t, at9, a, aAt), TickScale, false);
+		watch.Note(ReplaySample(10, t, at10, a, aAt), TickScale, false);
+		watch.Note(ReplaySample(2, t, V::Zero(), b, bAt), TickScale, true);   // another station
+		watch.Note(ReplaySample(11, t, at11, b, bAt), TickScale, false);
+		if (!lineApplied && t >= 15.2)   // SteamVR's line, read a little after the poses
+		{
+			visibility.Apply(moved, t);
+			lineApplied = true;
+		}
+		const auto moves = watch.TakeMoves();
+		frames.Update(watch, moves, watch.TakeSwitches(), vr::k_unTrackedDeviceIndexInvalid,
+			[](uint32_t id) { return id == 9 || id == 10 || id == 11; }, leftAlone);
+		for (const auto &move : moves)
+			++(leftAlone(move.frameTime, move.fromRot, move.fromTrans, move.toRot, move.toTrans)
+				? leftAloneMoves : followedMoves);
+	}
+	const bool closedAfter = !visibility.ReplacingBumped(knocked, 15.2 + 5.5);
+	const double shift9 = CorrectionShift(frames.Snapshot()[9], protocol::FrameCorrection{}, aT + aR * at9);
+	const double shift10 = CorrectionShift(frames.Snapshot()[10], protocol::FrameCorrection{}, aT + aR * at10);
+	const double shift11 = CorrectionShift(frames.Snapshot()[11], protocol::FrameCorrection{}, bT + bR * at11);
+	char detail[320];
+	std::snprintf(detail, sizeof detail,
+		"note \"%s\", burst note %d, pending %d, closed after %d; moves left alone %d, followed %d; "
+		"corrections moved %.1f and %.1f cm in the knocked frame, %.1f cm in the other",
+		bumpNote.substr(0, 48).c_str(), burstNote.empty() ? 0 : 1, pendingBefore, closedAfter,
+		leftAloneMoves, followedMoves, shift9 * 100.0, shift10 * 100.0, shift11 * 100.0);
+	check("frame corrections: SteamVR's re-placement of a knocked base station is a correction, not a frame move",
+		!bumpNote.empty() && burstNote.empty() && pendingBefore && closedAfter &&
+			leftAloneMoves == 2 && followedMoves == 1 &&
+			shift9 < 1e-9 && shift10 < 1e-9 && shift11 > 0.01, detail);
+}
+
 // A change of a device's frame its own pose jumped with is a move when any
 // chain of the moves other devices showed leads to it: one through a frame
 // between that the station skipped (a), and one the station moved on past
@@ -3697,6 +3783,7 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	DeferredFrameLog(check);
 	CollectionFallback(check);
 	SetupPlacementOnReturn(check);
+	KnockedStationReplacement(check);
 	LeadByAnyChain(check);
 	FrameJoinedOnReturn(check);
 	ChangesInARow(check);

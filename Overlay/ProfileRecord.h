@@ -100,6 +100,12 @@ inline bool IsValidUniverseBaseline(
 		IsBoundedVector(translation, protocol::limits::MaxAbsTranslationMeters);
 }
 
+// The headset a calibration or a protected room belongs to, by its serial.
+// The model is kept for diagnostics only and is no part of the match: Steam
+// Link reported one Quest Pro as "Oculus Quest2" until it sent the headset's
+// properties again after a reconnect, and "Oculus Quest Pro" from then on,
+// within one session (2026-11-06). A check that also compared the model would
+// turn the calibration off at that reconnect.
 inline bool ProfileHmdIdentityMatches(
 	const std::string &profileSerial, const std::string &currentSerial)
 {
@@ -190,6 +196,10 @@ struct ProfileRecord
 	bool universeUnsafe = false;
 	bool universeValid = false;
 	std::string universeHmdSerial;
+	// The headset's model number when it was calibrated, for diagnostics only
+	// (see ProfileHmdIdentityMatches); empty in a profile saved before it was
+	// kept, and never without a serial.
+	std::string universeHmdModel;
 	Eigen::Quaterniond universeRotation{ 1, 0, 0, 0 };
 	Eigen::Vector3d universeTranslation{ 0, 0, 0 };
 #define QUESTCAL_SWITCH_MEMBER(member, key, value) bool member = value;
@@ -250,6 +260,11 @@ inline bool ValidateProfileRecord(
 			why = "there are too many field anchors";
 			return false;
 		}
+	}
+	if (!record.universeHmdModel.empty() && record.universeHmdSerial.empty())
+	{
+		why = "the headset model has no headset serial";
+		return false;
 	}
 	// Outside the valid gate: anchors are checked against whatever base
 	// transform the record carries, even when the record claims nothing.

@@ -748,6 +748,27 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 		check("detailed log: a glitch's candidate says why it was dropped",
 			Has(spike, "dropped: fit not clean"), spike.empty() ? "no lines" : spike.back().substr(0, 120).c_str());
 
+		// One line per candidate: the glitch's jump back falls inside it and is
+		// counted on that line, not written as a line of its own (a line per
+		// such jump was 89% of a tester's session log).
+		{
+			int candidateLines = 0;
+			bool oneLine = false;
+			for (const auto &line : spike)
+				if (line.rfind("candidate on device 0 at", 0) == 0)
+				{
+					candidateLines++;
+					oneLine = line.find("frame jump 0.080 m") != std::string::npos &&
+						line.find("more frame jump(s) inside it") != std::string::npos &&
+						line.find("dropped: fit not clean") != std::string::npos;
+				}
+			char lineDetail[160];
+			snprintf(lineDetail, sizeof lineDetail, "%d candidate line(s), %zu line(s) in all",
+				candidateLines, spike.size());
+			check("detailed log: one line per candidate, with the jumps inside it counted",
+				candidateLines == 1 && oneLine && !Has(spike, "falls inside"), lineDetail);
+		}
+
 		auto hole = run(true, .08, false, 9010);
 		check("detailed log: a candidate lost to a driver queue drop says so",
 			Has(hole, "dropped: a driver queue drop"), hole.empty() ? "no lines" : hole.back().substr(0, 120).c_str());

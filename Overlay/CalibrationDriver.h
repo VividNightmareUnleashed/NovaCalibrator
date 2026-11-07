@@ -39,6 +39,9 @@ void ReleaseCalibrationDeviceNeutralization();
 bool ReadTrackedDeviceString(uint32_t id,
 	vr::ETrackedDeviceProperty property, std::string &value);
 bool ReadCurrentHmdIdentity(std::string &trackingSystem, std::string &serial);
+// For diagnostics only, never for identity (ProfileHmdIdentityMatches); empty
+// when SteamVR does not give it.
+std::string ReadCurrentHmdModel();
 
 // Axis types describe rAxis slots; their enum values are not slot indices.
 template<typename ReadAxisType>

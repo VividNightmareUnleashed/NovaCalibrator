@@ -106,6 +106,14 @@ uint32_t LighthouseRestarts(const CalibrationContext &ctx, const std::string &se
 // A lighthouse frame that moved at `moveTime` moved during SteamVR's universe
 // setup: the move places a station it guessed, and corrections leave it alone.
 bool DuringUniverseSetup(const CalibrationContext &ctx, double moveTime);
+// A frame change the tracker frame corrections leave alone, the one predicate
+// every path asks (TrackerFrameCorrections::Update and Anchor): during the
+// universe setup, or SteamVR correcting a base station it found knocked
+// (LighthouseVisibility::ReplacingBumped). The frame before and after say
+// whose frame changed.
+bool FrameChangeLeftAlone(const CalibrationContext &ctx, double time,
+	const Eigen::Quaterniond &fromRot, const Eigen::Vector3d &fromTrans,
+	const Eigen::Quaterniond &toRot, const Eigen::Vector3d &toTrans);
 void NotifyOnce(CalibrationContext &ctx, bool &notified, const char *line,
 	CalibrationContext::Tone tone, const char *toast, bool showToast,
 	CalibrationContext::Event event = CalibrationContext::Event::Other);

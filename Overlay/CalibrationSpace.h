@@ -1,8 +1,11 @@
 #pragma once
 
+#include "LocalPoseContinuity.h"
+
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
+#include <cstdint>
 #include <string>
 
 class PoseStreamHub;
@@ -27,6 +30,9 @@ void CheckProtectedChaperone(CalibrationContext &ctx);
 void ObserveUniversePose(const protocol::DevicePoseSample &sample);
 // A few samples went missing from the monitor's drain (JumpDetector::NoteStreamHole).
 void NoteUniverseStreamHole();
+// The frame a reference device's driver reports angular velocity in, as the
+// jump detector's probe judged it; Unknown until it has.
+ringpose::AngularVelocityFrame ReferenceAngularVelocityFrame(uint32_t id);
 void ResetUniverseObservations(CalibrationContext &ctx);
 bool FinishUniverseObservations(CalibrationContext &ctx, double now);
 
@@ -41,7 +47,8 @@ bool ApplyCalibrationDelta(CalibrationContext &ctx,
 // Rebinds physical-HMD and raw-universe ownership after a successful base
 // calibration and disarms a room snapshot that no longer belongs to it.
 void RebindCalibrationUniverse(CalibrationContext &ctx,
-	const std::string &hmdSerial, bool priorUniverseUnsafe);
+	const std::string &hmdSerial, const std::string &hmdModel,
+	bool priorUniverseUnsafe);
 
 // The profile-universe verdict found the profile's WFD change followed: the
 // profile and the protected chaperone take on `adopted` as their WFD, saved

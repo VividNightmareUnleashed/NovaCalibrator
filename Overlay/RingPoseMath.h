@@ -113,21 +113,26 @@ inline RingSampleParts UnpackRingSample(const protocol::DevicePoseSample &s)
 	};
 }
 
-// A ring sample's pose as the driver reported it, before worldFromDriver.
+// A ring sample's pose as the driver reported it, before worldFromDriver,
+// with its angular velocity taken to the driver's world frame from `frame`.
 inline ringpose::DriverLocalPoseSample DriverLocalPose(const protocol::DevicePoseSample &s,
-	const RingSampleParts &p, double time)
+	const RingSampleParts &p, double time,
+	ringpose::AngularVelocityFrame frame = ringpose::AngularVelocityFrame::Unknown)
 {
 	return { time, p.drvRot, p.drvPos,
 		Eigen::Vector3d(s.velocity[0], s.velocity[1], s.velocity[2]),
-		Eigen::Vector3d(s.angularVelocity[0], s.angularVelocity[1], s.angularVelocity[2]) };
+		ringpose::AngularVelocityInDriverWorld(
+			Eigen::Vector3d(s.angularVelocity[0], s.angularVelocity[1], s.angularVelocity[2]),
+			p.drvRot, frame) };
 }
 
 // The same pose in the raw universe (worldFromDriver o driver pose), for the
 // readers that take its parts without TryComposeRingSample's trust checks.
 inline ringpose::DriverLocalPoseSample RingWorldPose(const protocol::DevicePoseSample &s,
-	const RingSampleParts &p, double time)
+	const RingSampleParts &p, double time,
+	ringpose::AngularVelocityFrame frame = ringpose::AngularVelocityFrame::Unknown)
 {
-	return ringpose::ComposeWithWorldFromDriver(DriverLocalPose(s, p, time), p.wfdRot, p.wfdTrans);
+	return ringpose::ComposeWithWorldFromDriver(DriverLocalPose(s, p, time, frame), p.wfdRot, p.wfdTrans);
 }
 
 // A misbehaving driver can publish poseIsValid=true with field values that pass
@@ -152,16 +157,18 @@ inline bool IsUsableComposedSample(const questcal::PoseSample &s)
 // Returns false for anything the trust boundary rejects and leaves `out`
 // untouched: an invalid sample is tracking absence, never a defaulted pose.
 // hiddenTracking is IsTrustedRingSample's: only for a target-system device.
+// angularFrame is the frame the device's driver reports angular velocity in.
 inline bool TryComposeRingSample(const protocol::DevicePoseSample &s,
-	double qpcToSeconds, questcal::PoseSample &out, bool hiddenTracking = false)
+	double qpcToSeconds, questcal::PoseSample &out, bool hiddenTracking = false,
+	ringpose::AngularVelocityFrame angularFrame = ringpose::AngularVelocityFrame::Unknown)
 {
 	if (!IsTrustedRingSample(s, qpcToSeconds, hiddenTracking))
 		return false;
 
 	// poseTimeOffset is the driver's own estimate of how far the pose's validity
 	// time differs from the submit time; folding it in tightens the alignment.
-	const ringpose::DriverLocalPoseSample world =
-		RingWorldPose(s, UnpackRingSample(s), RingSampleTime(s, qpcToSeconds));
+	const ringpose::DriverLocalPoseSample world = RingWorldPose(
+		s, UnpackRingSample(s), RingSampleTime(s, qpcToSeconds), angularFrame);
 	questcal::PoseSample composed;
 	composed.time = world.time;
 	composed.rot = world.rotation;

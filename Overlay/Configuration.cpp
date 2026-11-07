@@ -98,6 +98,7 @@ static ProfileRecord CaptureProfileRecord(const CalibrationContext &ctx)
 	record.universeUnsafe = ctx.profileUniverseUnsafe;
 	record.universeValid = ctx.profileUniverseValid;
 	record.universeHmdSerial = ctx.profileHmdSerial;
+	record.universeHmdModel = ctx.profileHmdModel;
 	record.universeRotation = ctx.profileWorldFromDriverRotation;
 	record.universeTranslation = ctx.profileWorldFromDriverTranslation;
 #define QUESTCAL_CAPTURE_SWITCH(member, key, value) record.member = ctx.member;
@@ -186,6 +187,7 @@ static void ApplyProfileRecord(CalibrationContext &ctx, ProfileRecord record)
 	ctx.frameMovesLost = false;   // not saved; see its declaration
 	ctx.profileUniverseValid = record.universeValid;
 	ctx.profileHmdSerial = std::move(record.universeHmdSerial);
+	ctx.profileHmdModel = std::move(record.universeHmdModel);
 	ctx.profileWorldFromDriverRotation = record.universeRotation;
 	ctx.profileWorldFromDriverTranslation = record.universeTranslation;
 	ctx.mountExtrinsic = questcal::MountExtrinsic();
@@ -268,18 +270,22 @@ static const char *RegistryKeyDisplayPath =
 // key stays as it was, so a QuestCalibrator build still finds its own. The new
 // key appears only complete (ImportRegistryTree): a copy that fails, or a start
 // that dies part-way, leaves no new key behind, and the next start tries again.
-static void ImportPreviousNameRecords(CalibrationContext &ctx)
+// True when this start imported them.
+static bool ImportPreviousNameRecords(CalibrationContext &ctx)
 {
 	const LSTATUS result = questcal::ImportRegistryTree(HKEY_CURRENT_USER_LOCAL_SETTINGS,
 		PreviousRegistryKey, RegistryKey, "Software\\NovaCalibrator.import", L"NovaCalibrator");
 	if (result == ERROR_ALREADY_EXISTS || result == ERROR_FILE_NOT_FOUND)
-		return;
+		return false;
 	if (result == ERROR_SUCCESS)
+	{
 		ctx.Log("Imported the calibration and settings saved under the QuestCalibrator name\n");
-	else
-		ctx.ReportError("Couldn't bring over the calibration and settings saved by QuestCalibrator (" +
-			RegistryError(result) + "). Restart Nova Calibrator to try again.\n",
-			CalibrationContext::ErrorSource::SettingsPersistence);
+		return true;
+	}
+	ctx.ReportError("Couldn't bring over the calibration and settings saved by QuestCalibrator (" +
+		RegistryError(result) + "). Restart Nova Calibrator to try again.\n",
+		CalibrationContext::ErrorSource::SettingsPersistence);
+	return false;
 }
 
 enum class RegistryReadStatus
@@ -367,7 +373,7 @@ static bool WriteRegistryValue(const char *valueName, const std::string &str, st
 // Runs once, at startup, on a context whose load states are still Missing.
 void LoadProfile(CalibrationContext &ctx)
 {
-	ImportPreviousNameRecords(ctx);
+	const bool importedPreviousName = ImportPreviousNameRecords(ctx);
 	PersistedRevision profileRevision;
 	PersistedRevision settingsRevision;
 	bool settingsRewriteNeeded = false;
@@ -464,6 +470,19 @@ void LoadProfile(CalibrationContext &ctx)
 				CalibrationContext::ErrorSource::SettingsPersistence);
 		}
 	}
+
+	// The import copies QuestCalibrator's records as they were, experimental
+	// switches included. Those stay behind: the player never turned them on in
+	// Nova Calibrator. An unreadable Settings record is left to its own error.
+	bool experimentalSwitchesTurnedOff = false;
+	if (importedPreviousName &&
+		ctx.settingsLoadState != questcal::RecordLoadState::Unreadable &&
+		questcal::TurnOffExperimentalSwitches(ctx))
+	{
+		experimentalSwitchesTurnedOff = true;
+		ctx.Log("Experimental settings saved by QuestCalibrator (playspace scale solving) were turned off\n");
+	}
+
 	// PlanPersistenceLoad decides everything from these facts; this block only
 	// gathers them and applies the verdict.
 	questcal::PersistenceLoadFacts facts;
@@ -533,6 +552,12 @@ void LoadProfile(CalibrationContext &ctx)
 		if (!SaveSettings(ctx))
 			ctx.persistence.legacySettingsMigrationPending =
 				plan.legacySettingsMigrationPendingIfRewriteFails;
+	}
+	// A record that loaded and needs no repair saves as a changed switch does.
+	else if (experimentalSwitchesTurnedOff &&
+		ctx.settingsLoadState == questcal::RecordLoadState::Loaded)
+	{
+		ctx.persistence.MarkSettings(ctx.timeLastTick);
 	}
 
 	ctx.pendingReferenceTrackingSystem = ctx.referenceTrackingSystem;

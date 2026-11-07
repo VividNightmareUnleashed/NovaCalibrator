@@ -55,6 +55,16 @@ public:
 		// being placed (2026-09-27: the last large move 2.5 s after it, the
 		// last of the settling ones 5 s after).
 		double universeSetupSeconds = 10.0;
+		// Drift evidence from a lighthouse device this long after the
+		// universe was chosen is the universe settling, not drift. After a
+		// tester's restart on 2026-11-06, SteamVR moved a station four times
+		// over 55 s, and a tracker "slid" 1.6 cm 32 s after the choice. The
+		// warning that followed was false.
+		double universeQuietSeconds = 60.0;
+		// A frame move this long after SteamVR's line for its re-placement
+		// of a bumped station is that re-placement: its devices show it
+		// within a second (2026-11-06: the move and the line at one second).
+		double bumpReplaceSeconds = 5.0;
 		// The driver chooses one seconds after the first device tracks
 		// (1.1 and 4.6 s after the first new solution on 2026-09-26 and
 		// -27). With none this long after, the log is not saying so.
@@ -178,6 +188,19 @@ public:
 	// that line's stamp), settled after. Unlike the per-device state, these
 	// lines count from their stamps when replayed too.
 	UniverseSetup Universe(double ringTime) const;
+	// No lighthouse device's pose is drift evidence at ringTime: the universe
+	// is being set up (Universe), or it was chosen less than
+	// config.universeQuietSeconds before, while SteamVR may still re-place
+	// its stations.
+	bool UniverseQuiet(double ringTime) const;
+
+	// SteamVR is re-placing a station it found bumped or switched off and on
+	// ("Base 04D47FB4 reset count changed"): the line came before ringTime
+	// (or was replayed at the start), and the station's next move has not
+	// come yet or came at most config.bumpReplaceSeconds before. The trackers
+	// in that station's frame were off from the knock until then, and the
+	// re-placement puts them back, so it is a correction, not a frame move.
+	bool ReplacingBumped(uint32_t stationId, double ringTime) const;
 	uint64_t UniverseId() const { return universeId; }   // 0 until a line names it
 
 	// SteamVR is quitting at ringTime: its quit line came within
@@ -218,6 +241,15 @@ private:
 	UniverseStage universe = UniverseStage::Unknown;
 	uint64_t universeId = 0;
 	double universeChosenAt = -1e9;        // ring seconds
+	// Stations SteamVR found bumped, by id: when (-1e9 for a replayed line),
+	// and whether and when (-1e9 replayed) it next moved the station.
+	struct Bump
+	{
+		double at = -1e9;
+		bool replaced = false;
+		double replacedAt = -1e9;
+	};
+	std::map<uint32_t, Bump> bumps;
 	double quitAt = -1e9;                  // ring seconds of the last quit line
 	// The last tilt this server session took, and the station it took it from.
 	uint32_t tiltStation = 0;

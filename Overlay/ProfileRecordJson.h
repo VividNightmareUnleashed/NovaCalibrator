@@ -286,6 +286,7 @@ inline ProfileParseResult ParseProfileObjectUnchecked(ProfileRecord &profile,
 	profile.universeUnsafe = false;
 	profile.universeValid = false;
 	profile.universeHmdSerial.clear();
+	profile.universeHmdModel.clear();
 	if (HasTypedValue<bool>(obj, "universe_unsafe"))
 		profile.universeUnsafe = obj.at("universe_unsafe").get<bool>();
 	if (HasTypedValue<std::string>(obj, "hmd_serial"))
@@ -293,6 +294,12 @@ inline ProfileParseResult ParseProfileObjectUnchecked(ProfileRecord &profile,
 		profile.universeHmdSerial = obj.at("hmd_serial").get<std::string>();
 		if (profile.universeHmdSerial.empty())
 			throw std::runtime_error("empty profile HMD serial");
+	}
+	if (HasTypedValue<std::string>(obj, "hmd_model"))
+	{
+		profile.universeHmdModel = obj.at("hmd_model").get<std::string>();
+		if (profile.universeHmdModel.empty())
+			throw std::runtime_error("empty profile HMD model");
 	}
 
 	bool hasUniverseSerial = HasTypedValue<std::string>(obj, "universe_hmd_serial");
@@ -506,6 +513,8 @@ inline void WriteProfile(const ProfileRecord &record,
 	profile["universe_unsafe"].set<bool>(record.universeUnsafe);
 	if (!record.universeHmdSerial.empty())
 		profile["hmd_serial"].set<std::string>(record.universeHmdSerial);
+	if (!record.universeHmdModel.empty())
+		profile["hmd_model"].set<std::string>(record.universeHmdModel);
 	if (record.universeValid)
 	{
 		profile["universe_hmd_serial"].set<std::string>(record.universeHmdSerial);

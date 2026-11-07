@@ -283,6 +283,24 @@ void ParserScenarios(Check check)
 			tilt.stationId == 0xD3D4E73Bu && tilt.pitchDegrees == -21.51 && tilt.rollDegrees == -2.63 &&
 			othersIgnored, detail);
 	}
+
+	// A station SteamVR found knocked (2026-11-06, 25 of these for S-16 in one
+	// second), and lines that only look like it.
+	{
+		Event knocked, other;
+		const bool knockedOk = lighthouselog::ParseLine(
+			"Fri Nov 06 2026 21:25:49.412 [Info] - lighthouse: Base 04D47FB4 reset count changed.  "
+			"Base may have been bumped or power cycled.", knocked);
+		const bool othersIgnored =
+			!lighthouselog::ParseLine(std::string(Prefix) + "Base 04D47FB4 is fine", other) &&
+			!lighthouselog::ParseLine(std::string(Prefix) + "Base  reset count changed.", other);
+		snprintf(detail, sizeof detail, "knocked %d (%d, %08X, time %d) ignored %d", knockedOk,
+			static_cast<int>(knocked.kind), knocked.stationId, knocked.timeKnown, othersIgnored);
+		check("lighthouse log: a knocked station's reset line names the station, no device",
+			knockedOk && knocked.kind == Event::Kind::StationBumped && knocked.serial.empty() &&
+			knocked.stationId == 0x04D47FB4u && knocked.timeKnown && !knocked.visibleKnown &&
+			othersIgnored, detail);
+	}
 }
 
 void TailerScenarios(Check check)
@@ -775,17 +793,23 @@ void VisibilityScenarios(Check check)
 		const U lastPlacing = setup.Universe(chosen + 9.9);
 		const U settled = setup.Universe(chosen + 10.1);
 		const U later = setup.Universe(chosen + 19.821);        // Moving base D3D4E73B 94mm ... for tracking too
+		// Drift evidence waits a minute from the choice (a tracker "slid" 32 s
+		// after a tester's restart while a station was still being moved).
+		const bool quietAfterChoice = setup.UniverseQuiet(chosen + 5.0) &&
+			setup.UniverseQuiet(chosen + 32.0) && !setup.UniverseQuiet(chosen + 61.0);
 		const bool heldForUniverse = !setup.SettledFor("LHR-C48117DF", chosen + 5.0, 15.0) &&
 			setup.SettledFor("LHR-C48117DF", chosen + 10.5, 15.0) &&
 			setup.SettledFor("LHR-00000000", chosen + 5.0, 15.0);
 		const uint64_t id = setup.UniverseId();
 		const double stop = feed("Sun Sep 27 2026 22:30:01.060 [Info] - lighthouse: Stopped tracking with universe 1744988537", false);
 		const U down = setup.Universe(stop + 1.0);
+		const bool quietWhileDown = setup.UniverseQuiet(stop + 1.0);
 		// Tracking again and no universe chosen a minute on: the log stopped
 		// saying so, and says nothing either way.
 		setup.Apply(Made(K::StationAdded, "LHR-3E61E6B7", 8, { 5, 8 }), stop + 10.0);
 		const U stillWaiting = setup.Universe(stop + 69.0);
 		const U silent = setup.Universe(stop + 71.0);
+		const bool silentNotQuiet = !setup.UniverseQuiet(stop + 71.0);
 
 		// Replayed at the overlay's start, the choice counts from its stamp:
 		// an overlay started 4 s after it still leaves the placing alone.
@@ -797,6 +821,7 @@ void VisibilityScenarios(Check check)
 		replayed.Apply(pick, 100.0);
 		const U replayedRecent = replayed.Universe(104.0);
 		const U replayedOld = replayed.Universe(200.0);
+		const bool replayedQuiet = replayed.UniverseQuiet(150.0) && !replayed.UniverseQuiet(200.0);
 
 		snprintf(detail, sizeof detail, "before %d, earlier %d forgotten %d, waiting %d tracking %d, chosen at %.3f s: "
 			"placing %d before %d last %d settled %d later %d, held %d, id %llu, down %d, still %d silent %d, replayed %d %d",
@@ -805,12 +830,16 @@ void VisibilityScenarios(Check check)
 			static_cast<int>(settled), static_cast<int>(later), heldForUniverse, static_cast<unsigned long long>(id),
 			static_cast<int>(down), static_cast<int>(stillWaiting), static_cast<int>(silent),
 			static_cast<int>(replayedRecent), static_cast<int>(replayedOld));
+		const size_t used = strlen(detail);
+		snprintf(detail + used, sizeof detail - used, ", quiet %d%d%d%d",
+			quietAfterChoice, quietWhileDown, silentNotQuiet, replayedQuiet);
 		check("lighthouse state: frame moves and calibrations wait while SteamVR sets up its universe",
 			before == U::Unknown && earlierNamed && forgotten && waiting == U::SettingUp && tracking == U::SettingUp &&
 			std::abs(chosen - 18.852) < 0.002 && placing == U::SettingUp && stampedBefore == U::SettingUp &&
 			lastPlacing == U::SettingUp && settled == U::Settled && later == U::Settled && heldForUniverse &&
 			id == 1744988537ull && down == U::SettingUp && stillWaiting == U::SettingUp && silent == U::Unknown &&
-			replayedRecent == U::SettingUp && replayedOld == U::Settled, detail);
+			replayedRecent == U::SettingUp && replayedOld == U::Settled &&
+			quietAfterChoice && quietWhileDown && silentNotQuiet && replayedQuiet, detail);
 	}
 
 	// A tracker whose SOB lines carry no ids (LHR-BFF71BF1 on 2026-09-27)

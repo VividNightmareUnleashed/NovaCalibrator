@@ -98,6 +98,7 @@ struct Event
 		UniverseChosen,    // the driver selected or created its universe
 		UniverseStopped,   // it stopped tracking with it
 		StationMoved,      // it moved a station's pose to agree with another station
+		StationBumped,     // it found a station knocked or switched off and on (stationId)
 		UniverseLevelled,  // it set the universe's tilt from a station
 	};
 	Kind kind = Kind::StationAdded;

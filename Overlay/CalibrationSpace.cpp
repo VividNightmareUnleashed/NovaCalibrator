@@ -509,6 +509,11 @@ void NoteUniverseStreamHole()
 	Space.jumps->NoteStreamHole();
 }
 
+ringpose::AngularVelocityFrame ReferenceAngularVelocityFrame(uint32_t id)
+{
+	return Space.jumps ? Space.jumps->AngularFrameOf(id) : ringpose::AngularVelocityFrame::Unknown;
+}
+
 void ResetUniverseObservations(CalibrationContext &ctx)
 {
 	DrainJumpObservations(ctx);
@@ -532,12 +537,14 @@ bool FinishUniverseObservations(CalibrationContext &ctx, double now)
 }
 
 void RebindCalibrationUniverse(CalibrationContext &ctx,
-	const std::string &hmdSerial, bool priorUniverseUnsafe)
+	const std::string &hmdSerial, const std::string &hmdModel,
+	bool priorUniverseUnsafe)
 {
 	ctx.profileUniverseUnsafe = false;
 	ctx.frameMovesLost = false;
 	ctx.profileUniverseValid = false;
 	ctx.profileHmdSerial = hmdSerial;
+	ctx.profileHmdModel = hmdModel;
 	std::string currentHmdSerial;
 	if (HasFreshHmdWorldFromDriver() &&
 		ReadTrackedDeviceString(vr::k_unTrackedDeviceIndex_Hmd,
@@ -758,6 +765,10 @@ void ProfileUniverseTick(CalibrationContext &ctx, double now)
 			ctx.chaperone.worldFromDriverValid &&
 			ctx.chaperone.ownerTrackingSystem == trackingSystem &&
 			ctx.chaperone.ownerHmdSerial == serial;
+		// A profile that kept no headset yet records this one's model too,
+		// for diagnostics.
+		if (ctx.profileHmdSerial.empty())
+			ctx.profileHmdModel = questcal::ReadCurrentHmdModel();
 		ctx.profileHmdSerial = serial;
 		ctx.profileWorldFromDriverRotation = fromSnapshot
 			? ctx.chaperone.worldFromDriverRotation : Space.hmd.rotation;
@@ -814,8 +825,16 @@ void DrainJumpObservations(CalibrationContext &ctx)
 	JumpDetector::GapEvent gap;
 	while (Space.jumps->PollGap(gap))
 	{
-		ctx.referenceGapEvents++;
 		char message[256];
+		if (!gap.OnHeadset())
+		{
+			snprintf(message, sizeof message,
+				"tracking gap (%.1f s) on device %u; the headset went on tracking, so it is not a reference gap\n",
+				gap.duration, gap.deviceId);
+			ctx.Diag(message);
+			continue;
+		}
+		ctx.referenceGapEvents++;
 		snprintf(message, sizeof message,
 			"Reference tracking gap (%.1f s) on device %u -- the universe may have moved; recalibrate if alignment looks off\n",
 			gap.duration, gap.deviceId);

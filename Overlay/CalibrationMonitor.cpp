@@ -312,6 +312,64 @@ bool calibration_internal::DuringUniverseSetup(const CalibrationContext &ctx, do
 	return moveTime - FrameWatch.TrackingSince() < UniverseSetupFallbackSeconds;
 }
 
+// A base station's id from its device's serial ("LHB-04D47FB4"); 0 for any
+// other serial.
+static uint32_t StationIdOfSerial(const std::string &serial)
+{
+	if (serial.size() != 12 || serial.compare(0, 4, "LHB-") != 0)
+		return 0;
+	uint32_t id = 0;
+	for (size_t i = 4; i < serial.size(); ++i)
+	{
+		const char c = serial[i];
+		const int digit = c >= '0' && c <= '9' ? c - '0'
+			: c >= 'A' && c <= 'F' ? c - 'A' + 10
+			: c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+		if (digit < 0)
+			return 0;
+		id = (id << 4) | static_cast<uint32_t>(digit);
+	}
+	return id;
+}
+
+// SteamVR re-placing a station it found bumped corrects that station's pose
+// (LighthouseVisibility::ReplacingBumped). Compensated as a frame move, as
+// Nova did, the trackers in its frame stayed where the knock put them: on
+// 2026-11-06 S-16's re-placement, 12.8 deg and 39 cm, split them from the
+// other frames for the rest of the session, and each recalibration kept the
+// split. A frame change is that station's when the station's own device is
+// in the frame before or after it (one frame per station, at its pose; two
+// stations' frames are metres apart, so the match can be loose).
+static bool ReplacesBumpedStation(const CalibrationContext &ctx, double time,
+	const Eigen::Quaterniond &fromRot, const Eigen::Vector3d &fromTrans,
+	const Eigen::Quaterniond &toRot, const Eigen::Vector3d &toTrans)
+{
+	auto same = [](const Eigen::Quaterniond &aRot, const Eigen::Vector3d &aTrans,
+		const Eigen::Quaterniond &bRot, const Eigen::Vector3d &bTrans)
+	{
+		return aRot.angularDistance(bRot) < 3.0 * questcal::Pi / 180.0 && (aTrans - bTrans).norm() < 0.10;
+	};
+	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+	{
+		const uint32_t station = StationIdOfSerial(DeviceSerials[id]);
+		Eigen::Quaterniond rotation;
+		Eigen::Vector3d translation;
+		if (station != 0 && ctx.lighthouse.ReplacingBumped(station, time) &&
+			FrameWatch.StationFrame(id, rotation, translation) &&
+			(same(rotation, translation, fromRot, fromTrans) || same(rotation, translation, toRot, toTrans)))
+			return true;
+	}
+	return false;
+}
+
+bool calibration_internal::FrameChangeLeftAlone(const CalibrationContext &ctx, double time,
+	const Eigen::Quaterniond &fromRot, const Eigen::Vector3d &fromTrans,
+	const Eigen::Quaterniond &toRot, const Eigen::Vector3d &toTrans)
+{
+	return DuringUniverseSetup(ctx, time) ||
+		ReplacesBumpedStation(ctx, time, fromRot, fromTrans, toRot, toTrans);
+}
+
 // Whether a device's frame changes are the target side's. The driver
 // synchronization marks a device a target one about a second after it
 // appears, and its first samples come before that (live 2026-10-15: a
@@ -433,8 +491,16 @@ static void UpdateTrackerFrames(CalibrationContext &ctx)
 	auto calibrated = [&ctx](uint32_t id) { return id < vr::k_unMaxTrackedDeviceCount && ctx.targetDeviceMask[id]; };
 	const size_t disagreements = ctx.trackerFrames.Disagreements();
 	const size_t unsettled = ctx.trackerFrames.Unsettled();
+	auto bumpCorrection = [&ctx](const LighthouseFrameWatch::Move &move)
+	{
+		return ReplacesBumpedStation(ctx, move.frameTime, move.fromRot, move.fromTrans, move.toRot, move.toTrans);
+	};
 	const auto result = ctx.trackerFrames.Update(FrameWatch, targetMoves, targetSwitches, measured, calibrated,
-		[&ctx](double time) { return DuringUniverseSetup(ctx, time); });
+		[&ctx](double time, const Eigen::Quaterniond &fromRot, const Eigen::Vector3d &fromTrans,
+			const Eigen::Quaterniond &toRot, const Eigen::Vector3d &toTrans)
+		{
+			return FrameChangeLeftAlone(ctx, time, fromRot, fromTrans, toRot, toTrans);
+		});
 	using How = questcal::TrackerFrameCorrections::Changed::How;
 	auto changeOf = [&result](uint32_t id) -> const questcal::TrackerFrameCorrections::Changed *
 	{
@@ -459,9 +525,12 @@ static void UpdateTrackerFrames(CalibrationContext &ctx)
 		// during it (the 2026-09-27 placement replayed so: 68.7 cm followed at
 		// the tracker).
 		const bool setup = DuringUniverseSetup(ctx, move.frameTime);
+		const bool bumped = !setup && bumpCorrection(move);
 		const bool mounted = move.id == ctx.continuousTrackerId;
 		if (setup)
 			++ctx.frameMovesInSetup;
+		else if (bumped)
+			++ctx.bumpedStationCorrections;
 		else
 			++ctx.frameMovesFollowed;
 		if (mounted)
@@ -469,7 +538,7 @@ static void UpdateTrackerFrames(CalibrationContext &ctx)
 			// Observations and previous estimates already live in the
 			// normalized space. Clear the window without rebasing them.
 			ResetContinuousObservations(ctx, questcal::ContinuousAlignment::ResetReason::TargetFrameMoved);
-			if (!setup)
+			if (!setup && !bumped)
 				++ctx.trackerFrameCompensations;
 		}
 		const auto &frame = ctx.trackerFrames.Snapshot()[move.id];
@@ -481,7 +550,9 @@ static void UpdateTrackerFrames(CalibrationContext &ctx)
 			"normalization q(%.6f,%.6f,%.6f,%.6f) t(%.4f,%.4f,%.4f)",
 			move.id, DeviceSerials[move.id].c_str(), move.returned ? " while off" : "",
 			move.ownJump ? " with a local pose jump" : "", yawDeg, tiltDeg, move.shiftM * 100.0,
-			setup ? "left alone during universe setup" : "compensated for this device",
+			setup ? "left alone during universe setup"
+				: bumped ? "left alone: SteamVR corrected a base station it found knocked"
+				: "compensated for this device",
 			move.fromRot.w(), move.fromRot.x(), move.fromRot.y(), move.fromRot.z(),
 			move.fromTrans.x(), move.fromTrans.y(), move.fromTrans.z(),
 			move.toRot.w(), move.toRot.x(), move.toRot.y(), move.toRot.z(),
@@ -489,6 +560,7 @@ static void UpdateTrackerFrames(CalibrationContext &ctx)
 			frame.rotation.w, frame.rotation.x, frame.rotation.y, frame.rotation.z,
 			frame.translation.v[0], frame.translation.v[1], frame.translation.v[2]);
 		if (setup) ctx.lastFrameMoveInSetup = line;
+		else if (bumped) ctx.lastBumpedStationCorrection = line;
 		else
 		{
 			ctx.lastFrameMoveFollowed = line;
@@ -688,7 +760,13 @@ void calibration_internal::RuntimeMonitorTick(CalibrationContext &ctx, double no
 		if (s.deviceId >= vr::k_unMaxTrackedDeviceCount)
 			continue;
 		questcal::PoseSample sample;
-		if (!TryComposeRingSample(s, QpcToSeconds, sample, ctx.targetDeviceMask[s.deviceId]))
+		// A reference device's rate in the frame its driver reports it in, so
+		// continuous alignment predicts its turns right (LocalPoseContinuity.h).
+		const ringpose::AngularVelocityFrame angularFrame = ctx.referenceDeviceMask[s.deviceId]
+			? questcal::ReferenceAngularVelocityFrame(s.deviceId)
+			: ringpose::AngularVelocityFrame::Unknown;
+		if (!TryComposeRingSample(s, QpcToSeconds, sample, ctx.targetDeviceMask[s.deviceId],
+				angularFrame))
 			continue;
 		if (ctx.targetDeviceMask[s.deviceId] && !ctx.trackerFrames.Normalize(s.deviceId, sample))
 			continue;
@@ -776,6 +854,21 @@ void calibration_internal::RuntimeMonitorTick(CalibrationContext &ctx, double no
 				drift.magnitude * 100.0,
 				seen && !seen->lastDisturbanceText.empty()
 					? seen->lastDisturbanceText.c_str() : "changed base stations");
+			ctx.Log(buf);
+			continue;
+		}
+		// The same while SteamVR sets up or re-chooses its lighthouse universe:
+		// it re-places its stations for up to a minute (LighthouseVisibility.h).
+		if (drift.deviceId < vr::k_unMaxTrackedDeviceCount &&
+			ctx.targetDeviceMask[drift.deviceId] &&
+			ctx.lighthouse.UniverseQuiet(drift.time))
+		{
+			ctx.lighthouseAttributedEvents++;
+			snprintf(buf, sizeof buf,
+				"Device %u %s %.1f cm while SteamVR set up its lighthouse universe -- its base stations, not drift\n",
+				drift.deviceId,
+				drift.type == DriftMonitor::Event::StationarySlide ? "slid" : "recovered",
+				drift.magnitude * 100.0);
 			ctx.Log(buf);
 			continue;
 		}

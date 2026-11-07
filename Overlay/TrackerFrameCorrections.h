@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace questcal
@@ -289,9 +290,9 @@ public:
 	// the watch's record of every move. `held` is a device whose correction
 	// stays as a measurement began with it but for the moves it shows
 	// (FollowedRun), `calibrated` says which devices are target ones, and
-	// `setup(time)` whether a frame moved during SteamVR's universe setup: those
-	// moves place a station it guessed, and a frame that moved so keeps the
-	// correction it had.
+	// `setup` whether a frame change is left alone (LeftAlone): SteamVR placing
+	// a station it guessed during its universe setup, or re-placing one it
+	// found bumped. A frame that moved so keeps the correction it had.
 	template <class Calibrated, class Setup>
 	UpdateResult Update(const LighthouseFrameWatch &watch, const std::vector<LighthouseFrameWatch::Move> &moves,
 		const std::vector<LighthouseFrameWatch::Switch> &switches, uint32_t held, Calibrated calibrated, Setup setup)
@@ -413,7 +414,7 @@ public:
 				continue;
 			how[m.id] = Changed::How::Moved;
 			placed[m.id] = true;
-			const bool followed = !setup(m.frameTime);
+			const bool followed = !LeftAlone(setup, m.frameTime, m.fromRot, m.fromTrans, m.toRot, m.toTrans);
 			usableAfter[m.id] = (std::max)(usableAfter[m.id], m.time);
 			// The move is in the watch's record, a lead read off other devices'
 			// moves as a chain of them, so propagation derives the frame it led
@@ -603,6 +604,21 @@ public:
 	}
 
 private:
+	// Whether a frame change is left alone, asked of `setup` with the change's
+	// time and its frame before and after. A `setup` that takes the time alone
+	// (SteamVR's universe setup, judged by when) is asked with the time.
+	template <class Setup>
+	static bool LeftAlone(const Setup &setup, double time,
+		const Eigen::Quaterniond &fromRot, const Eigen::Vector3d &fromTrans,
+		const Eigen::Quaterniond &toRot, const Eigen::Vector3d &toTrans)
+	{
+		if constexpr (std::is_invocable_v<const Setup &, double, const Eigen::Quaterniond &,
+			const Eigen::Vector3d &, const Eigen::Quaterniond &, const Eigen::Vector3d &>)
+			return setup(time, fromRot, fromTrans, toRot, toTrans);
+		else
+			return setup(time);
+	}
+
 	// A recovered correction whose device has not been identified in its slot yet.
 	bool Parked(uint32_t id) const { return restoredKeys[id] != 0 && serials[id].empty(); }
 
@@ -708,7 +724,7 @@ private:
 				Entry next = *from;
 				next.rot = t.toRot;
 				next.trans = t.toTrans;
-				if (!setup(t.time))
+				if (!LeftAlone(setup, t.time, t.fromRot, t.fromTrans, t.toRot, t.toTrans))
 				{
 					const Eigen::Quaterniond rotation = (t.toRot * t.fromRot.conjugate()).normalized();
 					if (!Compose(next.correction, rotation, t.toTrans - rotation * t.fromTrans))
@@ -753,7 +769,7 @@ private:
 			{
 				const auto &m = *e.move;
 				heldHow = Changed::How::Moved;
-				if (setup(m.frameTime))
+				if (LeftAlone(setup, m.frameTime, m.fromRot, m.fromTrans, m.toRot, m.toTrans))
 					usableAfter[m.id] = (std::max)(usableAfter[m.id], m.time);
 				else if (!Follow(m))
 				{

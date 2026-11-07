@@ -226,6 +226,15 @@ bool ReadTrackedDeviceString(uint32_t id,
 	return true;
 }
 
+std::string ReadCurrentHmdModel()
+{
+	std::string model;
+	if (!ReadTrackedDeviceString(vr::k_unTrackedDeviceIndex_Hmd,
+		vr::Prop_ModelNumber_String, model))
+		model.clear();
+	return model;
+}
+
 bool ReadCurrentHmdIdentity(std::string &trackingSystem, std::string &serial)
 {
 	return ReadTrackedDeviceString(vr::k_unTrackedDeviceIndex_Hmd,

@@ -243,7 +243,7 @@ void RunDriverDisableReasonScenario(Check check)
 	const bool recentered = !ctx.enabled && ctx.disableReason == Reason::UniverseUnsafe;
 	// A new calibration takes the universe over and forgets the old cause.
 	ctx.frameMovesLost = true;
-	questcal::RebindCalibrationUniverse(ctx, "headset-serial", true);
+	questcal::RebindCalibrationUniverse(ctx, "headset-serial", "", true);
 	const bool rebound = !ctx.profileUniverseUnsafe && !ctx.frameMovesLost;
 	// Safe again, but with no SteamVR there is no headset to check against.
 	questcal::SynchronizeCalibrationDriver(ctx);

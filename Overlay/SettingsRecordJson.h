@@ -46,6 +46,26 @@ constexpr int SettingsSchema = 1;
 	X(usesIndexControllers, "uses_index_controllers", false) \
 	X(usesViveTracker2018, "uses_vive_tracker_2018", false)
 
+// The switches the settings screen marks "Experimental", by member. Records
+// saved under the QuestCalibrator name come in with these off
+// (Configuration.cpp, LoadProfile): the player never chose them in Nova
+// Calibrator, and a tester's imported "solve_scale" put a playspace scale of
+// about 3 percent on their calibrations.
+#define QUESTCAL_EXPERIMENTAL_SETTINGS_SWITCHES(X) \
+	X(solveScale)
+
+// Turns the experimental switches off on anything that holds them (the record
+// or CalibrationContext); true when one of them was on.
+template <typename Switches>
+inline bool TurnOffExperimentalSwitches(Switches &switches)
+{
+	bool changed = false;
+#define QUESTCAL_SWITCH_OFF(member) changed = std::exchange(switches.member, false) || changed;
+	QUESTCAL_EXPERIMENTAL_SETTINGS_SWITCHES(QUESTCAL_SWITCH_OFF)
+#undef QUESTCAL_SWITCH_OFF
+	return changed;
+}
+
 struct SettingsRecord
 {
 #define QUESTCAL_SWITCH_MEMBER(member, key, value) bool member = value;

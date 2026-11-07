@@ -426,7 +426,11 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 		{
 			const auto realigned = ctx.trackerFrames.Anchor(run.targetId, FrameWatch,
 				[&ctx](uint32_t id) { return id < vr::k_unMaxTrackedDeviceCount && ctx.targetDeviceMask[id]; },
-				[&ctx](double time) { return DuringUniverseSetup(ctx, time); });
+				[&ctx](double time, const Eigen::Quaterniond &fromRot, const Eigen::Vector3d &fromTrans,
+					const Eigen::Quaterniond &toRot, const Eigen::Vector3d &toTrans)
+				{
+					return FrameChangeLeftAlone(ctx, time, fromRot, fromTrans, toRot, toTrans);
+				});
 			const int aligned = static_cast<int>(std::count_if(realigned.begin(), realigned.end(),
 				[&run](const auto &c) { return c.id != run.targetId; }));
 			if (aligned > 0)
@@ -487,7 +491,7 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 
 	bool priorUniverseUnsafe = ctx.profileUniverseUnsafe;
 	questcal::RebindCalibrationUniverse(
-		ctx, run.hmdSerial, priorUniverseUnsafe);
+		ctx, run.hmdSerial, run.hmdModel, priorUniverseUnsafe);
 	ctx.persistence.AdvanceRevision();
 	ctx.persistence.MarkProfileAndSettings(ctx.timeLastTick);
 	bool saved = SavePendingChanges(ctx);

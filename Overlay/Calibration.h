@@ -145,6 +145,7 @@ struct CalibrationProfileState
 	bool frameMovesLost = false;
 	bool profileUniverseValid = false;
 	std::string profileHmdSerial;
+	std::string profileHmdModel;   // see ProfileHmdIdentityMatches
 	Eigen::Quaterniond profileWorldFromDriverRotation{ 1, 0, 0, 0 };
 	Eigen::Vector3d profileWorldFromDriverTranslation{ 0, 0, 0 };
 	questcal::EngineResult lastResult;
@@ -348,6 +349,10 @@ struct CalibrationContext : CalibrationProfileState
 	// was setting up its universe (LighthouseVisibility.h).
 	uint32_t frameMovesInSetup = 0;
 	std::string lastFrameMoveInSetup;
+	// The same for SteamVR's re-placement of a base station it found knocked
+	// (LighthouseVisibility::ReplacingBumped): a correction of its pose.
+	uint32_t bumpedStationCorrections = 0;
+	std::string lastBumpedStationCorrection;
 	// The optional modules the installer put in (Modules.h), read at startup.
 	questcal::Modules modules;
 	// Debounced persistence for runtime compensation updates: dirty records save

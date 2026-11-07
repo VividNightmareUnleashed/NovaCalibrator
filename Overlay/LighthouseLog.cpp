@@ -253,6 +253,22 @@ bool ParseLine(const std::string &line, Event &out)
 		return true;
 	}
 
+	// A station the driver found knocked or switched off and on: "Base
+	// 04D47FB4 reset count changed.  Base may have been bumped or power
+	// cycled." Its next move corrects its pose (LighthouseVisibility.h).
+	static const char bumped[] = "lighthouse: Base ";
+	size_t bumpedAt = line.find(bumped);
+	if (bumpedAt != std::string::npos &&
+		line.find(" reset count changed", bumpedAt) != std::string::npos)
+	{
+		out.stationId = LeadingStationId(line.substr(bumpedAt + std::strlen(bumped)));
+		if (out.stationId == 0)
+			return false;
+		out.kind = Event::Kind::StationBumped;
+		out.timeKnown = ParseTimestamp(line, out.unixTime);
+		return true;
+	}
+
 	// The driver moving a station to agree with another: "Moving base D3D4E73B
 	// 53mm and 1.1 deg because of relationship with 04D47FB4, which is closer
 	// to the origin".

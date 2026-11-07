@@ -37,6 +37,7 @@
 #include "../Overlay/PersistenceState.h"
 #include "../Overlay/ProfileValidation.h"
 #include "../Overlay/ProfileRecordJson.h"
+#include "../Overlay/SettingsRecordJson.h"
 #include "../Overlay/RingPoseMath.h"
 #include "../Overlay/PoseStreamHub.h"
 #include "../common/MathConstants.h"
@@ -2905,6 +2906,46 @@ void RunJumpScenarios()
 		Check("jump: no false positive", r.deltas == 0, detail);
 	}
 
+	// Quest controllers held at an angle and turned fast, reporting angular
+	// velocity in their own frame (as the headset does through Virtual
+	// Desktop). Read as the world's, every sample looked like a 2-4 degree
+	// frame jump (a tester's session: thousands of candidates). Neither the
+	// readings before the probe has judged the frame nor those after make one.
+	{
+		JumpDetector jd(TestQpcToSeconds);
+		jd.SetDetailed(true);
+		const double questRate = 60.0;
+		const double tilt = 75.0 * questcal::Pi / 180.0;
+		int candidates = 0, deltas = 0, candidatesAfterVerdict = 0;
+		bool judged = false;
+		JumpDetector::UniverseDelta d;
+		std::string line;
+		for (double t = 0.0; t < 6.0; t += 1.0 / questRate)
+		{
+			for (uint32_t id = 0; id <= 1; ++id)
+			{
+				// Back and forth about world +Y at up to 4 rad/s, in place.
+				const double w = 4.0 * std::cos(2.0 * t + id);
+				const double yaw = 2.0 * std::sin(2.0 * t + id);
+				const Eigen::Quaterniond rot = Eigen::Quaterniond(
+					Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitY())) *
+					Eigen::Quaterniond(Eigen::AngleAxisd(tilt, Eigen::Vector3d::UnitX()));
+				const Eigen::Vector3d inDevice = rot.conjugate() * Eigen::Vector3d(0.0, w, 0.0);
+				jd.Push(RingSample(id, t, Eigen::Quaterniond::Identity(), Eigen::Vector3d::Zero(),
+					rot, Eigen::Vector3d(0.3 * id, 1.2, 0.0), Eigen::Vector3d::Zero(), inDevice));
+			}
+			while (jd.PollDelta(d)) deltas++;
+			while (jd.PollDetail(line))
+				if (line.rfind("candidate on device", 0) == 0)
+					(judged ? candidatesAfterVerdict : candidates)++;
+			judged = judged || jd.AngularFrameOf(0) == ringpose::AngularVelocityFrame::Device;
+		}
+		snprintf(detail, sizeof detail, "candidates %d before the verdict, %d after, deltas %d, judged %d",
+			candidates, candidatesAfterVerdict, deltas, judged ? 1 : 0);
+		Check("jump: a tilted controller's fast turn in its own frame is no jump",
+			judged && candidates == 0 && candidatesAfterVerdict == 0 && deltas == 0, detail);
+	}
+
 	// Hard gap in the reference stream: gap event, never a compensation.
 	{
 		JumpDetector jd(TestQpcToSeconds);
@@ -2926,6 +2967,30 @@ void RunJumpScenarios()
 
 		snprintf(detail, sizeof detail, "deltas %d  gaps %d", deltas, gapEvents);
 		Check("jump: gap => event only", deltas == 0 && gapEvents == 1, detail);
+	}
+
+	// Only the headset's gap is a reference gap; a controller's (asleep, or out
+	// of the headset's view) is reported but not counted.
+	{
+		JumpDetector jd(TestQpcToSeconds);
+		JumpDetector::GapEvent g;
+		std::vector<JumpDetector::GapEvent> gaps;
+		// The headset tracks throughout; the controller sleeps from 1 s to 4 s.
+		for (double t = 0.0; t < 5.0; t += 1.0 / rate)
+		{
+			jd.Push(rawSample(0, t, false));
+			if (t < 1.0 || t >= 4.0)
+				jd.Push(rawSample(1, t, false));
+			while (jd.PollGap(g)) gaps.push_back(g);
+		}
+		const bool controllerOnly = gaps.size() == 1 && gaps[0].deviceId == 1 &&
+			!gaps[0].OnHeadset();
+		JumpDetector::GapEvent headsetGap;
+		headsetGap.deviceId = 0;
+		snprintf(detail, sizeof detail, "gaps %zu, first on device %u",
+			gaps.size(), gaps.empty() ? 0u : gaps[0].deviceId);
+		Check("jump: a controller's gap is not a reference gap",
+			controllerOnly && headsetGap.OnHeadset(), detail);
 	}
 
 	// A Quest Pro through Virtual Desktop resumes in 3DoF and snaps to its 6DoF
@@ -5983,6 +6048,7 @@ ProfileRecord PersistGoodRecord()
 	r.universeUnsafe = true;
 	r.universeValid = true;
 	r.universeHmdSerial = "LHR-HMD01";
+	r.universeHmdModel = "Meta Quest Pro";
 	r.universeRotation = Eigen::Quaterniond(0.6, -0.3, 0.4, 0.62).normalized();
 	r.universeTranslation = Eigen::Vector3d(-0.5, 1.75, 0.125);
 	r.fieldEnabled = false;
@@ -6052,6 +6118,7 @@ std::string PersistProfileDiff(const ProfileRecord &a, const ProfileRecord &b)
 	if (a.universeUnsafe != b.universeUnsafe) note("universeUnsafe");
 	if (a.universeValid != b.universeValid) note("universeValid");
 	if (a.universeHmdSerial != b.universeHmdSerial) note("universeSerial");
+	if (a.universeHmdModel != b.universeHmdModel) note("universeModel");
 	if (a.universeValid && b.universeValid)
 	{
 		if (!PersistQuatEq(a.universeRotation, b.universeRotation)) note("universeRotation");
@@ -6625,9 +6692,23 @@ void RunPersistenceLegacyScenario()
 		}
 	}
 
+	// E6: settings imported from the QuestCalibrator name come in with the
+	// experimental switches off, and every other switch as it was.
+	{
+		questcal::SettingsRecord record;
+		record.solveScale = true;
+		record.applyTimeOffset = false;
+		record.uiAdvanced = true;
+		if (!questcal::TurnOffExperimentalSwitches(record)) why += " E6(not reported)";
+		if (record.solveScale) why += " E6(solve_scale kept)";
+		if (record.applyTimeOffset || !record.uiAdvanced) why += " E6(another switch changed)";
+		if (questcal::TurnOffExperimentalSwitches(record)) why += " E6(reported when already off)";
+	}
+
 	char detail[384];
 	snprintf(detail, sizeof detail,
-		"v1 migration one-shot, suspicious scale outside [0.98,1.02], 5 legacy keys%s%s",
+		"v1 migration one-shot, suspicious scale outside [0.98,1.02], 5 legacy keys, "
+		"import leaves experimental switches off%s%s",
 		why.empty() ? "" : "  <-", why.c_str());
 	Check("persistence E: legacy keys", why.empty(), detail);
 }
@@ -6673,10 +6754,13 @@ void RunPersistenceContractScenario()
 	// drives each one through the parser. What stays here goes through Eigen or
 	// the record's structure.
 
-	m = good; m.universeHmdSerial.clear();
+	m = good; m.universeHmdSerial.clear(); m.universeHmdModel.clear();
 	expect("universe-no-serial", m, false, nullptr);
 	m.universeValid = false;
 	expect("universe-disarmed", m, true, nullptr);
+	// A headset model names which headset with the serial; alone it names none.
+	m.universeHmdModel = "Meta Quest Pro";
+	expect("model-no-serial", m, false, "the headset model has no headset serial");
 
 	// A mount block that would be refused is ignored while it is not valid.
 	m = good; m.mountExtrinsic.rotationRmsDeg = -1.0;
