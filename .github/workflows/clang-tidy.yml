@@ -7,7 +7,9 @@ name: Clang-Tidy
 # has no findings, so any first-party finding fails the job: it is new. The validation
 # workflow calls this on pushes and pull requests, and the release workflow on
 # the tag before it drafts a release, so the analysis no longer has to be run by
-# hand.
+# hand. Each skips it when the source is unchanged since the last commit where
+# it passed, the version header and documentation aside
+# (tools/ci/formal-scope.py).
 #
 # Each project is analyzed on a runner of its own (-Project) as a single share
 # (-Shard 1/1): every first-party file, compiled without linking, the way

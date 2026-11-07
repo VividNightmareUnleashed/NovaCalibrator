@@ -42,7 +42,8 @@ builds with the full solver suite (including the VirtualQuest scenarios and the
 formal-model links), and in parallel jobs replays the pose hub traces through their
 TLA+ model, runs the duplicate scan as an advisory gate, and runs Clang-Tidy over every
 translation unit (`clang-tidy.yml`, where any first-party finding stops the release).
-Validation runs those same checks on every push, so the release runs each only when
+Validation runs those same checks on its pushes (Clang-Tidy only when the push changes
+something since the last commit where it passed), so the release runs each only when
 the tag changes something since the last commit where it passed
 (`tools/ci/formal-scope.py --release`): a version bump or documentation alone does
 not. The build and the solver suite always run on the tag, since the package is

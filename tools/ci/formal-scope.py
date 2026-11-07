@@ -1,4 +1,5 @@
-"""Which of the validation workflow's formal jobs a change needs to run.
+"""Which of the validation workflow's formal jobs and Clang-Tidy a change
+needs to run.
 
 Each formal job is a deterministic check of particular files. Run again on
 the same files, it gives the same answer, so a push that touches none of
@@ -21,15 +22,17 @@ with the previous push: a run cancelled by a newer push never proved its
 change, so the push after it must not count it as proved. A release skips a
 job the same way. With no such run, or no way to ask, the job runs.
 
-A release also repeats two checks of the whole tree that validation runs on
-every push: Clang-Tidy, and the trace replay with the duplicate scan.
---release decides those too. Any change runs them, except one to a file that
-cannot change their outcome (UNREAD), so a release whose version bump is the
-only change since validation passed does not run them again.
+Clang-Tidy and the trace replay with the duplicate scan check the whole
+tree. Any change runs them, except one to a file that cannot change their
+outcome (UNREAD), so a version bump alone does not run them again. Clang-Tidy
+is decided for validation and the release alike. Validation replays the
+traces in its validate job, which every push runs, so only --release decides
+the replay.
 
   python tools/ci/formal-scope.py --base <commit>       # what the change needs
   python tools/ci/formal-scope.py --last-green          # as CI decides (GITHUB_TOKEN)
   python tools/ci/formal-scope.py --last-green --release  # as the release decides
+                                                         # (adds the trace replay)
   python tools/ci/formal-scope.py --list core           # a job's public inputs
 
 With GITHUB_OUTPUT set it also writes <job>=true|false lines there. Needs
@@ -72,21 +75,23 @@ PROVING = {
     'input_validation': ('input-validation (', 'formal-assurance / numeric ('),
     'core': ('private-core / private-core (', 'formal-assurance / private-core (',
              'private-core / traces', 'formal-assurance / traces'),
-    # The release's checks of the whole tree (--release): validation runs the
-    # trace replay and the duplicate scan in its validate job, the release in
-    # its traces job.
+    # The checks of the whole tree: Clang-Tidy in either workflow's job of
+    # that name; the trace replay and the duplicate scan in validation's
+    # validate job and the release's traces job.
     'clang_tidy': ('clang-tidy / analyze (',),
     'traces': ('validate', 'traces'),
 }
 PROVING_WORKFLOWS = ('validation.yml', 'release.yml')
 REPO = os.environ.get('GITHUB_REPOSITORY', 'VividNightmareUnleashed/NovaCalibrator')
 
-# The checks of the whole tree a release would repeat, and the changes that
-# cannot change their outcome: what validation.yml's paths-ignore leaves out,
-# and the version header, whose macros are only values unless a source tests
-# one in the preprocessor (VERSION_TEST), which compiles it differently by the
-# version. The release's build job builds and tests the tagged commit anyway.
-RELEASE_CHECKS = ('clang_tidy', 'traces')
+# The checks of the whole tree, and the changes that cannot change their
+# outcome: what validation.yml's paths-ignore leaves out, and the version
+# header, whose macros are only values unless a source tests one in the
+# preprocessor (VERSION_TEST), which compiles it differently by the version.
+# Validation's validate job and the release's build job build and test the
+# commit anyway. Only a release asks about the trace replay (RELEASE_ONLY).
+WHOLE_TREE = ('clang_tidy', 'traces')
+RELEASE_ONLY = ('traces',)
 UNREAD = [re.compile(p) for p in (
     r'\.md$', r'^docs/', r'^math\.pdf$', r'^LICENSE$', r'^THIRD-PARTY-NOTICES\.txt$',
 )]
@@ -297,7 +302,7 @@ def version_tested():
 
 
 def unread(name):
-    """Whether a change to the file cannot change a release check's outcome."""
+    """Whether a change to the file cannot change a whole-tree check's outcome."""
     if name == VERSION_HEADER:
         return version_tested() is None
     return any(p.search(name) for p in UNREAD)
@@ -305,7 +310,7 @@ def unread(name):
 
 def reason_to_run(job, files):
     """Why the job must run given the files changed since its base, or ''."""
-    if job in RELEASE_CHECKS:
+    if job in WHOLE_TREE:
         hit = next((f for f in files if not unread(f)), None)
         return f'{hit} changed' if hit else ''
     shared = next((f for f in files if any(p.search(f) for p in SHARED)), None)
@@ -323,7 +328,7 @@ def main():
     parser.add_argument('--last-green', action='store_true')
     # Another commit than HEAD, to see what a past change would have run.
     parser.add_argument('--head', default='HEAD')
-    # Also the checks of the whole tree a release would repeat.
+    # Also the trace replay, which validation runs on every push.
     parser.add_argument('--release', action='store_true')
     parser.add_argument('--list', choices=sorted(JOBS))
     args = parser.parse_args()
@@ -333,7 +338,7 @@ def main():
         print('\n'.join(inputs(args.list)))
         return
 
-    wanted = list(JOBS) + (list(RELEASE_CHECKS) if args.release else [])
+    wanted = list(JOBS) + [c for c in WHOLE_TREE if args.release or c not in RELEASE_ONLY]
     verdict = {}
     if args.last_green:
         bases = last_green(wanted)

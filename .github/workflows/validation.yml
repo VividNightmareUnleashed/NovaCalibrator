@@ -10,6 +10,8 @@ name: Validation
 # Changes to documentation alone don't trigger it; the release workflow
 # builds and tests the tagged commit anyway, and analyzes it unless this
 # workflow already passed on the same source (tools/ci/formal-scope.py).
+# Clang-Tidy here skips the same way: a push whose only change since its last
+# pass is the version header (a release's version bump) is not analyzed again.
 #
 # With the VIRTUALQUEST_DEPLOY_KEY secret (a read-only deploy key on the
 # private VirtualQuest repository) the harness also builds the simulated
@@ -279,8 +281,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'The AddressSanitizer build or its harness failed; a report above names the line.' }
 
   # A full rebuild under analysis, so it runs beside the build job rather than
-  # after it.
+  # after it; it waits only for formal-scope, a job of seconds. It runs when
+  # formal-scope says the source changed since the last commit where Clang-Tidy
+  # passed, and wherever formal-scope does not run (a fork's pull request, or
+  # this workflow in a fork), since nothing was proved there. A failed
+  # formal-scope fails the run without it.
   clang-tidy:
+    needs: formal-scope
+    if: >-
+      !cancelled() &&
+      (needs.formal-scope.result == 'skipped' || needs.formal-scope.outputs.clang_tidy == 'true')
     uses: ./.github/workflows/clang-tidy.yml
     secrets:
       VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
@@ -290,9 +300,11 @@ jobs:
   # them a change can affect (tools/ci/formal-scope.py), from what each job
   # compiles and runs: a job runs when one of its inputs changed, when the
   # VirtualQuest pin moved, or when the workflows or tools that run the checks
-  # changed, and always when the base cannot be compared (a new branch, a
-  # force push, a run started by hand). The release workflow decides the same
-  # way for the tag, and also for Clang-Tidy and the trace replay.
+  # changed, since the last commit where it passed, and always when no such
+  # commit is found or it cannot be compared. It decides Clang-Tidy too, which
+  # any change runs but one to documentation or the version header. The
+  # release workflow decides the same way for the tag, and also for the trace
+  # replay.
   formal-scope:
     if: github.repository == 'VividNightmareUnleashed/NovaCalibrator' && github.event.pull_request.head.repo.fork != true
     runs-on: ubuntu-24.04
@@ -304,6 +316,7 @@ jobs:
     outputs:
       input_validation: ${{ steps.scope.outputs.input_validation }}
       core: ${{ steps.scope.outputs.core }}
+      clang_tidy: ${{ steps.scope.outputs.clang_tidy }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -314,7 +327,7 @@ jobs:
         env:
           VIRTUALQUEST_DEPLOY_KEY: ${{ secrets.VIRTUALQUEST_DEPLOY_KEY }}
         run: tools/ci/checkout-virtualquest.ps1
-      - name: Work out which formal jobs this change needs
+      - name: Work out which formal jobs and analyses this change needs
         id: scope
         env:
           GITHUB_TOKEN: ${{ github.token }}
