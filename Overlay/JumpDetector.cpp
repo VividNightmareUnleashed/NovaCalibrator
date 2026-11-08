@@ -502,7 +502,20 @@ void JumpDetector::EvaluatePendingCandidates()
 		// the verdict. Refusals are logged to tell a gated step from a small one.
 		if (c.deviceId == vr::k_unTrackedDeviceIndex_Hmd)
 		{
-			c.heldPosition = HeldPositionSignature(c.preWindow);
+			// The 3DoF fallback on either side of the step. Before it, the step
+			// is the catch-up onto resumed tracking. From it on, the fit after
+			// the step reads a position the head has left, so the step it gives
+			// is the hold's, not the frame's: entering 3DoF also applies the
+			// engine's pending correction at once (weekly sweep, seed 1442538:
+			// a 3.7 cm frame step read as 5.9 cm under a head walking at
+			// 0.9 m/s, and even the exact step left more error than none).
+			std::vector<Hist> postWindow;
+			for (const auto &h : dev.hist)
+				if (h.t >= c.t && h.t <= c.t + config.window)
+					postWindow.push_back(h);
+			const bool heldBefore = HeldPositionSignature(c.preWindow);
+			const bool heldAfter = !heldBefore && HeldPositionSignature(postWindow);
+			c.heldPosition = heldBefore || heldAfter;
 			const bool thresholdSized =
 				std::abs(c.trans.norm() - config.driftCatchUpPos) <= config.driftCatchUpPosBand ||
 				std::abs(std::abs(dYaw) - config.driftCatchUpYawRad) <= config.driftCatchUpYawBandRad;
@@ -529,8 +542,10 @@ void JumpDetector::EvaluatePendingCandidates()
 			// it then compensated (2026-10-15).
 			const bool soloSized = c.trans.norm() > config.soloPosThreshold ||
 				std::abs(dYaw) > config.soloYawThresholdRad;
-			if (c.heldPosition)
+			if (heldBefore)
 				note += "; position was held before the step (3DoF), not accepted alone";
+			else if (heldAfter)
+				note += "; position held from the step on (3DoF), not accepted alone";
 			else if ((thresholdSized || turnAboutHead) && driftFollowed)
 				note += "; shaped like a drift catch-up, but continuous alignment has followed the drift, so treated as a frame change";
 			else if (thresholdSized)
@@ -692,7 +707,8 @@ void JumpDetector::TryAccept()
 		bool solo = ActiveDeviceCount(now) <= 1;
 		// A large step after a held position is the catch-up onto resumed
 		// tracking (a wake, a dark corner): the frame did not change, the
-		// head did. No solo path applies it, whatever its size. Nor does one
+		// head did. A step into one is measured against a position the head
+		// has left. No solo path applies either, whatever its size. Nor does one
 		// apply a step of the smoother's reset threshold, the drift
 		// catch-up; the 10 deg yaw threshold sits exactly on the solo floor.
 		bool bigSolo = solo && !c0.needsCorroboration && !c0.heldPosition && !c0.driftCatchUp &&

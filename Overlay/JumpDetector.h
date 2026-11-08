@@ -82,8 +82,8 @@ public:
 		// A clean persistent HMD step is therefore accepted alone down to the
 		// corroborated floor once the stream has been continuous for
 		// soloSettledSeconds (a wake, a stream restart and Virtual Desktop's
-		// reconnect re-zeroing all fall inside the first minute) and the
-		// pre-window shows no held position: the 3DoF fallback holds position
+		// reconnect re-zeroing all fall inside the first minute) and neither
+		// fit window shows a held position: the 3DoF fallback holds position
 		// bit for bit, which 6DoF never did (0 of 4,331 frames, 2026-09-11).
 		// Nor when the frame carrying the step came late (holeIntervalFactor
 		// times the usual interval): a stalled stream, whose fit straddles the
@@ -309,8 +309,9 @@ private:
 		// that is still being fitted (AwaitsFittedStep).
 		bool awaitingFit = false;
 		// HMD heuristic, decided once when the fit completes. `heldPosition`:
-		// the pre-window shows the 3DoF fallback, so this is a catch-up onto
-		// resumed tracking. `driftCatchUp`: shaped like the smoother's reset
+		// a fit window shows the 3DoF fallback: before the step, a catch-up
+		// onto resumed tracking; from it on, a step measured against a held
+		// position. `driftCatchUp`: shaped like the smoother's reset
 		// (see driftCatchUp* in Config). No solo path applies either.
 		// `settledSolo`: may be applied with no other reference device
 		// tracking (see soloSettled*).

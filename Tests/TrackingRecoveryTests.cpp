@@ -74,18 +74,18 @@ Deltas Replay(const std::function<double(int, uint32_t)> &shift, const std::vect
 }
 
 // Headset-only replay with a living headset: a slow turn so the heading
-// changes every frame, and (unless `heldPosition`) sub-millimetre SLAM noise
-// so the position never repeats bit-for-bit. Frames in [skipFrom, skipTo)
-// are not pushed, which the detector reads as a stream gap. Every
-// `holeEvery`th frame is a driver queue drop instead: not pushed, and
-// reported as a hole the way the runtime monitor reports one. Notes are
-// drained into `log` when given.
+// changes every frame, and (unless `heldPosition`, or from frame `heldFrom`
+// on) sub-millimetre SLAM noise so the position never repeats bit-for-bit.
+// Frames in [skipFrom, skipTo) are not pushed, which the detector reads as a
+// stream gap. Every `holeEvery`th frame is a driver queue drop instead: not
+// pushed, and reported as a hole the way the runtime monitor reports one.
+// Notes are drained into `log` when given.
 int ReplaySolo(int frames, const std::function<double(int)> &shift,
                const std::function<double(int)> &yawStep, bool heldPosition,
                int skipFrom = -1, int skipTo = -1,
                std::vector<std::string> *log = nullptr,
                JumpDetector::UniverseDelta *last = nullptr,
-               int holeEvery = 0, bool driftFollowed = false)
+               int holeEvery = 0, bool driftFollowed = false, int heldFrom = -1)
 {
 	JumpDetector detector(QpcSeconds);
 	detector.SetDriftFollowed(driftFollowed);
@@ -103,7 +103,7 @@ int ReplaySolo(int frames, const std::function<double(int)> &shift,
 		auto s = Sample(0, time, shift(frame));
 		double yaw = 0.1 * time + yawStep(frame);
 		s.rotation = { std::cos(yaw / 2), 0, std::sin(yaw / 2), 0 };
-		if (!heldPosition)
+		if (!heldPosition && (heldFrom < 0 || frame < heldFrom))
 			s.position[2] = 1e-5 * std::sin(time * 700.0);
 		detector.Push(s);
 		JumpDetector::UniverseDelta delta;
@@ -509,6 +509,23 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 		check("headset-only: step after a held position is refused",
 			count == 0 && Has(log, "position was held before the step (3DoF)"),
 			"position bit-constant while the heading moved: the 3DoF-to-6DoF snap");
+
+		// The other way round: the fallback starts at the step. Entering 3DoF
+		// applies the engine's pending correction and holds the position from
+		// there, so the fit after the step reads a point the head has left
+		// (the weekly sweep, seed 1442538: a 3.7 cm frame step read as 5.9 cm
+		// and applied alone). Neither solo path applies such a step, whatever
+		// its size.
+		log.clear();
+		count = ReplaySolo(9200, lateStep, none, false, -1, -1, &log, nullptr, 0, false, 9000);
+		check("headset-only: step into a held position is refused",
+			count == 0 && Has(log, "position held from the step on (3DoF)"),
+			"8 cm step, then the position bit-constant while the heading moved: the 6DoF-to-3DoF entry");
+		log.clear();
+		count = ReplaySolo(9200, [](int f) { return f >= 9000 ? .4 : 0.; }, none, false, -1, -1, &log, nullptr, 0, false, 9000);
+		check("headset-only: a step past the solo floor into a held position is refused too",
+			count == 0 && Has(log, "position held from the step on (3DoF)"),
+			"40 cm step into the hold: the size does not make the held fit a frame measurement");
 
 		// A frame change turns about the map's points, so the head moves
 		// with the heading: 3 deg about a point 57 cm away moves it 3 cm.
