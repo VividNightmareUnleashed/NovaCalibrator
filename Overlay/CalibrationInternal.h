@@ -114,6 +114,11 @@ bool DuringUniverseSetup(const CalibrationContext &ctx, double moveTime);
 bool FrameChangeLeftAlone(const CalibrationContext &ctx, double time,
 	const Eigen::Quaterniond &fromRot, const Eigen::Vector3d &fromTrans,
 	const Eigen::Quaterniond &toRot, const Eigen::Vector3d &toTrans);
+// A base calibration completed with this target device: tells the lighthouse
+// fold when the device is in the frame of a station SteamVR found knocked and
+// has not corrected yet, so that the correction is carried into the
+// calibration when it comes instead of moving the frame's trackers.
+void NoteCalibrationForBumpedStations(CalibrationContext &ctx, uint32_t targetId);
 void NotifyOnce(CalibrationContext &ctx, bool &notified, const char *line,
 	CalibrationContext::Tone tone, const char *toast, bool showToast,
 	CalibrationContext::Event event = CalibrationContext::Event::Other);

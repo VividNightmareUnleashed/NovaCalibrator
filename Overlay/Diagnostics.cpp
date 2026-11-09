@@ -628,6 +628,8 @@ void DescribeBaseStations(std::ostream &out, const CalibrationContext &ctx, cons
 	out << "\nframe moves left alone as SteamVR corrected a knocked base station: " << ctx.bumpedStationCorrections;
 	if (!ctx.lastBumpedStationCorrection.empty())
 		out << " (last: " << ctx.lastBumpedStationCorrection << ")";
+	out << "\nsuch corrections carried into a calibration measured between the knock and the correction: "
+		<< ctx.bumpedStationCorrectionsCarried;
 	out << "\n\n";
 }
 

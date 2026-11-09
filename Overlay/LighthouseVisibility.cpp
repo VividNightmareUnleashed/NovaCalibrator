@@ -100,6 +100,8 @@ std::string LighthouseVisibility::Apply(const Event &e, double ringTime)
 		bump.at = e.historical ? -1e9 : ringTime;
 		bump.replaced = false;
 		bump.replacedAt = -1e9;
+		// A knock after a calibration is not in that calibration.
+		bump.calibrated = false;
 		if (e.historical || already)
 			return std::string();
 		return "SteamVR found base station " + StationNameById(e.stationId) +
@@ -448,6 +450,31 @@ bool LighthouseVisibility::ReplacingBumped(uint32_t stationId, double ringTime) 
 	if (!bump.replaced)
 		return true;
 	return bump.replacedAt > -1e8 && ringTime <= bump.replacedAt + config.bumpReplaceSeconds;
+}
+
+bool LighthouseVisibility::NoteCalibrationWhileBumped(uint32_t stationId, double ringTime)
+{
+	const auto it = bumps.find(stationId);
+	if (it == bumps.end() || it->second.replaced)
+		return false;
+	Bump &bump = it->second;
+	if (bump.at > -1e8 && ringTime < bump.at)
+		return false;   // completed before the knock
+	bump.calibrated = true;
+	return true;
+}
+
+bool LighthouseVisibility::BumpCalibrated(uint32_t stationId) const
+{
+	const auto it = bumps.find(stationId);
+	return it != bumps.end() && it->second.calibrated;
+}
+
+void LighthouseVisibility::BumpCarried(uint32_t stationId)
+{
+	const auto it = bumps.find(stationId);
+	if (it != bumps.end())
+		it->second.calibrated = false;
 }
 
 bool LighthouseVisibility::Disturbed(const std::string &serial, double ringTime) const

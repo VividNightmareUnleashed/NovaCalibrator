@@ -340,15 +340,17 @@ static uint32_t StationIdOfSerial(const std::string &serial)
 // split. A frame change is that station's when the station's own device is
 // in the frame before or after it (one frame per station, at its pose; two
 // stations' frames are metres apart, so the match can be loose).
-static bool ReplacesBumpedStation(const CalibrationContext &ctx, double time,
+static bool SameStationFrame(const Eigen::Quaterniond &aRot, const Eigen::Vector3d &aTrans,
+	const Eigen::Quaterniond &bRot, const Eigen::Vector3d &bTrans)
+{
+	return aRot.angularDistance(bRot) < 3.0 * questcal::Pi / 180.0 && (aTrans - bTrans).norm() < 0.10;
+}
+
+// The id of the bumped station a frame change re-places, or 0.
+static uint32_t BumpedStationReplacedBy(const CalibrationContext &ctx, double time,
 	const Eigen::Quaterniond &fromRot, const Eigen::Vector3d &fromTrans,
 	const Eigen::Quaterniond &toRot, const Eigen::Vector3d &toTrans)
 {
-	auto same = [](const Eigen::Quaterniond &aRot, const Eigen::Vector3d &aTrans,
-		const Eigen::Quaterniond &bRot, const Eigen::Vector3d &bTrans)
-	{
-		return aRot.angularDistance(bRot) < 3.0 * questcal::Pi / 180.0 && (aTrans - bTrans).norm() < 0.10;
-	};
 	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
 	{
 		const uint32_t station = StationIdOfSerial(DeviceSerials[id]);
@@ -356,10 +358,80 @@ static bool ReplacesBumpedStation(const CalibrationContext &ctx, double time,
 		Eigen::Vector3d translation;
 		if (station != 0 && ctx.lighthouse.ReplacingBumped(station, time) &&
 			FrameWatch.StationFrame(id, rotation, translation) &&
-			(same(rotation, translation, fromRot, fromTrans) || same(rotation, translation, toRot, toTrans)))
-			return true;
+			(SameStationFrame(rotation, translation, fromRot, fromTrans) ||
+				SameStationFrame(rotation, translation, toRot, toTrans)))
+			return station;
 	}
-	return false;
+	return 0;
+}
+
+static bool ReplacesBumpedStation(const CalibrationContext &ctx, double time,
+	const Eigen::Quaterniond &fromRot, const Eigen::Vector3d &fromTrans,
+	const Eigen::Quaterniond &toRot, const Eigen::Vector3d &toTrans)
+{
+	return BumpedStationReplacedBy(ctx, time, fromRot, fromTrans, toRot, toTrans) != 0;
+}
+
+// A calibration completed with `targetId` as its target. When that device is
+// in the frame of a station SteamVR found knocked and has not corrected yet,
+// the calibration was measured on the poses the knock made
+// (LighthouseVisibility::NoteCalibrationWhileBumped), and the correction is
+// carried into it when it comes (CarryBumpCorrection).
+void calibration_internal::NoteCalibrationForBumpedStations(CalibrationContext &ctx, uint32_t targetId)
+{
+	Eigen::Quaterniond targetRot;
+	Eigen::Vector3d targetTrans;
+	if (!FrameWatch.LastFrame(targetId, targetRot, targetTrans))
+		return;
+	const double ringNow = QpcNowSeconds();
+	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+	{
+		const uint32_t station = StationIdOfSerial(DeviceSerials[id]);
+		Eigen::Quaterniond rotation;
+		Eigen::Vector3d translation;
+		if (station != 0 && FrameWatch.StationFrame(id, rotation, translation) &&
+			SameStationFrame(rotation, translation, targetRot, targetTrans) &&
+			ctx.lighthouse.NoteCalibrationWhileBumped(station, ringNow))
+			ctx.Log("The calibration was measured while base station " + ctx.lighthouse.StationNameById(station) +
+				" waits for SteamVR's correction after a knock; the correction will be carried into it\n");
+	}
+}
+
+// SteamVR's correction of a knocked station, left alone, puts the trackers in
+// its frame back where they were before the knock. A calibration measured
+// between the knock and the correction took the knocked poses for true, so
+// the correction would move every tracker in the frame off by the knock (on
+// 2026-11-06: calibrated 46 s after the first knock, corrected 15.6 min after
+// it, 12 to 17 cm). The calibration takes the correction instead: the frame's
+// trackers stay where it put them, and the other frames' trackers, which it
+// had put off by the knock, come right. Once for a re-placement; the frame's
+// other devices show the same move.
+static void CarryBumpCorrection(CalibrationContext &ctx, const LighthouseFrameWatch::Move &move)
+{
+	const uint32_t station = BumpedStationReplacedBy(ctx, move.frameTime,
+		move.fromRot, move.fromTrans, move.toRot, move.toTrans);
+	if (station == 0 || !ctx.lighthouse.BumpCalibrated(station))
+		return;
+	ctx.lighthouse.BumpCarried(station);
+	Eigen::Quaterniond rotation;
+	Eigen::Vector3d translation;
+	questcal::TrackerFrameCorrections::MoveInNormalizedSpace(ctx.trackerFrames.Snapshot()[move.id],
+		move.rotation, move.translation, rotation, translation);
+	const std::string name = ctx.lighthouse.StationNameById(station);
+	if (!questcal::CarryTargetSpaceMove(ctx, rotation, translation, ctx.timeLastTick))
+	{
+		ctx.Log("SteamVR's correction of knocked base station " + name +
+			" could not be carried into the calibration measured before it; calibrate again\n");
+		return;
+	}
+	char line[256];
+	snprintf(line, sizeof line,
+		"SteamVR's correction of knocked base station %s was carried into the calibration measured before it: "
+		"%.2f deg, %.1f cm at device %u\n",
+		name.c_str(), rotation.angularDistance(Eigen::Quaterniond::Identity()) * 180.0 / questcal::Pi,
+		move.shiftM * 100.0, move.id);
+	ctx.Log(line);
+	++ctx.bumpedStationCorrectionsCarried;
 }
 
 bool calibration_internal::FrameChangeLeftAlone(const CalibrationContext &ctx, double time,
@@ -567,6 +639,8 @@ static void UpdateTrackerFrames(CalibrationContext &ctx)
 			if (mounted) ctx.lastTrackerFrameCompensation = line;
 		}
 		LogFrameLine(ctx, line, notable);
+		if (bumped)
+			CarryBumpCorrection(ctx, move);
 	}
 
 	for (const auto &change : targetSwitches)

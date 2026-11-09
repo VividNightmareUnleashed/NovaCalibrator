@@ -201,6 +201,23 @@ public:
 	// in that station's frame were off from the knock until then, and the
 	// re-placement puts them back, so it is a correction, not a frame move.
 	bool ReplacingBumped(uint32_t stationId, double ringTime) const;
+
+	// A calibration completed at ringTime with its target device in the frame
+	// of this station. True, and kept, when SteamVR found the station bumped
+	// and has not moved it since: that calibration was measured on the poses
+	// the knock made, so it holds the knock. Players calibrate when their
+	// trackers look off, which is what a knock does: on 2026-11-06 both
+	// knocks had a calibration before SteamVR's correction (46 s and 22 s
+	// after the reset line; the corrections came 15.6 min and 31 s after it).
+	bool NoteCalibrationWhileBumped(uint32_t stationId, double ringTime);
+	// Such a calibration holds the knock of this station, and its
+	// re-placement was not carried into the calibration yet. Left alone
+	// only, the re-placement would move every tracker in the frame by the
+	// knock (12 to 17 cm at the first one of 2026-11-06).
+	bool BumpCalibrated(uint32_t stationId) const;
+	// The re-placement was carried into the calibration: the devices that
+	// show the same re-placement later are left alone only.
+	void BumpCarried(uint32_t stationId);
 	uint64_t UniverseId() const { return universeId; }   // 0 until a line names it
 
 	// SteamVR is quitting at ringTime: its quit line came within
@@ -242,12 +259,14 @@ private:
 	uint64_t universeId = 0;
 	double universeChosenAt = -1e9;        // ring seconds
 	// Stations SteamVR found bumped, by id: when (-1e9 for a replayed line),
-	// and whether and when (-1e9 replayed) it next moved the station.
+	// whether and when (-1e9 replayed) it next moved the station, and whether
+	// a calibration completed between the two (NoteCalibrationWhileBumped).
 	struct Bump
 	{
 		double at = -1e9;
 		bool replaced = false;
 		double replacedAt = -1e9;
+		bool calibrated = false;
 	};
 	std::map<uint32_t, Bump> bumps;
 	double quitAt = -1e9;                  // ring seconds of the last quit line

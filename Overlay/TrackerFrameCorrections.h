@@ -197,6 +197,24 @@ public:
 		return ExpressCalibration(Eigen::Quaterniond(frame.rotation.w, frame.rotation.x, frame.rotation.y, frame.rotation.z),
 			Eigen::Vector3d(frame.translation.v), rotation, translation, scale);
 	}
+	// A frame move F (new world = moveRotation * old world + moveTranslation)
+	// that the frame's correction N was not carried across, as it shows in the
+	// normalized space: a pose there moved by M = N F N^-1. ExpressCalibration
+	// with M then keeps the frame's devices where a calibration measured
+	// before the move put them (C' = C M^-1), and puts every other frame's
+	// devices where that calibration would have put them had it been measured
+	// after the move: the way a calibration measured on a knocked station's
+	// poses is brought to the corrected ones (LighthouseVisibility::
+	// NoteCalibrationWhileBumped).
+	static void MoveInNormalizedSpace(const protocol::FrameCorrection &frame,
+		const Eigen::Quaterniond &moveRotation, const Eigen::Vector3d &moveTranslation,
+		Eigen::Quaterniond &rotation, Eigen::Vector3d &translation)
+	{
+		const Eigen::Quaterniond n(frame.rotation.w, frame.rotation.x, frame.rotation.y, frame.rotation.z);
+		const Eigen::Vector3d t(frame.translation.v);
+		rotation = (n * moveRotation * n.conjugate()).normalized();
+		translation = t + n * moveTranslation - rotation * t;
+	}
 	// ExpressCalibration with the N captured at a run's first sample holds only
 	// if every move the run carried back to its start frame (toStart) was also
 	// followed here: the target's N is then N_start o toStart. A move left alone

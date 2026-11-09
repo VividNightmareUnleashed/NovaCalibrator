@@ -288,6 +288,18 @@ static bool ImportPreviousNameRecords(CalibrationContext &ctx)
 	return false;
 }
 
+// Whether the PC holds records saved under the QuestCalibrator name: the ones
+// Nova Calibrator's first start copied. An error reads as none.
+static bool PreviousNameRecordsExist()
+{
+	HKEY hkey = nullptr;
+	if (RegOpenKeyExA(HKEY_CURRENT_USER_LOCAL_SETTINGS, PreviousRegistryKey, 0,
+			KEY_QUERY_VALUE, &hkey) != ERROR_SUCCESS)
+		return false;
+	RegCloseKey(hkey);
+	return true;
+}
+
 enum class RegistryReadStatus
 {
 	Missing,
@@ -376,6 +388,9 @@ void LoadProfile(CalibrationContext &ctx)
 	const bool importedPreviousName = ImportPreviousNameRecords(ctx);
 	PersistedRevision profileRevision;
 	PersistedRevision settingsRevision;
+	// The schema the Settings record was written at; a start with no such
+	// record has nothing to migrate.
+	int settingsSchema = questcal::SettingsSchema;
 	bool settingsRewriteNeeded = false;
 
 	auto profileRead = ReadRegistryValue("Config");
@@ -454,7 +469,7 @@ void LoadProfile(CalibrationContext &ctx)
 			SettingsRecord parsed = CaptureSettingsRecord(ctx);
 			RejectExcessiveJsonNesting(settingsRead.value);
 			std::stringstream io(settingsRead.value);
-			settingsRevision = ParseSettings(parsed, io);
+			settingsRevision = ParseSettings(parsed, io, &settingsSchema);
 			ApplySettingsRecord(ctx, std::move(parsed));
 			ctx.settingsLoadState = questcal::RecordLoadState::Loaded;
 			ctx.ClearError(CalibrationContext::ErrorSource::SettingsPersistence);
@@ -481,6 +496,17 @@ void LoadProfile(CalibrationContext &ctx)
 	{
 		experimentalSwitchesTurnedOff = true;
 		ctx.Log("Experimental settings saved by QuestCalibrator (playspace scale solving) were turned off\n");
+	}
+	// A start before 1.2.4-rc.2 copied them and left them on: the record such
+	// a start wrote has them turned off once (questcal::MigrateSettings).
+	else if (!importedPreviousName &&
+		ctx.settingsLoadState == questcal::RecordLoadState::Loaded &&
+		settingsSchema < questcal::SettingsSchema &&
+		questcal::MigrateSettings(ctx, settingsSchema, PreviousNameRecordsExist()))
+	{
+		experimentalSwitchesTurnedOff = true;
+		ctx.Log("Experimental settings that came from QuestCalibrator (playspace scale solving) were turned off; "
+			"turn them on again in Settings if you use them\n");
 	}
 
 	// PlanPersistenceLoad decides everything from these facts; this block only

@@ -465,6 +465,7 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 	ctx.SetCalibration(result.rotation, result.translation, result.scale);
 	ctx.transform.timeOffset = result.timeOffset;
 	ctx.validProfile = true;
+	NoteCalibrationForBumpedStations(ctx, run.targetId);
 
 	// A base recalibration re-measures the whole alignment; anchors solved
 	// against the previous alignment would fight it. Start the field fresh.

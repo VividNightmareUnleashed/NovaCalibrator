@@ -636,6 +636,38 @@ bool ApplyCalibrationDelta(CalibrationContext &ctx,
 	return true;
 }
 
+bool CarryTargetSpaceMove(CalibrationContext &ctx,
+	const Eigen::Quaterniond &rotation, const Eigen::Vector3d &translation, double now)
+{
+	if (!ctx.validProfile || !IsValidRotation(rotation) ||
+		!IsBoundedVector(translation, protocol::limits::MaxAbsTranslationMeters))
+		return false;
+
+	const double scale = ctx.transform.scale;
+	Eigen::Quaterniond newRotation = ctx.transform.rotation;
+	Eigen::Vector3d newTranslation = ctx.transform.translationMeters;
+	if (!TrackerFrameCorrections::ExpressCalibration(rotation, translation, newRotation, newTranslation, scale))
+		return false;
+
+	// Each anchor is an absolute solve on the same target space; where it
+	// applies is a place in the reference space, which did not move.
+	auto anchors = ctx.fieldAnchors;
+	for (auto &anchor : anchors)
+		if (!TrackerFrameCorrections::ExpressCalibration(rotation, translation,
+				anchor.rotation, anchor.translationMeters, scale) ||
+			!IsValidFieldAnchor(anchor.position, anchor.rotation, anchor.translationMeters,
+				newRotation, newTranslation))
+			return false;
+
+	ctx.fieldAnchors = std::move(anchors);
+	ctx.SetCalibration(newRotation, newTranslation, scale);
+	if (!ctx.fieldAnchors.empty())
+		ctx.fieldGeneration++;
+	ctx.persistence.MarkProfile(now);
+	SynchronizeCalibrationDriver(ctx);
+	return true;
+}
+
 void AdoptProfileUniverse(CalibrationContext &ctx, const WorldFromDriver &adopted, double now)
 {
 	ctx.profileWorldFromDriverRotation = adopted.rotation;

@@ -23,9 +23,10 @@ struct ChaperoneRecord
 };
 
 // The Settings record's schema, stored under "settings_version" as the
-// Config record's is (see ConfigSchema). No change has needed a migration
-// yet; the first one bumps it and adds a step table as ConfigMigrations.
-constexpr int SettingsSchema = 1;
+// Config record's is (see ConfigSchema); a record from before the key existed
+// is schema 1. Schema 2 marks a record whose experimental switches are the
+// player's own choice in Nova Calibrator (MigrateSettings).
+constexpr int SettingsSchema = 2;
 
 // The Settings record's switches, each listed once: its member (named as in
 // CalibrationContext), its key and its default. The record's members, the
@@ -64,6 +65,23 @@ inline bool TurnOffExperimentalSwitches(Switches &switches)
 	QUESTCAL_EXPERIMENTAL_SETTINGS_SWITCHES(QUESTCAL_SWITCH_OFF)
 #undef QUESTCAL_SWITCH_OFF
 	return changed;
+}
+
+// Brings a Settings record written at `schema` up to date; true when it
+// changed a switch. `previousNameRecords` says the PC holds records saved
+// under the QuestCalibrator name, which Nova Calibrator's first start copied.
+//
+// Schema 1 to 2: until 1.2.4-rc.2 that copy kept the experimental switches,
+// and the start that copied is the only one that turns them off. A PC that
+// copied earlier still had "solve_scale" on after the update (three of three
+// PCs in the logs of 2026-11-06), so the tester whose calibrations took a 3
+// percent playspace scale would take it again. A schema 1 record on such a PC
+// has them turned off once. The record is then saved at schema 2, and a
+// switch the player turns on after that stays on.
+template <typename Switches>
+inline bool MigrateSettings(Switches &switches, int schema, bool previousNameRecords)
+{
+	return schema < 2 && previousNameRecords && TurnOffExperimentalSwitches(switches);
 }
 
 struct SettingsRecord
@@ -239,7 +257,9 @@ inline void WriteSettings(const SettingsRecord &record,
 	out << value.serialize(true);
 }
 
-inline PersistedRevision ParseSettingsUnchecked(SettingsRecord &settings, std::istream &stream)
+// `writtenSchema`, when given, takes the schema the record was written at.
+inline PersistedRevision ParseSettingsUnchecked(SettingsRecord &settings, std::istream &stream,
+	int *writtenSchema = nullptr)
 {
 	picojson::value value;
 	std::string err = questcal::ParseRecordJson(value, stream);
@@ -250,12 +270,16 @@ inline PersistedRevision ParseSettingsUnchecked(SettingsRecord &settings, std::i
 	const auto &obj = value.get<picojson::object>();
 	PersistedRevision revision = ReadPersistenceRevision(obj);
 
+	int schema = 1;
 	if (HasTypedValue<double>(obj, "settings_version"))
 	{
 		double version = GetDouble(obj.at("settings_version"));
 		if (!IsValidSettingsVersion(version))
 			throw std::runtime_error("invalid settings_version");
+		schema = static_cast<int>(version);
 	}
+	if (writtenSchema)
+		*writtenSchema = schema;
 #define QUESTCAL_PARSE_SWITCH(member, key, value) \
 	if (HasTypedValue<bool>(obj, key)) \
 		settings.member = obj.at(key).get<bool>();
@@ -300,10 +324,11 @@ inline PersistedRevision ParseSettingsUnchecked(SettingsRecord &settings, std::i
 	return revision;
 }
 
-inline PersistedRevision ParseSettings(SettingsRecord &destination, std::istream &stream)
+inline PersistedRevision ParseSettings(SettingsRecord &destination, std::istream &stream,
+	int *writtenSchema = nullptr)
 {
     SettingsRecord parsed = destination;
-    const auto revision = ParseSettingsUnchecked(parsed, stream);
+    const auto revision = ParseSettingsUnchecked(parsed, stream, writtenSchema);
     destination = std::move(parsed);
     return revision;
 }

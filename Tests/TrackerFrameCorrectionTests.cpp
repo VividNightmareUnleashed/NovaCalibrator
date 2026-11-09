@@ -1756,6 +1756,84 @@ void KnockedStationReplacement(Check check)
 			shift9 < 1e-9 && shift10 < 1e-9 && shift11 > 0.01, detail);
 }
 
+// A calibration measured between a station's knock and SteamVR's correction of
+// it holds the knock (2026-11-06: calibrated 46 s after S-16's first reset
+// line, corrected 15.6 min after it, yaw 7.71 deg and 12 to 17 cm). The
+// correction, left alone, would then move the frame's trackers off by the
+// knock, so it is carried into the calibration: C' = C M^-1 with the
+// correction as it shows in the normalized space, M = N F N^-1.
+void KnockedStationCalibration(Check check)
+{
+	LighthouseVisibility visibility;
+	const uint32_t knocked = 0x04D47FB4;
+	lighthouselog::Event bump;
+	bump.kind = lighthouselog::Event::Kind::StationBumped;
+	bump.stationId = knocked;
+	lighthouselog::Event moved;
+	moved.kind = lighthouselog::Event::Kind::StationMoved;
+	moved.stationId = knocked;
+	const bool noneWithoutAKnock = !visibility.NoteCalibrationWhileBumped(knocked, 5.0) &&
+		!visibility.BumpCalibrated(knocked);
+	visibility.Apply(bump, 11.0);
+	const bool notBeforeTheKnock = !visibility.NoteCalibrationWhileBumped(knocked, 10.0);
+	const bool noted = visibility.NoteCalibrationWhileBumped(knocked, 57.0) && visibility.BumpCalibrated(knocked);
+	visibility.Apply(bump, 60.0);   // a later knock is not in that calibration
+	const bool laterKnockClears = !visibility.BumpCalibrated(knocked);
+	visibility.NoteCalibrationWhileBumped(knocked, 70.0);
+	visibility.Apply(moved, 947.0);   // SteamVR's line, 15.6 min after the first knock
+	const bool keptForTheMove = visibility.BumpCalibrated(knocked) && visibility.ReplacingBumped(knocked, 947.5);
+	const bool notAfterTheCorrection = !visibility.NoteCalibrationWhileBumped(knocked, 950.0);
+	visibility.BumpCarried(knocked);
+	const bool carriedOnce = !visibility.BumpCalibrated(knocked) && visibility.ReplacingBumped(knocked, 947.5);
+
+	// C: the calibration before the knock, with a scale. N: the frame's
+	// correction. F: SteamVR's correction of the station.
+	const Q cR = Q(Eigen::AngleAxisd(2.9, V(0.05, 0.99, 0.03).normalized()));
+	const V cT(-0.41, 0.21, -1.17);
+	const double scale = 1.013;
+	const Q nR = Q(Eigen::AngleAxisd(0.11, V(0.4, 0.1, -0.9).normalized()));
+	const V nT(0.06, 0.004, 0.095);
+	protocol::FrameCorrection n{};
+	n.rotation = { nR.w(), nR.x(), nR.y(), nR.z() };
+	for (int axis = 0; axis < 3; ++axis)
+		n.translation.v[axis] = nT(axis);
+	const Q fR = Q(Eigen::AngleAxisd(7.71 * questcal::Pi / 180.0, V(0.1, 0.98, 0.15).normalized()));
+	const V fT(0.14, -0.03, 0.09);
+	auto calibrated = [&](const Q &r, const V &t, const V &normalized) { return V(scale * (r * normalized) + t); };
+
+	// A tracker in the knocked frame: its true world pose, and what it read
+	// while the station was knocked (the correction undone).
+	const V truePose(-0.2, 0.9, 1.4);
+	const V knockedPose = fR.conjugate() * (truePose - fT);
+	Q mR;
+	V mT;
+	questcal::TrackerFrameCorrections::MoveInNormalizedSpace(n, fR, fT, mR, mT);
+	// The calibration measured in the window puts the knocked reading where C
+	// puts the true pose: C_window = C M.
+	Q windowR = (cR * mR).normalized();
+	V windowT = cT + scale * (cR * mT);
+	const double absorbed = (calibrated(windowR, windowT, nR * knockedPose + nT) -
+		calibrated(cR, cT, nR * truePose + nT)).norm();
+	// Left alone only, the correction moves the tracker off by the knock.
+	const double leftAloneOnly = (calibrated(windowR, windowT, nR * truePose + nT) -
+		calibrated(cR, cT, nR * truePose + nT)).norm();
+	const bool expressed = questcal::TrackerFrameCorrections::ExpressCalibration(mR, mT, windowR, windowT, scale);
+	const double carriedRotation = windowR.angularDistance(cR);
+	const double carriedTranslation = (windowT - cT).norm();
+
+	char detail[320];
+	std::snprintf(detail, sizeof detail,
+		"fold: none without a knock %d, not before it %d, noted %d, a later knock clears %d, kept for the move %d, "
+		"not after the correction %d, carried once %d; the window's calibration holds the knock to %.1e m, the "
+		"correction alone moves the tracker %.1f cm, carried it is the old calibration to %.1e rad / %.1e m",
+		noneWithoutAKnock, notBeforeTheKnock, noted, laterKnockClears, keptForTheMove, notAfterTheCorrection,
+		carriedOnce, absorbed, leftAloneOnly * 100.0, carriedRotation, carriedTranslation);
+	check("frame corrections: SteamVR's correction of a knocked station is carried into a calibration measured before it",
+		noneWithoutAKnock && notBeforeTheKnock && noted && laterKnockClears && keptForTheMove &&
+			notAfterTheCorrection && carriedOnce && absorbed < 1e-9 && leftAloneOnly > 0.05 && expressed &&
+			carriedRotation < 1e-9 && carriedTranslation < 1e-9, detail);
+}
+
 // A change of a device's frame its own pose jumped with is a move when any
 // chain of the moves other devices showed leads to it: one through a frame
 // between that the station skipped (a), and one the station moved on past
@@ -3784,6 +3862,7 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	CollectionFallback(check);
 	SetupPlacementOnReturn(check);
 	KnockedStationReplacement(check);
+	KnockedStationCalibration(check);
 	LeadByAnyChain(check);
 	FrameJoinedOnReturn(check);
 	ChangesInARow(check);

@@ -44,6 +44,16 @@ bool ApplyCalibrationDelta(CalibrationContext &ctx,
 	const Eigen::Quaterniond &rotation, const Eigen::Vector3d &translation,
 	bool snap, double now, bool moveChaperone);
 
+// The target side's normalized space moved under a calibration measured
+// before the move: a pose there is now `rotation * old + translation`. Keeps
+// every target device where that calibration put it (C' = C M^-1), for the
+// base calibration and each field anchor's solve. The reference space did not
+// move, so the anchors' positions and the protected chaperone stay. False,
+// with nothing changed, without a calibration or when a result would be out
+// of bounds.
+bool CarryTargetSpaceMove(CalibrationContext &ctx,
+	const Eigen::Quaterniond &rotation, const Eigen::Vector3d &translation, double now);
+
 // Rebinds physical-HMD and raw-universe ownership after a successful base
 // calibration and disarms a room snapshot that no longer belongs to it.
 void RebindCalibrationUniverse(CalibrationContext &ctx,

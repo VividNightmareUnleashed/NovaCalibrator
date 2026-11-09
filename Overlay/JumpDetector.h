@@ -237,11 +237,15 @@ private:
 		Eigen::Vector3d pos;               // composed world position
 		Eigen::Vector3d vel;               // world-rotated velocity
 		double yaw;                        // composed world heading
-		// rad/s around world +Y, with the reported angular velocity read in
-		// the driver's world frame and in the device's own frame. The jump
-		// check takes the one the probe judged, and both until it has.
-		double yawRateWorld;
-		double yawRateDevice;
+		// The composed world rotation, and its rate in the raw universe with
+		// the reported angular velocity read in the driver's world frame and
+		// in the device's own frame. The jump check takes the reading the
+		// probe judged, and both until it has. It predicts the whole rotation
+		// and reads the heading off it (PredictedYaw): the heading of a tilted
+		// device does not turn at the rate's vertical part in either reading.
+		Eigen::Quaterniond rot;
+		Eigen::Vector3d rateWorld;
+		Eigen::Vector3d rateDevice;
 	};
 
 	// Which detection path produced a candidate, and where it is in its life.

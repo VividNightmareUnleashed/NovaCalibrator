@@ -2946,6 +2946,52 @@ void RunJumpScenarios()
 			judged && candidates == 0 && candidatesAfterVerdict == 0 && deltas == 0, detail);
 	}
 
+	// The same controllers turned about other axes: one twists about its own
+	// +Y, the other rolls about a horizontal axis of the room. The heading (the
+	// twist about world +Y) of a tilted device does not turn at the rate's
+	// vertical part, in either reading of the rate: here by up to 2.8 degrees
+	// a frame. The check predicts the whole rotation, so neither is a jump.
+	{
+		JumpDetector jd(TestQpcToSeconds);
+		jd.SetDetailed(true);
+		const double questRate = 60.0;
+		int candidates = 0, deltas = 0;
+		JumpDetector::UniverseDelta d;
+		std::string line;
+		for (double t = 0.0; t < 6.0; t += 1.0 / questRate)
+		{
+			for (uint32_t id = 0; id <= 1; ++id)
+			{
+				const double w = 4.0 * std::cos(2.0 * t + id);
+				const double angle = 2.0 * std::sin(2.0 * t + id);
+				Eigen::Quaterniond rot;
+				Eigen::Vector3d inWorld;
+				if (id == 0)
+				{
+					const Eigen::Quaterniond tilted(Eigen::AngleAxisd(75.0 * questcal::Pi / 180.0, Eigen::Vector3d::UnitX()));
+					rot = tilted * Eigen::Quaterniond(Eigen::AngleAxisd(angle, Eigen::Vector3d::UnitY()));
+					inWorld = tilted * Eigen::Vector3d(0.0, w, 0.0);
+				}
+				else
+				{
+					const Eigen::Quaterniond tilted(Eigen::AngleAxisd(60.0 * questcal::Pi / 180.0, Eigen::Vector3d::UnitZ()));
+					rot = Eigen::Quaterniond(Eigen::AngleAxisd(angle, Eigen::Vector3d::UnitX())) * tilted;
+					inWorld = Eigen::Vector3d(w, 0.0, 0.0);
+				}
+				jd.Push(RingSample(id, t, Eigen::Quaterniond::Identity(), Eigen::Vector3d::Zero(),
+					rot, Eigen::Vector3d(0.3 * id, 1.2, 0.0), Eigen::Vector3d::Zero(), rot.conjugate() * inWorld));
+			}
+			while (jd.PollDelta(d)) deltas++;
+			while (jd.PollDetail(line))
+				candidates += line.rfind("candidate on device", 0) == 0;
+		}
+		const bool judged = jd.AngularFrameOf(0) == ringpose::AngularVelocityFrame::Device &&
+			jd.AngularFrameOf(1) == ringpose::AngularVelocityFrame::Device;
+		snprintf(detail, sizeof detail, "candidates %d, deltas %d, judged %d", candidates, deltas, judged ? 1 : 0);
+		Check("jump: a tilted controller's twist about its own axis is no jump",
+			judged && candidates == 0 && deltas == 0, detail);
+	}
+
 	// Hard gap in the reference stream: gap event, never a compensation.
 	{
 		JumpDetector jd(TestQpcToSeconds);
@@ -6703,6 +6749,45 @@ void RunPersistenceLegacyScenario()
 		if (record.solveScale) why += " E6(solve_scale kept)";
 		if (record.applyTimeOffset || !record.uiAdvanced) why += " E6(another switch changed)";
 		if (questcal::TurnOffExperimentalSwitches(record)) why += " E6(reported when already off)";
+	}
+
+	// E7: a start before 1.2.4-rc.2 imported them and left them on. A schema 1
+	// Settings record on a PC that holds QuestCalibrator's records has them
+	// turned off once; the record is written at schema 2 from then on, and a
+	// schema 2 record keeps what the player chose. A PC that never had
+	// QuestCalibrator keeps its own choice at any schema.
+	{
+		auto on = []
+		{
+			questcal::SettingsRecord record;
+			record.solveScale = true;
+			record.detailedLogging = true;
+			return record;
+		};
+		questcal::SettingsRecord record = on();
+		if (!questcal::MigrateSettings(record, 1, true) || record.solveScale || !record.detailedLogging)
+			why += " E7(schema 1 with QuestCalibrator's records kept solve_scale)";
+		record = on();
+		if (questcal::MigrateSettings(record, 1, false) || !record.solveScale)
+			why += " E7(a PC without QuestCalibrator's records lost solve_scale)";
+		record = on();
+		if (questcal::MigrateSettings(record, 2, true) || !record.solveScale)
+			why += " E7(schema 2 lost the player's choice)";
+
+		// The schema travels with the record: none in the text is schema 1,
+		// and the writer stamps the current one.
+		std::istringstream unversioned("{\"solve_scale\":true}");
+		int schema = 0;
+		record = questcal::SettingsRecord();
+		questcal::ParseSettings(record, unversioned, &schema);
+		if (schema != 1 || !record.solveScale) why += " E7(an unversioned record is not schema 1)";
+		std::ostringstream written;
+		questcal::WriteSettings(record, 3, written);
+		std::istringstream reread(written.str());
+		schema = 0;
+		questcal::ParseSettings(record, reread, &schema);
+		if (schema != questcal::SettingsSchema || questcal::SettingsSchema != 2)
+			why += " E7(the writer does not stamp schema 2)";
 	}
 
 	char detail[384];

@@ -192,8 +192,9 @@ void JumpDetector::Push(const protocol::DevicePoseSample &s)
 	h.pos = world.position;
 	h.vel = world.velocity;
 	h.yaw = YawOf(world.rotation);
-	h.yawRateWorld = (p.wfdRot * driverAngularVelocity).y();
-	h.yawRateDevice = (world.rotation * driverAngularVelocity).y();
+	h.rot = world.rotation.normalized();
+	h.rateWorld = p.wfdRot * driverAngularVelocity;
+	h.rateDevice = world.rotation * driverAngularVelocity;
 
 	bool rebased = false;
 	if (dev.wfdValid)
@@ -323,15 +324,26 @@ void JumpDetector::DetectDiscontinuity(uint32_t id, DeviceState &dev, const Hist
 		return;
 
 	double posErr = (incoming.pos - questcal::PredictPosition(prev.pos, prev.vel, incoming.vel, dt)).norm();
-	// The yaw rate in the frame the probe judged. Until it has, a step must
-	// exceed both readings: a Quest controller held at an angle turns fast
-	// enough for the wrong reading alone to make a 2-4 degree "jump".
-	const double yawErrWorld = std::abs(WrapAngle(incoming.yaw - prev.yaw - prev.yawRateWorld * dt));
-	const double yawErrDevice = std::abs(WrapAngle(incoming.yaw - prev.yaw - prev.yawRateDevice * dt));
+	// The heading the device would have now had it turned on at its reported
+	// rate, read off the whole predicted rotation. The heading is the twist
+	// about +Y, and on a tilted device it does not turn at the rate's vertical
+	// part: the two differ by up to the horizontal rate times tan(tilt / 2),
+	// in either reading of the rate. `yaw + yawRate * dt` made a 2-4 degree
+	// "jump" of every fast turn of a Quest controller held at an angle (3,580
+	// candidates in the 2 MiB a tester's log kept, 2026-11-06).
+	//
+	// The rate is read in the frame the probe judged. Until it has, a step
+	// must exceed both readings.
+	auto yawErrWith = [&](const Eigen::Vector3d &rate)
+	{
+		return std::abs(WrapAngle(incoming.yaw - YawOf(questcal::PredictRotation(prev.rot, rate, rate, dt))));
+	};
+	const double yawErrWorld = yawErrWith(prev.rateWorld);
+	const double yawErrDevice = yawErrWith(prev.rateDevice);
 	const bool deviceFrame = dev.angularFrame == ringpose::AngularVelocityFrame::Device ||
 		(dev.angularFrame == ringpose::AngularVelocityFrame::Unknown && yawErrDevice < yawErrWorld);
 	double yawErr = deviceFrame ? yawErrDevice : yawErrWorld;
-	const double yawRate = deviceFrame ? incoming.yawRateDevice : incoming.yawRateWorld;
+	const double yawRate = deviceFrame ? incoming.rateDevice.y() : incoming.rateWorld.y();
 
 	if (posErr < config.corroboratedPos && yawErr < config.corroboratedYawRad)
 		return;

@@ -352,6 +352,9 @@ struct CalibrationContext : CalibrationProfileState
 	// The same for SteamVR's re-placement of a base station it found knocked
 	// (LighthouseVisibility::ReplacingBumped): a correction of its pose.
 	uint32_t bumpedStationCorrections = 0;
+	// Such corrections carried into a calibration measured between the knock
+	// and the correction (LighthouseVisibility::NoteCalibrationWhileBumped).
+	uint32_t bumpedStationCorrectionsCarried = 0;
 	std::string lastBumpedStationCorrection;
 	// The optional modules the installer put in (Modules.h), read at startup.
 	questcal::Modules modules;
