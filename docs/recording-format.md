@@ -105,6 +105,7 @@ Every record starts with the same three bytes:
 | 6 | pause | 17 |
 | 7 | resume | 18 to 273 |
 | 8 | alignment | 74 to 329 |
+| 9 | model | 5 to 260 |
 
 A reader skips a record whose kind it does not know by its size and goes on.
 A reader refuses the file from that record on when a kind is 0, when a known
@@ -243,6 +244,21 @@ profile in use; the finer corrections Nova Calibrator makes on top of it
 (field anchors, a tracker's own frame corrections) are not in the file. A
 reader that does not know kind 8 skips it, as any unknown kind.
 
+#### 9: model
+
+SteamVR's name of the render model that shows a device, such as
+`{htc}vr_tracker_vive_3_0`, for a playback that draws the device. It names a
+shape that every device of that kind has, not one device.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| device id | u32 | The device, as in its device entry |
+| render model | string | The name. Never empty in a file the recorder wrote |
+
+The recorder writes one for each device that has a model at each start and
+each resume, behind the device entries, and one when a device's model changes.
+The newest one for an id holds. A reader that does not know kind 9 skips it.
+
 ## What a reader must do
 
 1. Never join the samples on the two sides of a gap, a boundary, or a pause
@@ -313,6 +329,7 @@ device record after sample K: device ID: class C, role R, label "L", model "M", 
 pause after sample K: cause N, count C, time T us
 resume after sample K: cause N, trigger "TEXT", count C, time T us
 alignment after sample K: system "S", applied N, count C, rotation W X Y Z, translation X Y Z, scale S
+model after sample K: device ID, render model "NAME"
 end after sample K: reason N, count C, time T us, samples S
 unknown record after sample K: kind N, B bytes
 ```
@@ -341,7 +358,7 @@ compares both readers' listings with them:
 | `pause-and-resume` | 100 samples, a pause, a resume thirty seconds later, every device again, 60 more samples, an end record |
 | `cut-short` | `clean` without its end record, cut 77 bytes into its last sample |
 | `newer-records` | A record of kind 77, and a pause and resume with cause 2 and a trigger |
-| `alignment` | An alignment record at the start, and a second one, not applied, after 20 samples |
+| `alignment` | An alignment record and a model record at the start, and a second alignment record, not applied, after 20 samples |
 
 The harness fails when the generator no longer makes these exact bytes, so a
 change to the layout cannot be made without a change here. A change that a

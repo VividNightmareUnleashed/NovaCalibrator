@@ -6,6 +6,7 @@
 #include "UiInternal.h"
 #include "MotionRecorder.h"
 #include "MotionRecorderText.h"
+#include "SceneView.h"
 
 #include <ctime>
 #include <string>
@@ -22,11 +23,10 @@ using recording::Playback;
 enum class Kind { Warning, Delete };
 Kind s_kind = Kind::Warning;
 
-// The page's own state: where the playback is, and how it is looked at.
+// The page's own state: where the playback is.
 double s_time = 0.0;
 bool s_playing = false;
 int s_speed = 1;
-int s_view = 0;
 constexpr double Speeds[] = { 0.5, 1.0, 2.0, 4.0 };
 constexpr const char *SpeedLabels[] = { "0.5\xC3\x97", "1\xC3\x97", "2\xC3\x97", "4\xC3\x97" };
 
@@ -146,12 +146,24 @@ ImU32 InkOf(Part part)
 		: part == LeftHand || part == RightHand || part == OtherController ? ui::col::Link : ui::col::Lavender;
 }
 
-// The devices in `box`, each a dot with its path behind it, seen from the
-// front, from above or from the side. One meter is the same length in every
-// view; the view follows the body across the floor.
-void DrawDevices(ImDrawList *dl, const FlexRect &box, int view, const std::vector<Playback::DevicePose> &devices)
+sceneview::Shape ShapeOf(Part part)
 {
-	ui::FillRounded(dl, box.min, box.max, ui::col::Well, 20.0f, ImDrawFlags_RoundCornersTop);
+	return part == Head ? sceneview::Shape::Headset
+		: part == LeftHand || part == RightHand || part == OtherController ? sceneview::Shape::Controller
+		: sceneview::Shape::Tracker;
+}
+
+// The camera a player turns by dragging. It starts in front of the body and
+// a little to its side, and follows the body across the floor.
+constexpr float StartYaw = 3.14159265f - 0.55f, StartPitch = 0.20f, StartDistance = 2.9f;
+sceneview::Camera s_camera{ StartYaw, StartPitch, StartDistance, { 0.0f, 0.95f, 0.0f } };
+
+// The devices in `box` as a 3D picture (SceneView.h): each one SteamVR's own
+// model where SteamVR has it, with its path behind it and its name beside it.
+// A drag turns the view about the body, the wheel moves it closer or away, and
+// the button in its corner puts it back.
+void DrawDevices(ImDrawList *dl, const FlexRect &box, const std::vector<Playback::DevicePose> &devices)
+{
 	struct Shown
 	{
 		const Playback::DevicePose *pose;
@@ -159,7 +171,7 @@ void DrawDevices(ImDrawList *dl, const FlexRect &box, int view, const std::vecto
 	};
 	std::vector<Shown> shown;
 	shown.reserve(devices.size());
-	double sum[3] = { 0.0, 0.0, 0.0 };
+	double sum[2] = { 0.0, 0.0 };
 	int tracked = 0;
 	for (const Playback::DevicePose &pose : devices)
 	{
@@ -170,50 +182,79 @@ void DrawDevices(ImDrawList *dl, const FlexRect &box, int view, const std::vecto
 		if (pose.tracked)
 		{
 			++tracked;
-			for (int i = 0; i < 3; ++i)
-				sum[i] += pose.position[i];
+			sum[0] += pose.position[0];
+			sum[1] += pose.position[2];
 		}
 	}
-
 	// Where the body stands, eased so that a step does not shake the view.
-	static double centre[2] = { 0.0, 0.0 };
 	static bool placed = false;
 	if (tracked > 0)
 	{
-		const double x = sum[0] / tracked, z = sum[2] / tracked;
-		const double ease = placed && !g_uiPreviewMode ? 0.08 : 1.0;
-		centre[0] += (x - centre[0]) * ease;
-		centre[1] += (z - centre[1]) * ease;
+		const float x = static_cast<float>(sum[0] / tracked), z = static_cast<float>(sum[1] / tracked);
+		const float ease = placed && !g_uiPreviewMode ? 0.08f : 1.0f;
+		s_camera.target[0] += (x - s_camera.target[0]) * ease;
+		s_camera.target[2] += (z - s_camera.target[2]) * ease;
 		placed = true;
 	}
 
-	const float scale = (box.H() - 46.0f) / 2.1f;   // pixels for one meter
-	const float midX = (box.min.x + box.max.x) * 0.5f;
-	const float floorY = box.max.y - 18.0f, midY = (box.min.y + box.max.y) * 0.5f + 8.0f;
-	const auto project = [&](float x, float y, float z)
+	// The whole picture is one control. The button drawn over it afterwards
+	// still gets its own press.
+	const ImGuiIO &io = ImGui::GetIO();
+	ImGui::SetCursorScreenPos(box.min);
+	ImGui::SetNextItemAllowOverlap();
+	ImGui::InvisibleButton("##recorderscene", box.Size());
+	if (ImGui::IsItemActive())
 	{
-		const float dx = x - static_cast<float>(centre[0]), dz = z - static_cast<float>(centre[1]);
-		if (view == 1)
-			return ImVec2(midX + dx * scale, midY + dz * scale);
-		return ImVec2(midX + (view == 0 ? dx : -dz) * scale, floorY - y * scale);
+		s_camera.yaw -= io.MouseDelta.x * 0.008f;
+		s_camera.pitch = std::clamp(s_camera.pitch + io.MouseDelta.y * 0.008f, -0.12f, 1.5f);
+	}
+	// Over the picture the wheel is the camera's, not the page's.
+	if (ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY) && io.MouseWheel != 0.0f)
+		s_camera.distance = std::clamp(s_camera.distance * std::pow(0.88f, io.MouseWheel), 1.2f, 9.0f);
+	if (ImGui::IsItemFocused())
+		ui::FocusRing(dl, box.min, box.max, 20.0f);
+
+	std::vector<sceneview::Item> items;
+	items.reserve(shown.size());
+	for (const Shown &entry : shown)
+	{
+		sceneview::Item item;
+		for (int i = 0; i < 3; ++i)
+			item.position[i] = static_cast<float>(entry.pose->position[i]);
+		for (int i = 0; i < 4; ++i)
+			item.rotation[i] = static_cast<float>(entry.pose->rotation[i]);
+		item.renderModel = entry.pose->renderModel;
+		item.shape = ShapeOf(entry.part);
+		const ImVec4 ink = ImGui::ColorConvertU32ToFloat4(InkOf(entry.part));
+		item.colour[0] = ink.x;
+		item.colour[1] = ink.y;
+		item.colour[2] = ink.z;
+		item.tracked = entry.pose->tracked;
+		items.push_back(std::move(item));
+	}
+	const int width = static_cast<int>(box.W()), height = static_cast<int>(box.H());
+	const unsigned picture = sceneview::Render(width, height, s_camera, items);
+	if (picture)
+		// The picture's first row is its bottom row.
+		dl->AddImageRounded(static_cast<ImTextureID>(picture), box.min, box.max, ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f),
+			IM_COL32_WHITE, 20.0f, ImDrawFlags_RoundCornersTop);
+	else
+		ui::FillRounded(dl, box.min, box.max, ui::col::Well, 20.0f, ImDrawFlags_RoundCornersTop);
+
+	// Paths and names are drawn over the picture, where the camera puts them.
+	const auto project = [&](float x, float y, float z, ImVec2 &out)
+	{
+		const float point[3] = { x, y, z };
+		float px = 0.0f, py = 0.0f;
+		if (!sceneview::Project(width, height, s_camera, point, px, py))
+			return false;
+		out = ImVec2(box.min.x + px, box.min.y + py);
+		return true;
 	};
-
-	dl->PushClipRect(box.min, box.max, true);
-	// Lines every half meter, and the floor.
-	const ImU32 gridInk = ui::Rgba(255, 255, 255, 0.05f);
-	const float step = scale * 0.5f;
-	for (float x = midX - std::floor((midX - box.min.x) / step) * step; x < box.max.x; x += step)
-		dl->AddLine(ImVec2(std::floor(x) + 0.5f, box.min.y), ImVec2(std::floor(x) + 0.5f, box.max.y), gridInk);
-	const float gridY = view == 1 ? midY : floorY;
-	for (float y = gridY - std::floor((gridY - box.min.y) / step) * step; y < box.max.y; y += step)
-		dl->AddLine(ImVec2(box.min.x, std::floor(y) + 0.5f), ImVec2(box.max.x, std::floor(y) + 0.5f), gridInk);
-	if (view != 1)
-		dl->AddLine(ImVec2(box.min.x, floorY + 0.5f), ImVec2(box.max.x, floorY + 0.5f), ui::Rgba(255, 255, 255, 0.16f));
-
-	const auto at = [&](const Playback::DevicePose &pose)
+	const auto at = [&](const Playback::DevicePose &pose, ImVec2 &out)
 	{
 		return project(static_cast<float>(pose.position[0]), static_cast<float>(pose.position[1]),
-			static_cast<float>(pose.position[2]));
+			static_cast<float>(pose.position[2]), out);
 	};
 	const auto find = [&](Part part) -> const Playback::DevicePose *
 	{
@@ -222,64 +263,64 @@ void DrawDevices(ImDrawList *dl, const FlexRect &box, int view, const std::vecto
 				return entry.pose;
 		return nullptr;
 	};
-	// A faint figure between the parts that are known: it makes dots a body.
-	const ImU32 boneInk = ui::Rgba(236, 238, 244, 0.16f);
+	dl->PushClipRect(box.min, box.max, true);
+	// A faint figure between the parts that are known: it makes devices a body.
+	const ImU32 boneInk = ui::Rgba(236, 238, 244, 0.14f);
 	const Playback::DevicePose *head = find(Head);
 	const Playback::DevicePose *hips = find(Waist) ? find(Waist) : find(Chest);
 	const auto bone = [&](const Playback::DevicePose *a, const Playback::DevicePose *b)
 	{
-		if (a && b)
-			dl->AddLine(at(*a), at(*b), boneInk, 2.0f);
+		ImVec2 from, to;
+		if (a && b && at(*a, from) && at(*b, to))
+			dl->AddLine(from, to, boneInk, 2.0f);
 	};
 	bone(head, hips);
 	bone(hips, find(LeftFoot));
 	bone(hips, find(RightFoot));
-	if (head && hips)
-	{
-		const ImVec2 h = at(*head), w = at(*hips);
-		const ImVec2 neck(h.x + (w.x - h.x) * 0.25f, h.y + (w.y - h.y) * 0.25f);
-		for (Part hand : { LeftHand, RightHand })
-			if (const Playback::DevicePose *pose = find(hand))
-				dl->AddLine(neck, at(*pose), boneInk, 2.0f);
-	}
+	bone(head, find(LeftHand));
+	bone(head, find(RightHand));
 
 	for (const Shown &entry : shown)
 	{
 		const ImU32 ink = InkOf(entry.part);
 		const auto &trail = entry.pose->trail;
+		ImVec2 from, to;
 		for (size_t i = 1; i < trail.size(); ++i)
 		{
 			const float age = static_cast<float>(i) / static_cast<float>(trail.size());
-			dl->AddLine(project(trail[i - 1][0], trail[i - 1][1], trail[i - 1][2]),
-				project(trail[i][0], trail[i][1], trail[i][2]), ui::Fade(ink, 0.08f + 0.5f * age), 3.0f);
+			if (project(trail[i - 1][0], trail[i - 1][1], trail[i - 1][2], from) && project(trail[i][0], trail[i][1], trail[i][2], to))
+				dl->AddLine(from, to, ui::Fade(ink, 0.08f + 0.5f * age), 3.0f);
 		}
 	}
-	const bool labels = shown.size() <= 8;
+	ImVec2 middle(box.Center());
+	project(s_camera.target[0], s_camera.target[1], s_camera.target[2], middle);
 	const ui::TextStyle labelStyle{ ui::Weight::Medium, 13.0f, 18.0f };
 	for (const Shown &entry : shown)
 	{
-		const ImVec2 c = at(*entry.pose);
-		const float r = entry.part == Head ? 7.0f : 6.0f;
-		if (entry.pose->tracked)
-		{
-			dl->AddCircleFilled(c, r + 5.0f + (entry.part == Head ? 1.0f : 0.0f), ui::Fade(InkOf(entry.part), 0.18f), 32);
-			dl->AddCircleFilled(c, r, InkOf(entry.part), 32);
-		}
-		else
-			// Where it was when its tracking stopped.
-			dl->AddCircle(c, r, ui::col::Faint, 32, 2.0f);
-		if (labels)
-		{
-			// A left part's name is on the left of its dot, so that the names of
-			// a pair do not cover each other.
-			const bool onLeft = entry.part == LeftHand || entry.part == LeftFoot || entry.part == LeftKnee ||
-				entry.part == LeftElbow || entry.part == LeftShoulder;
-			const char *name = Tr(text::DeviceNames[entry.part]);
-			const float x = onLeft ? c.x - r - 10.0f - ui::MeasureLine(labelStyle, name).x : c.x + r + 10.0f;
-			ui::DrawLine(dl, labelStyle, ImVec2(x, c.y - 9.0f), entry.pose->tracked ? ui::col::Prose : ui::col::Faint, name);
-		}
+		ImVec2 c;
+		if (shown.size() > 8 || !at(*entry.pose, c))
+			continue;
+		// A name is on the outer side of its device, away from the body.
+		const char *name = Tr(text::DeviceNames[entry.part]);
+		const float x = c.x < middle.x - 1.0f ? c.x - 24.0f - ui::MeasureLine(labelStyle, name).x : c.x + 24.0f;
+		ui::DrawLine(dl, labelStyle, ImVec2(x, c.y - 9.0f), entry.pose->tracked ? ui::col::Prose : ui::col::Faint, name);
 	}
+	// A quiet line on how the picture is turned.
+	const char *hint = Tr(text::ViewHint);
+	const ui::TextStyle hintStyle{ ui::Weight::Regular, 13.0f, 18.0f };
+	ui::DrawLine(dl, hintStyle, ImVec2(box.max.x - 16.0f - ui::MeasureLine(hintStyle, hint).x, box.max.y - 28.0f), ui::col::Faint,
+		hint);
 	dl->PopClipRect();
+
+	if (ui::RoundButton("##recorderviewreset", ImVec2(box.max.x - 16.0f - 18.0f, box.min.y + 14.0f + 18.0f), 36.0f, ui::Icon::Replay,
+		18.0f, ui::Rgba(0, 0, 0, 0.28f), ui::col::Body))
+	{
+		s_camera.yaw = StartYaw;
+		s_camera.pitch = StartPitch;
+		s_camera.distance = StartDistance;
+	}
+	if (ImGui::IsItemHovered())
+		ShowTip("Reset the view", true);
 }
 
 // Minutes and seconds, with hours in front of a long recording.
@@ -551,7 +592,7 @@ float BuildMotionRecorderPage(const VRState &, ImVec2 origin, float width)
 	const std::string liveText = Tr(text::LiveLine), cutShortText = Tr(text::CutShortLine);
 	if (live || ready)
 	{
-		viewBox = fl.Box(playCard, contentW, 262.0f);
+		viewBox = fl.Box(playCard, contentW, 310.0f);
 		if (live)
 		{
 			liveRow = ui::TextNode(fl, playCard, ui::type::Callout, liveText);
@@ -677,17 +718,12 @@ float BuildMotionRecorderPage(const VRState &, ImVec2 origin, float width)
 			}
 			Player().Frame(s_time, poses);
 		}
-		DrawDevices(dl, view, s_view, poses);
+		DrawDevices(dl, view, poses);
 		if (live)
 			ViewPill(dl, ImVec2(view.min.x + 16.0f, view.min.y + 14.0f), Tr(text::Live), ui::col::AlertTint, true);
 		else if (const std::string when = LocalDateTime(summary.startUnixMicroseconds); !when.empty())
 			ViewPill(dl, ImVec2(view.min.x + 16.0f, view.min.y + 14.0f), Tr(FormatString(text::RecordedPattern, when.c_str())),
 				ui::col::Fill, false);
-		const float viewsW = ui::PillSegmentedWidth(text::Views, 3, 14.0f, 56.0f);
-		FlexRect views;
-		views.min = ImVec2(view.max.x - 16.0f - viewsW, view.min.y + 12.0f);
-		views.max = ImVec2(view.max.x - 16.0f, view.min.y + 12.0f + 36.0f);
-		s_view = ui::PillSegmented("##recorderview", s_view, text::Views, 3, views, 14.0f);
 	}
 	if (liveRow)
 	{
@@ -723,7 +759,7 @@ float BuildMotionRecorderPage(const VRState &, ImVec2 origin, float width)
 		const ImVec2 speedMin(r.max.x - 20.0f - speedW, midY - 17.0f), speedMax(r.max.x - 20.0f, midY + 17.0f);
 		ImGui::SetCursorScreenPos(speedMin);
 		if (ImGui::InvisibleButton("##recorderspeed", ImVec2(speedW, 34.0f)))
-			s_speed = (s_speed + 1) % static_cast<int>(IM_ARRAYSIZE(Speeds));
+			s_speed = (s_speed + 1) % IM_ARRAYSIZE(Speeds);
 		ui::FillRounded(dl, speedMin, speedMax, ImGui::IsItemHovered() ? ui::col::Secondary : ui::Rgba(255, 255, 255, 0.10f), 17.0f);
 		if (ImGui::IsItemFocused())
 			ui::FocusRing(dl, speedMin, speedMax, 17.0f);

@@ -36,6 +36,7 @@ MAX_HEADER_DEVICES = 64
 
 KIND_SAMPLE, KIND_GAP, KIND_BOUNDARY, KIND_DEVICE, KIND_END, KIND_PAUSE, KIND_RESUME = 1, 2, 3, 4, 5, 6, 7
 KIND_ALIGNMENT = 8
+KIND_MODEL = 9
 
 HEADER = struct.Struct("<8sIIqqqI")
 PREFIX = struct.Struct("<BH")
@@ -205,6 +206,13 @@ class Recording:
                 if end != size:
                     raise NotARecording("an alignment record has bytes left over")
                 payload = values + (system,)
+            elif kind == KIND_MODEL:
+                if size < 4:
+                    raise NotARecording("a model record is cut short")
+                name, end = take_string(payload, 4)
+                if end != size:
+                    raise NotARecording("a model record has bytes left over")
+                payload = (struct.unpack_from("<I", payload, 0)[0], name)
             self.consumed = self._taken
             yield kind, payload
 
@@ -279,6 +287,8 @@ def listing(path):
                 shift = " ".join(real(value) for value in payload[6:9])
                 lines.append(f'alignment{after}system "{payload[10]}", applied {payload[0]}, count {payload[1]}, '
                              f"rotation {turn}, translation {shift}, scale {real(payload[9])}")
+            elif kind == KIND_MODEL:
+                lines.append(f'model{after}device {payload[0]}, render model "{payload[1]}"')
             else:
                 lines.append(f"unknown record{after}kind {kind}, {len(payload)} bytes")
         lines.append(f"samples: {samples}")
@@ -367,6 +377,8 @@ def scan(path, csv_device=None, csv_out=None):
                 totals["end"] = END.unpack(payload)
             elif kind == KIND_ALIGNMENT:
                 totals["alignments"] += 1
+            elif kind == KIND_MODEL:
+                pass
             else:
                 totals["unknown"] += 1
         totals["file"] = state["file"]

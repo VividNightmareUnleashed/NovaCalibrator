@@ -34,6 +34,8 @@
 //                 translation in meters, f64 scale, string tracking system:
 //                 the calibration Nova Calibrator gives that system's devices
 //                 from here on. The samples stay as the driver made them.
+//     9 model     u32 device id, string render model: SteamVR's name of the
+//                 model that shows the device, for a playback that draws it
 //
 // A reader never joins the samples on the two sides of a gap, a boundary or a
 // pause. It skips a record kind it does not know by its size, and refuses a
@@ -77,6 +79,7 @@ enum RecordKind : uint8_t
 	KindPause = 6,
 	KindResume = 7,
 	KindAlignment = 8,
+	KindModel = 9,
 };
 
 // Why the recorder closed the file for good. Stored as a byte; a newer
@@ -224,6 +227,14 @@ struct Alignment
 	}
 };
 
+// SteamVR's name of the model that shows a device, such as
+// "{htc}vr_tracker_vive_3_0". It names a shape, not a device.
+struct Model
+{
+	uint32_t deviceId = 0xFFFFFFFF;
+	std::string renderModel;
+};
+
 struct Record
 {
 	uint8_t kind = 0;
@@ -235,6 +246,7 @@ struct Record
 	Pause pause;
 	Resume resume;
 	Alignment alignment;
+	Model model;
 	std::string unknown;
 };
 
@@ -406,6 +418,15 @@ inline void AppendAlignment(std::string &out, const Alignment &alignment)
 	out += payload;
 }
 
+inline void AppendModel(std::string &out, const Model &model)
+{
+	std::string payload;
+	PutU32(payload, model.deviceId);
+	PutString(payload, model.renderModel);
+	PutRecordPrefix(out, KindModel, payload.size());
+	out += payload;
+}
+
 // Any record Reader returned, as the bytes it was read from.
 inline void AppendRecord(std::string &out, const Record &record)
 {
@@ -434,6 +455,9 @@ inline void AppendRecord(std::string &out, const Record &record)
 		break;
 	case KindAlignment:
 		AppendAlignment(out, record.alignment);
+		break;
+	case KindModel:
+		AppendModel(out, record.model);
 		break;
 	default:
 		PutRecordPrefix(out, record.kind, record.unknown.size());
@@ -707,6 +731,10 @@ public:
 			record.alignment.applied = applied == 1;
 			break;
 		}
+		case KindModel:
+			fits = detail::GetU32(in, record.model.deviceId) && detail::GetString(in, record.model.renderModel) &&
+				in.at == in.end;
+			break;
 		default:
 			record.unknown = payload_;
 			break;

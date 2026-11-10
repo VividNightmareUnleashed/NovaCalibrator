@@ -153,6 +153,9 @@
     <ClInclude Include="RecordingPlayback.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="SceneView.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="TrackingStreamDigest.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -297,6 +300,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="RecordingPlayback.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SceneView.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UiMotionRecorder.cpp">

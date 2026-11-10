@@ -224,6 +224,7 @@
     <ClInclude Include="..\Overlay\PoseRecordingFormat.h" />
     <ClInclude Include="..\Overlay\PoseRecordingListing.h" />
     <ClInclude Include="..\Overlay\RecordingPlayback.h" />
+    <ClInclude Include="..\Overlay\SceneView.h" />
     <ClInclude Include="RecordingProperty.h" />
     <ClInclude Include="ReferenceRecordings.h" />
   </ItemGroup>

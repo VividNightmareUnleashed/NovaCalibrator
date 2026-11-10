@@ -127,6 +127,10 @@ inline std::string Listing(std::istream &in)
 				Real(record.alignment.translation[0]) + " " + Real(record.alignment.translation[1]) + " " +
 				Real(record.alignment.translation[2]) + ", scale " + Real(record.alignment.scale) + "\n";
 			break;
+		case KindModel:
+			out += "model" + after + "device " + Unsigned(record.model.deviceId) + ", render model \"" +
+				record.model.renderModel + "\"\n";
+			break;
 		default:
 			out += "unknown record" + after + "kind " + Unsigned(record.kind) + ", " +
 				Unsigned(record.unknown.size()) + " bytes\n";

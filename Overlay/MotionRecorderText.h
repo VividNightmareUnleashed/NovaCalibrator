@@ -56,7 +56,7 @@ inline constexpr const char *KeepButton = "Keep recording";
 // the plural's "s" and GB.
 inline constexpr const char *RecordedPattern = "Recorded %s";
 inline constexpr const char *DevicesPattern = "%d device%s, %.2f GB";
-inline constexpr const char *const Views[] = { "Front", "Top", "Side" };
+inline constexpr const char *ViewHint = "Drag to turn the view";
 inline constexpr const char *LegendRecorded = "Recorded";
 inline constexpr const char *LegendOff = "Off: nothing recorded";
 inline constexpr const char *LegendLost = "Data lost";
@@ -91,13 +91,13 @@ inline constexpr const char *Deleted = "Nova Calibrator deleted the recording.";
 inline constexpr const char *CannotDelete = "Nova Calibrator could not delete the recording file.";
 
 // Every string above that is shown as it stands, for the test that each has a
-// translation. The warning's paragraphs, the views, the device names, the
+// translation. The warning's paragraphs, the device names, the
 // patterns and the two sentences that end in a path are checked beside it. A
 // new string goes here.
 inline constexpr const char *const Whole[] = {
 	PageTitle, RowTitle, PrivacyLabel, LineFirst, LineContinues, LineReplaces, StartButton, StopButton, Sign,
 	CancelButton, CapTitle, CapLine, OpenFolder, DeleteRecording, DeleteTitle, DeleteLine, KeepButton,
-	LegendRecorded, LegendOff, LegendLost, Live, LiveLine, Reading, NoRecordingTitle, NoRecordingLine,
+	ViewHint, LegendRecorded, LegendOff, LegendLost, Live, LiveLine, Reading, NoRecordingTitle, NoRecordingLine,
 	BadFileTitle, BadFileLine, NoSamplesLine, CutShortLine, StoppedAtCap, StoppedDiskFull, WriteFailed,
 	DiskTooFull, NoData, Deleted, CannotDelete,
 };

@@ -100,8 +100,11 @@ inline std::string CheckRecording(const uint8_t *data, size_t size)
 	if (at != summary.seconds)
 		return "the playback's length is not the sum of its stretches";
 	for (const Playback::Loss &loss : summary.losses)
-		if (!(loss.time >= 0.0 && loss.time <= summary.seconds))
+	{
+		const bool inside = loss.time >= 0.0 && loss.time <= summary.seconds;
+		if (!inside)
 			return "the playback puts a loss outside the recording";
+	}
 	std::vector<Playback::DevicePose> poses;
 	for (double moment : { 0.0, summary.seconds * 0.5, summary.seconds, summary.seconds * 0.25 })
 	{

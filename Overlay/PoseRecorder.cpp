@@ -23,6 +23,7 @@ constexpr size_t WriteChunkBytes = 256 * 1024;
 constexpr size_t ClosingRecordBytes = recording::RecordPrefixBytes + recording::EndPayloadBytes;
 constexpr size_t SampleRecordBytes = recording::RecordPrefixBytes + recording::SamplePayloadBytes;
 constexpr size_t DeviceRecordBytes = recording::RecordPrefixBytes + recording::MaxDevicePayloadBytes;
+constexpr size_t ModelRecordBytes = recording::RecordPrefixBytes + 4 + 1 + recording::MaxStringBytes;
 constexpr size_t AlignmentRecordBytes = recording::RecordPrefixBytes + 73 + 1 + recording::MaxStringBytes;
 constexpr size_t GapRecordBytes = recording::RecordPrefixBytes + recording::GapPayloadBytes;
 constexpr size_t BoundaryRecordBytes = recording::RecordPrefixBytes + recording::BoundaryPayloadBytes;
@@ -141,6 +142,7 @@ struct PoseRecorder::Session
 	int64_t stopUnixMicroseconds = 0;
 	std::vector<recording::DeviceInfo> pendingDevices;
 	std::vector<recording::Alignment> pendingAlignments;
+	std::vector<recording::Model> pendingModels;
 
 	std::atomic<uint64_t> bytes{ 0 };     // the file's size
 	std::atomic<uint64_t> samples{ 0 };   // the whole recording's
@@ -286,13 +288,17 @@ PoseRecorder::StartResult PoseRecorder::Start(PoseStreamHub &hub, const std::wst
 
 		// One entry per id.
 		devices_.clear();
+		models_.clear();
 		for (const RecordedDevice &device : devices)
 		{
 			bool repeated = false;
 			for (const recording::DeviceInfo &known : devices_)
 				repeated = repeated || known.deviceId == device.deviceId;
 			if (!repeated)
+			{
 				devices_.push_back(Labelled(device));
+				models_[device.deviceId] = device.renderModel;
+			}
 		}
 
 		if (hub_ != &hub)
@@ -336,7 +342,11 @@ PoseRecorder::StartResult PoseRecorder::Start(PoseStreamHub &hub, const std::wst
 			if (devices_[i].deviceId < session.described.size())
 				session.described[devices_[i].deviceId] = true;
 		}
-		// The calibration in use, so that this stretch too reads by itself.
+		// The shape of each device that has one, then the calibration in use, so
+		// that this stretch too reads by itself.
+		for (const recording::DeviceInfo &device : devices_)
+			if (!models_[device.deviceId].empty())
+				recording::AppendModel(bytes, { device.deviceId, models_[device.deviceId] });
 		if (hasAlignment_)
 		{
 			alignment_.qpc = session.startQpc;
@@ -362,6 +372,7 @@ void PoseRecorder::SetDevices(const std::vector<RecordedDevice> &devices)
 	if (!session_ || session_->done.load(std::memory_order_acquire))
 		return;
 	std::vector<recording::DeviceInfo> changed;
+	std::vector<recording::Model> shapes;
 	for (const RecordedDevice &described : devices)
 	{
 		const recording::DeviceInfo device = Labelled(described);
@@ -369,18 +380,28 @@ void PoseRecorder::SetDevices(const std::vector<RecordedDevice> &devices)
 		for (recording::DeviceInfo &candidate : devices_)
 			if (candidate.deviceId == device.deviceId)
 				known = &candidate;
-		if (known && *known == device)
+		const bool same = known && *known == device;
+		std::string &model = models_[device.deviceId];
+		if (same && model == described.renderModel)
 			continue;
-		if (known)
-			*known = device;
-		else
-			devices_.push_back(device);
-		changed.push_back(device);
+		// A device's model is stated with its entry, and again when it changes.
+		model = described.renderModel;
+		if (!same)
+		{
+			if (known)
+				*known = device;
+			else
+				devices_.push_back(device);
+			changed.push_back(device);
+		}
+		if (!model.empty())
+			shapes.push_back({ device.deviceId, model });
 	}
-	if (changed.empty())
+	if (changed.empty() && shapes.empty())
 		return;
 	std::lock_guard<std::mutex> lock(session_->mutex);
 	session_->pendingDevices.insert(session_->pendingDevices.end(), changed.begin(), changed.end());
+	session_->pendingModels.insert(session_->pendingModels.end(), shapes.begin(), shapes.end());
 }
 
 void PoseRecorder::SetAlignment(const recording::Alignment &alignment)
@@ -596,6 +617,7 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 			{
 				std::vector<recording::DeviceInfo> changed;
 				std::vector<recording::Alignment> aligned;
+				std::vector<recording::Model> shapes;
 				PoseStreamHub::Hole hole;
 				uint64_t dropped = 0, boundaries = 0;
 				bool newBoundary = false;
@@ -612,6 +634,7 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 					}
 					changed.swap(session.pendingDevices);
 					aligned.swap(session.pendingAlignments);
+					shapes.swap(session.pendingModels);
 					dropped = session.hub->Drain(session.consumer, batch, &hole);
 					// Once for each boundary: an open hole reports its boundary
 					// with every drain until a sample closes it.
@@ -624,6 +647,13 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 				}
 				for (size_t i = 0; i < changed.size() && !ended; ++i)
 					describe(changed[i]);
+				for (size_t i = 0; i < shapes.size() && !ended; ++i)
+				{
+					if (!fits(ModelRecordBytes))
+						full();
+					else
+						recording::AppendModel(out, shapes[i]);
+				}
 				for (size_t i = 0; i < aligned.size() && !ended; ++i)
 				{
 					if (!fits(AlignmentRecordBytes))

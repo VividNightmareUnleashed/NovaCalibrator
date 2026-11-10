@@ -57,6 +57,15 @@ void Rotate(const double q[4], const double v[3], double out[3])
 	out[2] = v[2] + w * tz + (x * ty - y * tx);
 }
 
+// a times b, both w x y z.
+void Multiply(const double a[4], const double b[4], double out[4])
+{
+	out[0] = a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3];
+	out[1] = a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2];
+	out[2] = a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1];
+	out[3] = a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0];
+}
+
 // Seconds from a stretch's first sample to this one, never negative and never
 // more than a count could mean.
 double SecondsInto(int64_t qpc, int64_t baseQpc, double frequency, double soFar)
@@ -96,6 +105,7 @@ struct Playback::Index
 	std::vector<Point> points;
 	std::vector<std::pair<uint64_t, DeviceInfo>> deviceRecords;
 	std::vector<std::pair<uint64_t, Alignment>> alignments;
+	std::vector<std::pair<uint64_t, Model>> models;
 };
 
 struct Playback::Cursor
@@ -115,6 +125,8 @@ struct Playback::Cursor
 		bool any = false;
 		bool tracked = false;
 		double position[3] = { 0.0, 0.0, 0.0 };
+		double rotation[4] = { 1.0, 0.0, 0.0, 0.0 };
+		std::string renderModel;
 		double lastTrail = -1e18;
 		std::vector<std::pair<double, std::array<float, 3>>> trail;
 	};
@@ -137,6 +149,12 @@ struct Playback::Cursor
 	{
 		if (Device *device = Find(info.deviceId, true))
 			device->info = info;
+	}
+
+	void Shape(const Model &model)
+	{
+		if (Device *device = Find(model.deviceId, true))
+			device->renderModel = model.renderModel;
 	}
 
 	void Align(const Alignment &alignment)
@@ -166,7 +184,7 @@ struct Playback::Cursor
 		Device *device = Find(sample.deviceId, true);
 		if (!device)
 			return;
-		double driver[4], world[3];
+		double driver[4], world[3], own[4], turned[4];
 		const bool usable = sample.poseValid && sample.connected && Finite3(sample.position) &&
 			Finite3(sample.worldFromDriverTranslation) && Unit(sample.worldFromDriverRotation, driver);
 		device->tracked = usable;
@@ -175,6 +193,11 @@ struct Playback::Cursor
 		Rotate(driver, sample.position, world);
 		for (int i = 0; i < 3; ++i)
 			world[i] += sample.worldFromDriverTranslation[i];
+		// A rotation with no direction leaves the device upright.
+		if (Unit(sample.rotation, own))
+			Multiply(driver, own, turned);
+		else
+			std::copy(driver, driver + 4, turned);
 		for (const Alignment &alignment : alignments)
 		{
 			double turn[4];
@@ -185,6 +208,8 @@ struct Playback::Cursor
 			Rotate(turn, scaled, world);
 			for (int i = 0; i < 3; ++i)
 				world[i] += alignment.translation[i];
+			std::copy(turned, turned + 4, own);
+			Multiply(turn, own, turned);
 			break;
 		}
 		if (!Finite3(world))
@@ -195,6 +220,7 @@ struct Playback::Cursor
 		device->any = true;
 		for (int i = 0; i < 3; ++i)
 			device->position[i] = world[i];
+		std::copy(turned, turned + 4, device->rotation);
 		if (at - device->lastTrail >= TrailStepSeconds)
 		{
 			device->lastTrail = at;
@@ -226,7 +252,7 @@ void Playback::Close()
 	source_ = nullptr;
 }
 
-void Playback::Open(Source source, uint64_t bytes, bool wait)
+void Playback::Open(const Source &source, uint64_t bytes, bool wait)
 {
 	Close();
 	auto index = std::make_shared<Index>();
@@ -374,6 +400,10 @@ void Playback::Read(const std::shared_ptr<Index> &shared, const Source &source, 
 				if (index.alignments.size() < MaxKeptRecords)
 					index.alignments.emplace_back(offset, record.alignment);
 				break;
+			case KindModel:
+				if (index.models.size() < MaxKeptRecords)
+					index.models.emplace_back(offset, record.model);
+				break;
 			case KindPause:
 			case KindEnd:
 				close();
@@ -407,7 +437,7 @@ void Playback::Read(const std::shared_ptr<Index> &shared, const Source &source, 
 		close();
 		summary.seconds = total;
 		summary.devices = seen.size();
-		summary.cutShort = tooMany || !(state == Reader::Next::EndOfFile && cleanEnd);
+		summary.cutShort = tooMany || state != Reader::Next::EndOfFile || !cleanEnd;
 		if (tooMany)
 			summary.error = "the recording has more stretches than a playback keeps";
 		else if (state == Reader::Next::Invalid)
@@ -453,6 +483,9 @@ void Playback::Seek(const Index &index, double time)
 	for (const auto &entry : index.deviceRecords)
 		if (entry.first < point.offset)
 			cursor.Describe(entry.second);
+	for (const auto &entry : index.models)
+		if (entry.first < point.offset)
+			cursor.Shape(entry.second);
 	for (const auto &entry : index.alignments)
 		if (entry.first < point.offset)
 			cursor.Align(entry.second);
@@ -521,6 +554,9 @@ bool Playback::Frame(double time, std::vector<DevicePose> &devices)
 		case KindAlignment:
 			cursor.Align(cursor.pending.alignment);
 			break;
+		case KindModel:
+			cursor.Shape(cursor.pending.model);
+			break;
 		case KindGap:
 		case KindBoundary:
 		case KindPause:
@@ -547,6 +583,8 @@ bool Playback::Frame(double time, std::vector<DevicePose> &devices)
 		pose.tracked = device.tracked;
 		for (int i = 0; i < 3; ++i)
 			pose.position[i] = device.position[i];
+		std::copy(device.rotation, device.rotation + 4, pose.rotation);
+		pose.renderModel = device.renderModel;
 		pose.trail.reserve(device.trail.size());
 		for (const auto &entry : device.trail)
 			pose.trail.push_back(entry.second);

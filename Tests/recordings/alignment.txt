@@ -7,6 +7,7 @@ device 0: class 1, role 0, label "a1b2c3d4", model "Headset model", system "ocul
 device 3: class 3, role 0, label "0f0e0d0c", model "Tracker model", system "lighthouse", type "vive_tracker_waist"
 device 5: class 3, role 0, label "9a8b7c6d", model "Tracker model", system "lighthouse", type "vive_tracker_left_foot"
 alignment after sample 0: system "lighthouse", applied 1, count 5000000000, rotation 0.5 0.5 -0.5 0.5, translation 1.5 -0.25 2, scale 1
+model after sample 0: device 3, render model "{htc}vr_tracker_vive_3_0"
 alignment after sample 20: system "lighthouse", applied 0, count 5000226300, rotation 0.5 0.5 -0.5 0.5, translation 1.5 -0.25 2, scale 1.25
 end after sample 30: reason 4, count 5000327400, time 1794230000032740 us, samples 30
 samples: 30

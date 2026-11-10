@@ -13,6 +13,7 @@
 #include "../Overlay/PoseRecordingFormat.h"
 #include "../Overlay/PoseRecordingListing.h"
 #include "../Overlay/RecordingPlayback.h"
+#include "../Overlay/SceneView.h"
 #include "RecordingProperty.h"
 #include "ReferenceRecordings.h"
 
@@ -207,7 +208,7 @@ std::string KindsOf(const std::vector<Record> &records)
 	for (const Record &record : records)
 		kinds += record.kind == KindSample ? 'S' : record.kind == KindGap ? 'G' : record.kind == KindBoundary ? 'B'
 			: record.kind == KindDevice ? 'D' : record.kind == KindEnd ? 'E' : record.kind == KindPause ? 'P'
-			: record.kind == KindResume ? 'R' : record.kind == KindAlignment ? 'A' : '?';
+			: record.kind == KindResume ? 'R' : record.kind == KindAlignment ? 'A' : record.kind == KindModel ? 'M' : '?';
 	return kinds;
 }
 
@@ -558,7 +559,8 @@ void ReferenceRecordings(Check check)
 		has(newer, "resume after sample 20: cause 2, trigger \"example trigger\", ") &&
 		has(aligned, "alignment after sample 0: system \"lighthouse\", applied 1, count 5000000000, "
 			"rotation 0.5 0.5 -0.5 0.5, translation 1.5 -0.25 2, scale 1\n") &&
-		has(aligned, "alignment after sample 20: system \"lighthouse\", applied 0, ") && has(aligned, ", scale 1.25\n");
+		has(aligned, "alignment after sample 20: system \"lighthouse\", applied 0, ") && has(aligned, ", scale 1.25\n") &&
+		has(aligned, "model after sample 0: device 3, render model \"{htc}vr_tracker_vive_3_0\"\n");
 	check("pose recording: a listing says what a correct reader finds in each reference recording", said,
 		said ? "" : clean.c_str());
 }
@@ -1202,6 +1204,45 @@ void RecorderAlignment(Check check)
 		values, detail);
 }
 
+void RecorderModels(Check check)
+{
+	TempFolder folder;
+	Feed feed;
+	PoseRecorder recorder;
+	RecordedDevice headset = Headset(), tracker = Tracker();
+	headset.renderModel = "generic_hmd";
+	tracker.renderModel = "{htc}vr_tracker_vive_3_0";
+	bool reached = recorder.Start(feed.hub, folder.Dir(), "test writer", { headset, tracker }, TestLimits()) ==
+		PoseRecorder::StartResult::Started;
+	feed.Send(3);
+	reached = reached && WaitForSamples(recorder, 1);
+	// The same again is no news; another model for a device is.
+	recorder.SetDevices({ headset, tracker });
+	const uint64_t before = recorder.GetProgress().bytes;
+	tracker.renderModel = "{htc}vr_tracker_vive_1_0";
+	recorder.SetDevices({ headset, tracker });
+	reached = reached && WaitFor([&] { return recorder.GetProgress().bytes > before; });
+	feed.Send(3);
+	reached = reached && WaitForSamples(recorder, 2);
+	recorder.RequestPause();
+	PoseRecorder::Finished finished;
+	const bool closed = Finish(recorder, finished);
+
+	const ReadBack back = ReadBytes(FileContents(folder.File()));
+	const std::string kinds = KindsOf(back.records);
+	const bool shape = reached && closed && back.end == Reader::Next::EndOfFile && kinds == "MMSMSP";
+	const auto names = [&](size_t i, uint32_t id, const char *name)
+	{
+		return back.records[i].model.deviceId == id && back.records[i].model.renderModel == name;
+	};
+	const bool values = shape && names(0, 0, "generic_hmd") && names(1, 3, "{htc}vr_tracker_vive_3_0") &&
+		names(3, 3, "{htc}vr_tracker_vive_1_0") && back.header.devices.size() == 2 && SamplesAre(back, feed.sent);
+	char detail[160];
+	snprintf(detail, sizeof detail, "reached %d, closed %d, records %s, end %d %s", reached, closed, kinds.c_str(),
+		static_cast<int>(back.end), back.error.c_str());
+	check("pose recorder: a device's render model is a record at the start and when it changes", values, detail);
+}
+
 // Two devices for three seconds: two seconds, a stop, and one second more on
 // a clock that started again (the computer was restarted), with a loss half
 // way through it. The tracker moves along x at one meter a second in a driver
@@ -1237,6 +1278,7 @@ std::string PlaybackRecording()
 	Alignment alignment = QuarterTurn(true, 10.0);
 	alignment.qpc = StartCount;
 	AppendAlignment(bytes, alignment);
+	AppendModel(bytes, { 3, "{htc}vr_tracker_vive_3_0" });
 	for (int i = 0; i <= 200; ++i)
 		for (uint32_t id : { 0u, 3u })
 			AppendSample(bytes, PlaybackPose(id, StartCount + i * (ClockRate / 100), i / 100.0));
@@ -1305,10 +1347,17 @@ void PlaybackScenarios(Check check)
 	// and shifted. In the second it is where the driver put it.
 	bool placed = playback.Frame(1.0, poses) && poses.size() == 2 && Near(PoseOf(poses, 3), 11.0, 1.0, -1.0) &&
 		Near(PoseOf(poses, 0), 0.0, 1.75, 0.125);
+	// The tracker's own rotation is none, so it is turned as the calibration
+	// turns its system: a quarter turn about the vertical.
+	const double *turned = placed ? PoseOf(poses, 3)->rotation : nullptr;
+	placed = placed && std::abs(turned[0] - std::sqrt(0.5)) < 1e-9 && std::abs(turned[2] - std::sqrt(0.5)) < 1e-9 &&
+		std::abs(turned[1]) < 1e-9 && std::abs(turned[3]) < 1e-9 && PoseOf(poses, 0)->rotation[0] == 1.0 &&
+		PoseOf(poses, 3)->renderModel == "{htc}vr_tracker_vive_3_0" && PoseOf(poses, 0)->renderModel.empty();
 	const bool described = placed && PoseOf(poses, 3)->info.trackingSystem == "lighthouse" &&
 		PoseOf(poses, 3)->info.controllerType == "vive_tracker_waist" && PoseOf(poses, 0)->info.deviceClass == 1;
 	placed = placed && playback.Frame(2.5, poses) && Near(PoseOf(poses, 3), 0.5, 1.0, 1.0) &&
-		Near(PoseOf(poses, 0), 0.0, 1.75, 0.0625);
+		Near(PoseOf(poses, 0), 0.0, 1.75, 0.0625) && PoseOf(poses, 3)->rotation[0] == 1.0 &&
+		PoseOf(poses, 3)->renderModel == "{htc}vr_tracker_vive_3_0";
 	// Past the end is the end.
 	placed = placed && playback.Frame(99.0, poses) && Near(PoseOf(poses, 3), 1.0, 1.0, 1.0);
 	check("playback: a device is where its last sample put it, with the calibration the recording names for its system",
@@ -1356,6 +1405,18 @@ void PlaybackScenarios(Check check)
 		static_cast<int>(c.state), c.error.c_str());
 	check("playback: a file that was cut short plays to where it stops, and what is not a recording is refused", told,
 		detail);
+
+	// A model's name goes from the file to SteamVR, so it must be a name.
+	using questcal::sceneview::PlainModelName;
+	const bool names = PlainModelName("generic_hmd") && PlainModelName("{htc}vr_tracker_vive_3_0") &&
+		PlainModelName("oculus_quest2_controller_left") && PlainModelName("vr_controller_vive_1_5") &&
+		PlainModelName("{indexcontroller}valve_controller_knu_1_0_left") && !PlainModelName("") &&
+		!PlainModelName("C:\\Windows\\model.obj") && !PlainModelName("..\\up") && !PlainModelName("a/b") &&
+		!PlainModelName("{htc}") && !PlainModelName("{}x") && !PlainModelName("{a/b}x") && !PlainModelName("a..b") &&
+		!PlainModelName(".hidden") && !PlainModelName("with space") && !PlainModelName(std::string(129, 'a')) &&
+		!PlainModelName("{htc}\\\\server\\share");
+	check("playback: only a plain render model name from a recording is given to SteamVR", names,
+		"names with a path, a drive, a server or two dots are refused");
 }
 
 // Every sentence the module shows (Overlay/MotionRecorderText.h) has its
@@ -1368,7 +1429,6 @@ void TextIsTranslated(Check check)
 	namespace text = questcal::motionrecorder::text;
 	std::vector<std::string> shown(std::begin(text::Whole), std::end(text::Whole));
 	shown.insert(shown.end(), std::begin(text::Disclaimer), std::end(text::Disclaimer));
-	shown.insert(shown.end(), std::begin(text::Views), std::end(text::Views));
 	shown.insert(shown.end(), std::begin(text::DeviceNames), std::end(text::DeviceNames));
 	char built[160];
 	snprintf(built, sizeof built, text::StatusPattern, 12, 1.25);
@@ -1412,6 +1472,7 @@ void RunPoseRecordingScenarios(Check check)
 	RecorderStalledDisk(check);
 	RecorderExits(check);
 	RecorderAlignment(check);
+	RecorderModels(check);
 	PlaybackScenarios(check);
 	TextIsTranslated(check);
 }

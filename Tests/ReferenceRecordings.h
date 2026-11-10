@@ -229,6 +229,7 @@ inline std::vector<File> Files()
 
 	// The calibration in use for the trackers' system, stated at the start and
 	// again when it changes: a third of a turn and a shift, then none applied.
+	// With it, the render model of one tracker.
 	std::string aligned;
 	AppendHeader(aligned, FileHeader());
 	Alignment alignment;
@@ -243,6 +244,7 @@ inline std::vector<File> Files()
 	alignment.translation[2] = 2.0;
 	alignment.trackingSystem = "lighthouse";
 	AppendAlignment(aligned, alignment);
+	AppendModel(aligned, { 3, "{htc}vr_tracker_vive_3_0" });
 	for (size_t i = 0; i < 30; ++i)
 	{
 		if (i == 20)

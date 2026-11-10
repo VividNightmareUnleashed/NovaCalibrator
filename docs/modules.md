@@ -95,6 +95,11 @@ choice is not a setting, so no recording runs when Nova Calibrator starts.
 - `Overlay/RecordingPlayback.h` reads the file once on its own thread to find
   its stretches, losses and record positions, then reads only the span around
   the moment shown. The file is untrusted input (fuzz target `recording`).
+- `Overlay/SceneView.h` draws the devices as a 3D picture into a texture of
+  its own: SteamVR's render model for each device at its position and
+  orientation, a plain shape where SteamVR has no model, and a floor grid. The
+  page turns its camera by a drag and moves it by the wheel. A model's name
+  comes from the recording, so only a plain name is given to SteamVR.
 - `Overlay/MotionRecorder.h` is the module's side of the overlay,
   `Overlay/UiMotionRecorder.cpp` its page, its two dialogs and the sign in the
   sidebar while a recording runs. Every sentence is in

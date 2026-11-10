@@ -91,6 +91,11 @@ public:
 		// Meters, in the space SteamVR showed the device in: the driver's pose
 		// put in its world, then the recording's alignment for its system.
 		double position[3] = { 0.0, 0.0, 0.0 };
+		// Its orientation in that space, w x y z.
+		double rotation[4] = { 1.0, 0.0, 0.0, 0.0 };
+		// SteamVR's name of the model that shows it; empty when the recording
+		// names none.
+		std::string renderModel;
 		// Where it was over the last TrailSeconds, oldest first.
 		std::vector<std::array<float, 3>> trail;
 	};
@@ -103,7 +108,7 @@ public:
 	// Replaces what was open and starts the first pass on its own thread, or,
 	// with `wait`, does it before returning. `bytes` is the file's size, for
 	// the progress.
-	void Open(Source source, uint64_t bytes, bool wait = false);
+	void Open(const Source &source, uint64_t bytes, bool wait = false);
 	void Close();
 
 	// For any thread.

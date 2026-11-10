@@ -151,6 +151,7 @@
     <ClInclude Include="PoseRecordingFormat.h" />
     <ClInclude Include="PoseRecordingListing.h" />
     <ClInclude Include="RecordingPlayback.h" />
+    <ClInclude Include="SceneView.h" />
     <ClInclude Include="TrackingStreamDigest.h" />
     <ClInclude Include="LighthouseFrameWatch.h" />
     <ClInclude Include="TrackerFrameCorrections.h" />
@@ -460,6 +461,7 @@
     <ClCompile Include="RecordingPlayback.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="SceneView.cpp" />
     <ClCompile Include="UiMotionRecorder.cpp" />
     <ClCompile Include="UserInterface.cpp" />
     <ClCompile Include="UiWidgets.cpp" />

@@ -1291,14 +1291,12 @@ en: Keep recording
 ja: 記録を残す
 en: Recorded %s
 ja: 記録日時：{0}
+en: Drag to turn the view
+ja: ドラッグで視点を回転
+en: Reset the view
+ja: 視点をリセット
 en: %d device%s, %.2f GB
 ja: デバイス {0} 台、{2} GB
-en: Front
-ja: 正面
-en: Top
-ja: 上
-en: Side
-ja: 横
 en: Recorded
 ja: 記録あり
 en: Off: nothing recorded

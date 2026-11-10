@@ -47,6 +47,8 @@ struct RecordedDevice
 	std::string model;
 	std::string trackingSystem;
 	std::string controllerType;
+	// SteamVR's name of the model that shows the device; empty when it gives none.
+	std::string renderModel;
 };
 
 // Writes every sample the pose stream hub publishes to the one recording file
@@ -168,6 +170,8 @@ private:
 	std::vector<recording::DeviceInfo> devices_;
 	// Serial (or id, for a device without one) to this recording's label.
 	std::map<std::string, std::string> labels_;
+	// Each device's render model as the file last stated it, by id.
+	std::map<uint32_t, std::string> models_;
 	recording::Alignment alignment_;
 	bool hasAlignment_ = false;
 	PoseStreamHub *hub_ = nullptr;

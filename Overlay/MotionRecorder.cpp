@@ -98,6 +98,7 @@ std::vector<RecordedDevice> Devices()
 		ReadTrackedDeviceString(id, vr::Prop_TrackingSystemName_String, device.trackingSystem);
 		// SteamVR's role for a tracker ("vive_tracker_waist") is its controller type.
 		ReadTrackedDeviceString(id, vr::Prop_ControllerType_String, device.controllerType);
+		ReadTrackedDeviceString(id, vr::Prop_RenderModelName_String, device.renderModel);
 		vr::ETrackedPropertyError roleError = vr::TrackedProp_Success;
 		const int32_t role = system->GetInt32TrackedDeviceProperty(id, vr::Prop_ControllerRoleHint_Int32, &roleError);
 		if (roleError == vr::TrackedProp_Success)
@@ -537,6 +538,7 @@ void LivePoses(double time, std::vector<recording::Playback::DevicePose> &device
 		out.info.controllerRole = known.controllerRole;
 		out.info.trackingSystem = known.trackingSystem;
 		out.info.controllerType = known.controllerType;
+		out.renderModel = known.renderModel;
 		out.tracked = tracked;
 		if (tracked)
 		{
@@ -546,6 +548,18 @@ void LivePoses(double time, std::vector<recording::Playback::DevicePose> &device
 		}
 		for (int i = 0; i < 3; ++i)
 			out.position[i] = trail.back().second[static_cast<size_t>(i)];
+		if (tracked)
+		{
+			// The pose's rotation part, as the quaternion the picture takes.
+			const auto &m = pose.mDeviceToAbsoluteTracking.m;
+			const Eigen::Matrix3d turn = (Eigen::Matrix3d() << m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2],
+				m[2][0], m[2][1], m[2][2]).finished();
+			const Eigen::Quaterniond q(turn);
+			out.rotation[0] = q.w();
+			out.rotation[1] = q.x();
+			out.rotation[2] = q.y();
+			out.rotation[3] = q.z();
+		}
 		out.trail.reserve(trail.size());
 		for (const auto &entry : trail)
 			out.trail.push_back(entry.second);

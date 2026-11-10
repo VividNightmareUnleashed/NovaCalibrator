@@ -1295,14 +1295,12 @@ en: Keep recording
 it: Conserva registrazione
 en: Recorded %s
 it: Registrata il {0}
+en: Drag to turn the view
+it: Trascina per ruotare la vista
+en: Reset the view
+it: Ripristina la vista
 en: %d device%s, %.2f GB
 it: {0} {0|dispositivo|dispositivi}, {2} GB
-en: Front
-it: Frontale
-en: Top
-it: Dall'alto
-en: Side
-it: Laterale
 en: Recorded
 it: Registrato
 en: Off: nothing recorded
