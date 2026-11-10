@@ -131,6 +131,10 @@ inline std::string Listing(std::istream &in)
 			out += "model" + after + "device " + Unsigned(record.model.deviceId) + ", render model \"" +
 				record.model.renderModel + "\"\n";
 			break;
+		case KindMark:
+			out += "mark" + after + "name \"" + record.mark.name + "\", device " + Unsigned(record.mark.deviceId) +
+				", count " + Number(record.mark.qpc) + ", time " + Number(record.mark.unixMicroseconds) + " us\n";
+			break;
 		default:
 			out += "unknown record" + after + "kind " + Unsigned(record.kind) + ", " +
 				Unsigned(record.unknown.size()) + " bytes\n";

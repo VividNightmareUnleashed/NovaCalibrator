@@ -33,6 +33,18 @@ struct PoseRecordingLimits
 	// How the free space is read, and how often while recording.
 	bool (*freeDiskBytes)(const std::wstring &directory, uint64_t &freeBytes) = &FreeDiskBytes;
 	unsigned diskCheckIntervalMs = 1000;
+
+	// "Automatic": nothing is written until something is marked
+	// (PoseRecorder::Mark). A mark then starts a clip, which holds what arrived
+	// in the `clipBeforeSeconds` before it and goes on until `clipAfterSeconds`
+	// after the last mark. With `clips` false every sample is written, and a
+	// mark is a record among them.
+	bool clips = false;
+	double clipBeforeSeconds = 30.0;
+	double clipAfterSeconds = 10.0;
+	// The most that waits in memory for a clip to start, whatever the time.
+	// Thirty seconds of nine devices are about 20 MB.
+	size_t clipKeptBytes = 96u << 20;
 };
 
 // What the program knows of a device. The serial number only tells devices
@@ -85,7 +97,11 @@ public:
 		uint64_t bytes = 0;
 		uint64_t samples = 0;
 		uint64_t lost = 0;        // the sum of every gap record
+		// What the file holds, in seconds: between clips this does not grow.
 		double seconds = 0.0;
+		uint64_t clips = 0;       // clips closed so far, in the whole recording
+		bool clipOpen = false;
+		uint64_t kept = 0;        // samples that wait in memory for a clip to start
 	};
 
 	// How a stretch of recording ended, once its file is closed.
@@ -103,6 +119,9 @@ public:
 		uint64_t samples = 0;
 		uint64_t lost = 0;
 		double seconds = 0.0;
+		// The stretch was one of clips, and how many the recording has now.
+		bool clipMode = false;
+		uint64_t clips = 0;
 		// The file ends with its pause or end record. False after a failed write.
 		bool closedCleanly = false;
 		std::string error;   // for the log; empty when nothing failed
@@ -138,6 +157,12 @@ public:
 	// is new, and the known one at each start, gets an alignment record; the
 	// samples are never changed by it. Its count is set when it is written.
 	void SetAlignment(const recording::Alignment &alignment);
+
+	// Something worth finding again happened now: a record with this moment,
+	// `name` (recording::markname) and the device it is about. Between clips it
+	// starts one; with `keepAfter` false the clip ends at the mark, which is
+	// the player's "save what just happened".
+	void Mark(const std::string &name, uint32_t deviceId = recording::NoDevice, bool keepAfter = true);
 
 	// Stops recording at once: no sample published after this returns reaches
 	// the file. The thread then writes a pause record and closes the file, and
@@ -186,6 +211,7 @@ private:
 		uint64_t samples = 0;
 		uint64_t lost = 0;
 		double seconds = 0.0;
+		uint64_t clips = 0;
 	} paused_;
 };
 

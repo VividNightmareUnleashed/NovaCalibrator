@@ -153,6 +153,9 @@
     <ClInclude Include="RecordingPlayback.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="RecordingTriggers.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="SceneView.h">
       <Filter>Header Files</Filter>
     </ClInclude>

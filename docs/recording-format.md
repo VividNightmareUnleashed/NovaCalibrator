@@ -10,7 +10,8 @@ standard library; `tools/read-recording.py` is a second reader written from
 this document. The Motion Recorder module (`docs/modules.md`) writes the file
 and plays it back (`Overlay/RecordingPlayback.h`).
 
-A recording holds every pose the driver captured while recording was on: for
+A recording holds every pose the driver captured while recording was on (or,
+in "Automatic", the poses around each tracking problem: see "Clips"): for
 each tracked device, its position, rotation and velocities as SteamVR's driver
 reported them, before any calibration, with the capture time. It shows how the
 player's body moved. It holds no serial number, no device name the player
@@ -106,6 +107,7 @@ Every record starts with the same three bytes:
 | 7 | resume | 18 to 273 |
 | 8 | alignment | 74 to 329 |
 | 9 | model | 5 to 260 |
+| 10 | mark | 21 to 276 |
 
 A reader skips a record whose kind it does not know by its size and goes on.
 A reader refuses the file from that record on when a kind is 0, when a known
@@ -197,7 +199,7 @@ Recording stopped here and may go on later in the same file. 17 bytes.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| cause | u8 | 1 the player turned recording off. 2 a clip ended (not written yet) |
+| cause | u8 | 1 the player turned recording off. 2 a clip ended, or a recording of clips began and waits for its first |
 | count | i64 | The count when recording stopped |
 | time | i64 | The wall-clock time when recording stopped |
 
@@ -209,12 +211,13 @@ Recording goes on here.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| cause | u8 | 1 the player turned recording on again. 2 a clip began (not written yet) |
-| count | i64 | The count when recording went on |
-| time | i64 | The wall-clock time when recording went on |
-| trigger | string | Empty for cause 1. For a clip, the name of what started it |
+| cause | u8 | 1 the player turned recording on again. 2 a clip began |
+| count | i64 | The count when recording went on. For a clip, the count from which the clip holds data |
+| time | i64 | The wall-clock time at that count |
+| trigger | string | Empty for cause 1. For a clip, the name of the mark that started it |
 
-A resume with cause 1 is followed by a device record for every device, so the stretch
+A resume is followed by a device record for every device, a model record for
+each device that has a model and the alignment records in use, so the stretch
 behind it can be read by itself.
 
 #### 8: alignment
@@ -258,6 +261,64 @@ shape that every device of that kind has, not one device.
 The recorder writes one for each device that has a model at each start and
 each resume, behind the device entries, and one when a device's model changes.
 The newest one for an id holds. A reader that does not know kind 9 skips it.
+
+#### 10: mark
+
+Something worth finding again happened at this moment: a tracking problem Nova
+Calibrator saw, or the player's own "save".
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| count | i64 | The count of the moment |
+| time | i64 | The wall-clock time of the moment |
+| device id | u32 | The device it is about, as in its device entry. 4294967295 when it is about no one device |
+| name | string | What happened |
+
+The names this version writes:
+
+| Name | What happened |
+| --- | --- |
+| `player` | The player saved what just happened |
+| `universe-jump` | The headset's tracking space jumped, and Nova Calibrator corrected for it |
+| `base-station-moved` | SteamVR moved the lighthouse devices' frame: a base station moved, or SteamVR placed it again |
+| `tracking-lost` | The named device had tracking for at least two seconds and lost it |
+| `device-slid` | A device that was still changed position |
+| `tracking-jumped` | A device got tracking again in a different position |
+| `calibration-stopped` | Continuous calibration stopped because the values moved too far from the calibration |
+| `calibration-realigned` | Continuous calibration aligned the trackers again |
+
+A reader shows a name it does not know as it is. The record's place in the
+file is near its moment and not exact (the recorder writes it behind the
+samples it had fetched): use the count. A full recording has a mark record at
+each such moment; in a recording of clips the first mark of a clip is also the
+trigger its resume record names. A reader that does not know kind 10 skips it.
+
+## Clips
+
+In "Automatic" the recorder writes nothing until something is marked. What
+arrives waits in memory, at most the last 30 seconds. A mark then starts a
+clip:
+
+```
+resume, cause 2, with the mark's name    count: where the clip's data begins
+device, model and alignment records      everything known at that count
+the records that waited in memory        samples, gaps, boundaries, changes
+mark                                     the moment itself
+records as they arrive
+pause, cause 2                           10 seconds after the last mark
+```
+
+A mark inside an open clip is one more mark record, and the clip goes on for
+10 seconds after it. The player's save (`player`) ends its clip at the mark.
+A new recording of clips has a pause record with cause 2 behind its header,
+and its file takes the place of the previous recording when the first clip is
+written. When the player turns recording off between two clips nothing is
+added: the file already ends with a pause record. What waited in memory at
+that moment is dropped, as nothing recorded while recording is off reaches a
+file.
+
+A clip is a stretch like any other: the rules below hold for it, and a reader
+that knows nothing of clips reads the file correctly.
 
 ## What a reader must do
 
@@ -330,6 +391,7 @@ pause after sample K: cause N, count C, time T us
 resume after sample K: cause N, trigger "TEXT", count C, time T us
 alignment after sample K: system "S", applied N, count C, rotation W X Y Z, translation X Y Z, scale S
 model after sample K: device ID, render model "NAME"
+mark after sample K: name "NAME", device ID, count C, time T us
 end after sample K: reason N, count C, time T us, samples S
 unknown record after sample K: kind N, B bytes
 ```
@@ -346,7 +408,7 @@ refused has the first line and then `file: not a recording`.
 
 ## The reference recordings
 
-`Tests/recordings/` holds six small recordings made from fixed input
+`Tests/recordings/` holds seven small recordings made from fixed input
 (`Tests/ReferenceRecordings.h`), each with its listing.
 `tools/check-recording-readers.ps1` compiles the C++ reader by itself and
 compares both readers' listings with them:
@@ -359,6 +421,7 @@ compares both readers' listings with them:
 | `cut-short` | `clean` without its end record, cut 77 bytes into its last sample |
 | `newer-records` | A record of kind 77, and a pause and resume with cause 2 and a trigger |
 | `alignment` | An alignment record and a model record at the start, and a second alignment record, not applied, after 20 samples |
+| `clips` | A pause with cause 2 behind the header, then two clips: each a resume with its trigger, every device, the samples from before its mark, the mark and the samples after it. The second has a mark about device 3 and the player's own |
 
 The harness fails when the generator no longer makes these exact bytes, so a
 change to the layout cannot be made without a change here. A change that a

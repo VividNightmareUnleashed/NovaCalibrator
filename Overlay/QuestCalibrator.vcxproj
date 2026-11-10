@@ -151,6 +151,7 @@
     <ClInclude Include="PoseRecordingFormat.h" />
     <ClInclude Include="PoseRecordingListing.h" />
     <ClInclude Include="RecordingPlayback.h" />
+    <ClInclude Include="RecordingTriggers.h" />
     <ClInclude Include="SceneView.h" />
     <ClInclude Include="TrackingStreamDigest.h" />
     <ClInclude Include="LighthouseFrameWatch.h" />

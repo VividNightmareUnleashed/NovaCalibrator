@@ -1,0 +1,27 @@
+novapose listing 1
+format: version 1, mode 1
+writer: novapose reference generator
+clock: 10000000 ticks per second, start count 5000000000, start time 1794230000000000 us
+header devices: 3
+device 0: class 1, role 0, label "a1b2c3d4", model "Headset model", system "oculus", type ""
+device 3: class 3, role 0, label "0f0e0d0c", model "Tracker model", system "lighthouse", type "vive_tracker_waist"
+device 5: class 3, role 0, label "9a8b7c6d", model "Tracker model", system "lighthouse", type "vive_tracker_left_foot"
+pause after sample 0: cause 2, count 5000000000, time 1794230000000000 us
+resume after sample 0: cause 2, trigger "base-station-moved", count 5000451350, time 1794230000045135 us
+device record after sample 0: device 0: class 1, role 0, label "a1b2c3d4", model "Headset model", system "oculus", type ""
+device record after sample 0: device 3: class 3, role 0, label "0f0e0d0c", model "Tracker model", system "lighthouse", type "vive_tracker_waist"
+device record after sample 0: device 5: class 3, role 0, label "9a8b7c6d", model "Tracker model", system "lighthouse", type "vive_tracker_left_foot"
+mark after sample 20: name "base-station-moved", device 4294967295, count 5000676370, time 1794230000067637 us
+pause after sample 30: cause 2, count 5000776600, time 1794230000077660 us
+resume after sample 30: cause 2, trigger "tracking-lost", count 5600776400, time 1794230060077640 us
+device record after sample 30: device 0: class 1, role 0, label "a1b2c3d4", model "Headset model", system "oculus", type ""
+device record after sample 30: device 3: class 3, role 0, label "0f0e0d0c", model "Tracker model", system "lighthouse", type "vive_tracker_waist"
+device record after sample 30: device 5: class 3, role 0, label "9a8b7c6d", model "Tracker model", system "lighthouse", type "vive_tracker_left_foot"
+mark after sample 45: name "tracking-lost", device 3, count 5600927770, time 1794230060092777 us
+mark after sample 50: name "player", device 4294967295, count 5601002770, time 1794230060100277 us
+pause after sample 55: cause 2, count 5601053000, time 1794230060105300 us
+samples: 55
+samples of device 0: 4, valid 4, first count 5000556552 position 0.00390625 1.0009765625 -0.5 rotation 1 0 0 0, last count 5600916288 position 1.9541015625 1.000244140625 -0.5 rotation 0.5 0.5 0.5 0.5
+samples of device 3: 26, valid 26, first count 5000451400 position 0.767578125 1.00048828125 -0.875 rotation 0 1 0 0, last count 5601052800 position 2.7138671875 1.002685546875 -0.875 rotation 0.5 -0.5 0.5 -0.5
+samples of device 5: 25, valid 25, first count 5000451400 position 1.267578125 1.00048828125 -1.125 rotation 0 1 0 0, last count 5601027800 position 3.212890625 1.00244140625 -1.125 rotation 0 1 0 0
+file: complete

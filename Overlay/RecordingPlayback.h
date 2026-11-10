@@ -65,6 +65,17 @@ public:
 		uint64_t samples = 0;
 	};
 
+	// A moment the recorder marked: a tracking problem Nova Calibrator saw, or
+	// the player's own "save".
+	struct Mark
+	{
+		double time = 0.0;
+		int64_t unixMicroseconds = 0;
+		std::string name;      // recording::markname, or what a newer writer calls it
+		bool hasDevice = false;
+		DeviceInfo device;     // the device it is about, as the file described it then
+	};
+
 	struct Summary
 	{
 		State state = State::Empty;
@@ -81,6 +92,7 @@ public:
 		bool cutShort = false;
 		std::vector<Stretch> stretches;
 		std::vector<Loss> losses;
+		std::vector<Mark> marks;
 	};
 
 	struct DevicePose

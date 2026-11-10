@@ -345,8 +345,39 @@ std::string LocalDateTime(int64_t unixMicroseconds)
 	return text;
 }
 
-// A small pill over the view: a dot when it has one, and a line.
-void ViewPill(ImDrawList *dl, ImVec2 topLeft, const std::string &label, ImU32 fill, bool dot)
+// The hour and the minute on the player's clock.
+std::string LocalTime(int64_t unixSeconds)
+{
+	const time_t seconds = static_cast<time_t>(unixSeconds);
+	struct tm local{};
+	if (localtime_s(&local, &seconds) != 0)
+		return std::string();
+	char text[16];
+	strftime(text, sizeof text, "%H:%M", &local);
+	return text;
+}
+
+// What a mark's name says, in the player's language. A name this version does
+// not know comes from a file, so it is shown as plain letters and cut short.
+std::string MarkText(const std::string &name)
+{
+	namespace markname = recording::markname;
+	static const char *const names[] = { markname::Player, markname::UniverseJump, markname::BaseStationMoved,
+		markname::TrackingLost, markname::DeviceSlid, markname::TrackingJumped, markname::CalibrationStopped,
+		markname::CalibrationRealigned };
+	static_assert(IM_ARRAYSIZE(names) == IM_ARRAYSIZE(text::MarkLines), "one line for each name");
+	for (size_t i = 0; i < IM_ARRAYSIZE(names); ++i)
+		if (name == names[i])
+			return Tr(text::MarkLines[i]);
+	std::string plain;
+	for (const char c : name)
+		if (plain.size() < 48 && c >= 0x20 && c < 0x7F)
+			plain.push_back(c);
+	return plain;
+}
+
+// A small pill over the view: a dot when it has one, and a line. Returns its width.
+float ViewPill(ImDrawList *dl, ImVec2 topLeft, const std::string &label, ImU32 fill, bool dot)
 {
 	const ui::TextStyle style{ dot ? ui::Weight::SemiBold : ui::Weight::Medium, 14.0f, 32.0f };
 	const float lead = dot ? 18.0f : 0.0f;
@@ -355,12 +386,20 @@ void ViewPill(ImDrawList *dl, ImVec2 topLeft, const std::string &label, ImU32 fi
 	if (dot)
 		dl->AddCircleFilled(ImVec2(topLeft.x + 14.0f + 4.0f, topLeft.y + 16.0f), 4.0f, ui::col::Alert, 16);
 	ui::DrawLine(dl, style, ImVec2(topLeft.x + 14.0f + lead, topLeft.y), dot ? ui::col::Text : ui::col::Body, label.c_str());
+	return w;
+}
+
+// The sign of a marked moment: a small arrowhead that points down at it.
+void MarkSign(ImDrawList *dl, float x, float top)
+{
+	dl->AddTriangleFilled(ImVec2(x - 4.5f, top), ImVec2(x + 4.5f, top), ImVec2(x, top + 7.0f), ui::col::Text);
 }
 
 // The timeline: the stretches the recorder was on, each as long as it lasted,
 // with a short hatched piece between two of them (the time between is not
-// drawn to scale: it can be hours) and a mark where data was lost. Dragging
-// moves the playback. Returns the time picked, or a negative number.
+// drawn to scale: it can be hours), a bar where data was lost and an arrowhead
+// over each marked moment. Dragging moves the playback. Returns the time
+// picked, or a negative number.
 double Timeline(ImDrawList *dl, const FlexRect &r, const Playback::Summary &summary, double time)
 {
 	const float y = r.Center().y;
@@ -430,6 +469,13 @@ double Timeline(ImDrawList *dl, const FlexRect &r, const Playback::Summary &summ
 			break;
 		const float x = std::floor(xOf(loss.time));
 		ui::FillRounded(dl, ImVec2(x - 1.5f, y - 9.0f), ImVec2(x + 1.5f, y + 9.0f), ui::col::Caution, 1.5f);
+	}
+	marks = 0;
+	for (const Playback::Mark &mark : summary.marks)
+	{
+		if (++marks > 200)
+			break;
+		MarkSign(dl, std::floor(xOf(mark.time)), y - 14.0f);
 	}
 	dl->AddCircleFilled(ImVec2(knob, y + 1.0f), 10.0f, ui::Rgba(0, 0, 0, 0.30f), 32);
 	dl->AddCircleFilled(ImVec2(knob, y), 9.0f, ui::col::White, 32);
@@ -589,11 +635,38 @@ float BuildMotionRecorderPage(const VRState &, ImVec2 origin, float width)
 	YGNodeStyleSetMargin(playCard, YGEdgeTop, 22.0f);
 	YGNodeRef viewBox = nullptr, transport = nullptr, legend = nullptr, cutShort = nullptr, liveRow = nullptr;
 	YGNodeRef noteIconNode = nullptr, noteTitleNode = nullptr, noteBodyNode = nullptr, noteBar = nullptr;
-	const std::string liveText = Tr(text::LiveLine), cutShortText = Tr(text::CutShortLine);
+	YGNodeRef saveButton = nullptr, eventsBox = nullptr;
+	const bool clips = live && status.mode == Mode::Automatic;
+	const std::string liveText = Tr(clips ? text::AutomaticLine : text::LiveLine), cutShortText = Tr(text::CutShortLine);
+	// The newest of what was marked, as many as the card has room for.
+	constexpr size_t EventRows = 3;
+	constexpr float EventRowH = 28.0f;
+	const std::vector<Event> &events = Events();
+	const size_t eventCount = clips ? (std::min)(events.size(), EventRows) : 0;
 	if (live || ready)
 	{
-		viewBox = fl.Box(playCard, contentW, 310.0f);
-		if (live)
+		viewBox = fl.Box(playCard, contentW, clips ? 250.0f : live ? 310.0f : 290.0f);
+		if (clips)
+		{
+			// What this mode saves on the left, the player's own save on the right.
+			YGNodeRef row = fl.Row(playCard);
+			YGNodeStyleSetAlignItems(row, YGAlignCenter);
+			YGNodeStyleSetGap(row, YGGutterColumn, 16.0f);
+			YGNodeStyleSetPadding(row, YGEdgeLeft, 20.0f);
+			YGNodeStyleSetPadding(row, YGEdgeRight, 14.0f);
+			YGNodeStyleSetPadding(row, YGEdgeVertical, 10.0f);
+			liveRow = ui::TextNode(fl, row, ui::type::Callout, liveText);
+			YGNodeStyleSetFlexGrow(liveRow, 1.0f);
+			YGNodeStyleSetFlexShrink(liveRow, 1.0f);
+			YGNodeStyleSetFlexBasis(liveRow, 0.0f);
+			saveButton = fl.Box(row, ui::PillWidth(text::SaveLast, 16.0f), 42.0f);
+			if (eventCount > 0)
+			{
+				eventsBox = fl.Box(playCard, contentW, static_cast<float>(eventCount) * EventRowH);
+				YGNodeStyleSetMargin(eventsBox, YGEdgeBottom, 12.0f);
+			}
+		}
+		else if (live)
 		{
 			liveRow = ui::TextNode(fl, playCard, ui::type::Callout, liveText);
 			YGNodeStyleSetMargin(liveRow, YGEdgeHorizontal, 20.0f);
@@ -664,15 +737,46 @@ float BuildMotionRecorderPage(const VRState &, ImVec2 origin, float width)
 		return out;
 	};
 	const std::string recordTitle = Tr(text::RowTitle);
-	const std::string recordLine = live
-		? std::string(Tr(FormatString(text::StatusPattern, static_cast<int>(status.seconds / 60.0),
+	// While it runs: how long, and for a full recording its size. Before: what a
+	// recording is, and what the mode picked beside the button saves.
+	const std::string recordLine = clips
+		? std::string(Tr(FormatString(text::OnForPattern, static_cast<int>(status.onSeconds / 60.0))))
+		: live ? std::string(Tr(FormatString(text::StatusPattern, static_cast<int>(status.seconds / 60.0),
 			static_cast<double>(status.bytes) / static_cast<double>(1ull << 30))))
 		: std::string(Tr(!status.fileExists ? text::LineFirst
-			: !g_uiPreviewMode && !BeginsNewRecording() ? text::LineContinues : text::LineReplaces));
+			: !g_uiPreviewMode && !BeginsNewRecording() ? text::LineContinues : text::LineReplaces)) + " " +
+			Tr(status.mode == Mode::Automatic ? text::AutomaticLine : text::FullLine);
 	const char *recordButton = live ? text::StopButton : text::StartButton;
 	const float badgeW = ui::BadgeWidth(text::PrivacyLabel);
-	const ControlRow record = addRow(recordTitle, recordLine, ui::PillWidth(recordButton, 17.0f), 46.0f,
-		10.0f + 20.0f + 10.0f + badgeW);
+	// The mode beside the button that starts and stops.
+	static const char *const modes[] = { text::ModeAutomatic, text::ModeFull };
+	const float modeW = ui::PillSegmentedWidth(modes, 2, 16.0f, 72.0f);
+	const float recordButtonW = ui::PillWidth(recordButton, 17.0f);
+	// This row has two controls, so its line runs under them at the card's full
+	// width. Where the title, its label and the controls are more than one
+	// line holds (a long language), the label goes under the title.
+	ControlRow record;
+	YGNodeRef badgeLine = nullptr;
+	{
+		const float controlW = modeW + 10.0f + recordButtonW;
+		const float titleW = ui::MeasureLine(ui::type::RowTitle, recordTitle.c_str()).x + 10.0f + 20.0f;
+		const bool badgeBelow = titleW + 10.0f + badgeW + 16.0f + controlW > contentW - 34.0f;
+		record.titleText = recordTitle;
+		record.lineText = recordLine;
+		record.row = fl.Column(controls);
+		YGNodeStyleSetPadding(record.row, YGEdgeVertical, 13.0f);
+		YGNodeStyleSetPadding(record.row, YGEdgeLeft, 20.0f);
+		YGNodeStyleSetPadding(record.row, YGEdgeRight, 14.0f);
+		YGNodeRef top = fl.Row(record.row);
+		YGNodeStyleSetAlignItems(top, YGAlignCenter);
+		YGNodeStyleSetJustifyContent(top, YGJustifySpaceBetween);
+		record.title = fl.Box(top, titleW + (badgeBelow ? 0.0f : 10.0f + badgeW), 26.0f);
+		record.control = fl.Box(top, controlW, 46.0f);
+		if (badgeBelow)
+			badgeLine = fl.Box(record.row, badgeW, 26.0f);
+		record.line = ui::TextNode(fl, record.row, ui::type::Footnote, recordLine);
+		YGNodeStyleSetMargin(record.line, YGEdgeTop, 6.0f);
+	}
 	static const char *const sizes[] = { "1 GB", "5 GB", "20 GB" };
 	static_assert(CapChoiceCount == 3 && CapChoicesBytes[0] == 1ull << 30 && CapChoicesBytes[1] == 5ull << 30 &&
 		CapChoicesBytes[2] == 20ull << 30, "the labels above name the choices");
@@ -721,14 +825,55 @@ float BuildMotionRecorderPage(const VRState &, ImVec2 origin, float width)
 		DrawDevices(dl, view, poses);
 		if (live)
 			ViewPill(dl, ImVec2(view.min.x + 16.0f, view.min.y + 14.0f), Tr(text::Live), ui::col::AlertTint, true);
-		else if (const std::string when = LocalDateTime(summary.startUnixMicroseconds); !when.empty())
-			ViewPill(dl, ImVec2(view.min.x + 16.0f, view.min.y + 14.0f), Tr(FormatString(text::RecordedPattern, when.c_str())),
-				ui::col::Fill, false);
+		else
+		{
+			// When the stretch at the playback's moment was recorded, and what
+			// started it when it is a clip.
+			const Playback::Stretch *stretch = nullptr;
+			for (const Playback::Stretch &candidate : summary.stretches)
+				if (candidate.start <= s_time || !stretch)
+					stretch = &candidate;
+			const std::string when = LocalDateTime(stretch && stretch->startUnixMicroseconds != 0
+				? stretch->startUnixMicroseconds : summary.startUnixMicroseconds);
+			float x = view.min.x + 16.0f;
+			if (!when.empty())
+				x += 8.0f + ViewPill(dl, ImVec2(x, view.min.y + 14.0f), Tr(FormatString(text::RecordedPattern, when.c_str())),
+					ui::col::Fill, false);
+			if (const std::string trigger = stretch ? MarkText(stretch->trigger) : std::string(); !trigger.empty())
+				ViewPill(dl, ImVec2(x, view.min.y + 14.0f), trigger, ui::col::Fill, false);
+		}
 	}
 	if (liveRow)
 	{
 		const FlexRect r = fl.Rect(liveRow);
 		ui::DrawText(dl, ui::type::Callout, r.min, r.W() + 1.0f, ui::col::Muted, liveText.c_str());
+	}
+	if (saveButton && ui::PillButton("##savelast", text::SaveLast, ui::Btn::Secondary, fl.Rect(saveButton), ui::Icon::None,
+		16.0f))
+		SaveLast();
+	if (eventsBox)
+	{
+		// One line for each: the time, what happened, and the device it is about.
+		const FlexRect r = fl.Rect(eventsBox);
+		const ui::TextStyle timeStyle{ ui::Weight::SemiBold, 15.0f, EventRowH };
+		const ui::TextStyle lineStyle{ ui::Weight::Regular, 15.0f, EventRowH };
+		for (size_t i = 0; i < eventCount; ++i)
+		{
+			const Event &event = events[events.size() - eventCount + i];
+			const float y = r.min.y + static_cast<float>(i) * EventRowH;
+			float x = r.min.x + 20.0f;
+			MarkSign(dl, x + 5.0f, y + EventRowH * 0.5f - 3.0f);
+			x += 20.0f;
+			const std::string at = LocalTime(event.unixSeconds);
+			ui::DrawLine(dl, timeStyle, ImVec2(x, y), ui::col::Text, at.c_str());
+			x += 52.0f;
+			const std::string what = MarkText(event.name);
+			ui::DrawLine(dl, lineStyle, ImVec2(x, y), ui::col::Body, what.c_str());
+			const Part part = event.hasDevice ? PartOf(event.device) : NotABody;
+			if (part != NotABody)
+				ui::DrawLine(dl, lineStyle, ImVec2(x + ui::MeasureLine(lineStyle, what.c_str()).x + 10.0f, y), ui::col::Muted,
+					Tr(text::DeviceNames[part]));
+		}
 	}
 	if (transport)
 	{
@@ -787,8 +932,10 @@ float BuildMotionRecorderPage(const VRState &, ImVec2 origin, float width)
 			else if (mark == 1)
 				for (float sx = x + 1.0f; sx + 4.0f <= x + 18.0f; sx += 4.0f)
 					dl->AddLine(ImVec2(sx, cy + 5.0f), ImVec2(sx + 3.0f, cy - 5.0f), ui::Rgba(236, 238, 244, 0.30f), 1.5f);
-			else
+			else if (mark == 2)
 				ui::FillRounded(dl, ImVec2(x + 7.0f, cy - 7.0f), ImVec2(x + 10.0f, cy + 7.0f), ui::col::Caution, 1.5f);
+			else
+				MarkSign(dl, x + 9.0f, cy - 3.0f);
 			const char *label = Tr(english);
 			ui::DrawLine(dl, style, ImVec2(x + 26.0f, y), ui::col::Muted, label);
 			x += 26.0f + ui::MeasureLine(style, label).x + 22.0f;
@@ -798,6 +945,8 @@ float BuildMotionRecorderPage(const VRState &, ImVec2 origin, float width)
 			item(text::LegendOff, 1);
 		if (!summary.losses.empty())
 			item(text::LegendLost, 2);
+		if (!summary.marks.empty())
+			item(text::LegendEvent, 3);
 		const std::string figure = Tr(FormatString(text::DevicesPattern, static_cast<int>(summary.devices),
 			summary.devices == 1 ? "" : "s", static_cast<double>(summary.bytes) / static_cast<double>(1ull << 30)));
 		const float w = ui::MeasureLine(style, figure.c_str()).x;
@@ -845,10 +994,23 @@ float BuildMotionRecorderPage(const VRState &, ImVec2 origin, float width)
 		const FlexRect titleR = fl.Rect(record.title);
 		const float x = titleR.min.x + ui::MeasureLine(ui::type::RowTitle, record.titleText.c_str()).x + 10.0f;
 		ui::DrawIcon(dl, ui::Icon::Warn, ImVec2(x + 10.0f, titleR.Center().y), 20.0f, ui::col::Caution);
-		ui::BadgePill(dl, ImVec2(x + 20.0f + 10.0f, titleR.min.y), text::PrivacyLabel, ui::col::Caution, ui::col::CautionTint);
+		ui::BadgePill(dl, badgeLine ? fl.Rect(badgeLine).min : ImVec2(x + 20.0f + 10.0f, titleR.min.y), text::PrivacyLabel,
+			ui::col::Caution, ui::col::CautionTint);
+	}
+	FlexRect modeR = fl.Rect(record.control), recordR = modeR;
+	modeR.max.x = modeR.min.x + modeW;
+	modeR.min.y += 2.0f;
+	modeR.max.y -= 2.0f;
+	recordR.min.x = recordR.max.x - recordButtonW;
+	{
+		// The mode is picked before a recording, not during one.
+		const int mode = status.mode == Mode::Automatic ? 0 : 1;
+		const int picked = ui::PillSegmented("##recordingmode", mode, modes, 2, modeR, 16.0f);
+		if (picked != mode && !live)
+			SetModeChoice(picked == 0 ? Mode::Automatic : Mode::Full);
 	}
 	// Start asks first when the recording is a new one; stop is at once.
-	if (ui::PillButton("##recordmotion", recordButton, live ? ui::Btn::Secondary : ui::Btn::Primary, fl.Rect(record.control),
+	if (ui::PillButton("##recordmotion", recordButton, live ? ui::Btn::Secondary : ui::Btn::Primary, recordR,
 		ui::Icon::None, 17.0f) && !g_uiPreviewMode)
 	{
 		if (live)

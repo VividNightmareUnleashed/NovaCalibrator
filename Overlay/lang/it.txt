@@ -1371,3 +1371,35 @@ en: Nova Calibrator deleted the recording.
 it: Registrazione eliminata.
 en: Nova Calibrator could not delete the recording file.
 it: Impossibile eliminare il file di registrazione.
+en: The recording is on for %d min.
+it: La registrazione è attiva da {0} min.
+en: Automatic
+it: Automatica
+en: Full
+it: Completa
+en: A clip starts when a tracking problem occurs. Between clips, nothing is saved.
+it: Una clip inizia quando si verifica un problema di tracciamento. Tra una clip e l'altra non viene salvato nulla.
+en: Nova Calibrator saves all motion until you stop the recording.
+it: Nova Calibrator salva tutti i movimenti finché non interrompi la registrazione.
+en: Save the last 30 seconds
+it: Salva gli ultimi 30 secondi
+en: Event
+it: Evento
+en: You saved this clip.
+it: Hai salvato questa clip.
+en: The headset tracking space moved.
+it: Lo spazio di tracciamento del visore si è spostato.
+en: A base station moved.
+it: Una stazione base si è spostata.
+en: A device lost tracking.
+it: Un dispositivo ha perso il tracciamento.
+en: A stationary device changed position.
+it: Un dispositivo fermo ha cambiato posizione.
+en: A device got tracking again in a different position.
+it: Un dispositivo ha ripreso il tracciamento in una posizione diversa.
+en: Continuous calibration stopped.
+it: La calibrazione continua si è arrestata.
+en: Continuous calibration aligned the trackers again.
+it: La calibrazione continua ha riallineato i tracker.
+en: No tracking problem occurred. Nova Calibrator saved no clip.
+it: Non si è verificato nessun problema di tracciamento. Nova Calibrator non ha salvato nessuna clip.

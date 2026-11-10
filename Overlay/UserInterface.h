@@ -18,7 +18,7 @@ enum class PreviewScenario
 {
 	Healthy, Frozen, TrackerOff, Failed, Empty, Guide, GuideWait, Move, Result, Lighthouse, Settings,
 	Pair, Chaperone, Anchors, Activity, ClearCalibration, ChaperoneWarning, Notices, SettingsMore, Editor, Credits,
-	Recorder, RecorderLive, RecorderEmpty, RecorderWarning, RecorderDelete,
+	Recorder, RecorderLive, RecorderLiveFull, RecorderEmpty, RecorderWarning, RecorderDelete,
 	SetupWelcome, SetupHeadset, SetupTrackers, SetupUpdates, SetupCalibrate
 };
 extern PreviewScenario g_uiPreviewScenario;

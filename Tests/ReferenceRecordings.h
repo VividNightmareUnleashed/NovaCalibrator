@@ -258,6 +258,42 @@ inline std::vector<File> Files()
 	}
 	AppendEnd(aligned, { closed, stream[29].count + 1000, TimeAt(stream[29].count + 1000), 30 });
 	files.push_back({ "alignment", aligned });
+
+	// "Automatic": nothing until a clip. Two clips, each a resume that names
+	// what started it, every device again, what was kept from before the mark,
+	// the mark, and what came after. The second has a mark about one device
+	// and the player's own.
+	std::string clipped;
+	AppendHeader(clipped, FileHeader());
+	const uint8_t clip = static_cast<uint8_t>(PauseCause::Clip);
+	AppendPause(clipped, { clip, StartCount, TimeAt(StartCount) });
+	const int64_t firstClip = stream[40].count - 50;
+	AppendResume(clipped, { clip, firstClip, TimeAt(firstClip), markname::BaseStationMoved });
+	for (const DeviceInfo &device : Devices())
+		AppendDevice(clipped, device);
+	for (size_t i = 40; i < 70; ++i)
+	{
+		if (i == 60)
+			AppendMark(clipped, { stream[i].count - 30, TimeAt(stream[i].count - 30), NoDevice,
+				markname::BaseStationMoved });
+		AppendSample(clipped, Pose(stream[i].id, stream[i].index, stream[i].count));
+	}
+	AppendPause(clipped, { clip, stream[69].count + 200, TimeAt(stream[69].count + 200) });
+	const int64_t secondClip = stream[69].count + 60 * ClockRate;
+	const std::vector<Timed> again = Stream(secondClip + 1000);
+	AppendResume(clipped, { clip, secondClip, TimeAt(secondClip), markname::TrackingLost });
+	for (const DeviceInfo &device : Devices())
+		AppendDevice(clipped, device);
+	for (size_t i = 0; i < 25; ++i)
+	{
+		if (i == 15)
+			AppendMark(clipped, { again[i].count - 30, TimeAt(again[i].count - 30), 3, markname::TrackingLost });
+		if (i == 20)
+			AppendMark(clipped, { again[i].count - 30, TimeAt(again[i].count - 30), NoDevice, markname::Player });
+		AppendSample(clipped, Pose(again[i].id, again[i].index + 2000, again[i].count));
+	}
+	AppendPause(clipped, { clip, again[24].count + 200, TimeAt(again[24].count + 200) });
+	files.push_back({ "clips", clipped });
 	return files;
 }
 

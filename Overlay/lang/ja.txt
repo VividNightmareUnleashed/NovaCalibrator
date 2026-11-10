@@ -1367,3 +1367,35 @@ en: Nova Calibrator deleted the recording.
 ja: 記録を削除しました。
 en: Nova Calibrator could not delete the recording file.
 ja: 記録ファイルを削除できませんでした。
+en: The recording is on for %d min.
+ja: 記録開始から {0} 分
+en: Automatic
+ja: 自動
+en: Full
+ja: すべて
+en: A clip starts when a tracking problem occurs. Between clips, nothing is saved.
+ja: トラッキングの問題が起きると、クリップの保存を開始します。クリップ以外は保存しません。
+en: Nova Calibrator saves all motion until you stop the recording.
+ja: 記録を停止するまで、すべてのモーションを保存します。
+en: Save the last 30 seconds
+ja: 直前の 30 秒を保存
+en: Event
+ja: イベント
+en: You saved this clip.
+ja: 手動で保存したクリップです。
+en: The headset tracking space moved.
+ja: ヘッドセットのトラッキング空間が移動しました。
+en: A base station moved.
+ja: ベースステーションが移動しました。
+en: A device lost tracking.
+ja: デバイスのトラッキングが切れました。
+en: A stationary device changed position.
+ja: 静止中のデバイスの位置が変わりました。
+en: A device got tracking again in a different position.
+ja: デバイスのトラッキングが別の位置で回復しました。
+en: Continuous calibration stopped.
+ja: 連続キャリブレーションが停止しました。
+en: Continuous calibration aligned the trackers again.
+ja: 連続キャリブレーションがトラッカーの位置を合わせ直しました。
+en: No tracking problem occurred. Nova Calibrator saved no clip.
+ja: トラッキングの問題は起きませんでした。クリップは保存されていません。

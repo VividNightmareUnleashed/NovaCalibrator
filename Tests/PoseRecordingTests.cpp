@@ -13,6 +13,7 @@
 #include "../Overlay/PoseRecordingFormat.h"
 #include "../Overlay/PoseRecordingListing.h"
 #include "../Overlay/RecordingPlayback.h"
+#include "../Overlay/RecordingTriggers.h"
 #include "../Overlay/SceneView.h"
 #include "RecordingProperty.h"
 #include "ReferenceRecordings.h"
@@ -208,7 +209,8 @@ std::string KindsOf(const std::vector<Record> &records)
 	for (const Record &record : records)
 		kinds += record.kind == KindSample ? 'S' : record.kind == KindGap ? 'G' : record.kind == KindBoundary ? 'B'
 			: record.kind == KindDevice ? 'D' : record.kind == KindEnd ? 'E' : record.kind == KindPause ? 'P'
-			: record.kind == KindResume ? 'R' : record.kind == KindAlignment ? 'A' : record.kind == KindModel ? 'M' : '?';
+			: record.kind == KindResume ? 'R' : record.kind == KindAlignment ? 'A' : record.kind == KindModel ? 'M'
+			: record.kind == KindMark ? 'K' : '?';
 	return kinds;
 }
 
@@ -544,7 +546,7 @@ void ReferenceRecordings(Check check)
 	};
 	const auto has = [](const std::string &text, const char *line) { return text.find(line) != std::string::npos; };
 	const std::string clean = listingOf(0), holes = listingOf(1), paused = listingOf(2), cut = listingOf(3),
-		newer = listingOf(4), aligned = listingOf(5);
+		newer = listingOf(4), aligned = listingOf(5), clips = listingOf(6);
 	const bool said = has(clean, "samples: 218\n") && has(clean, "samples of device 0: 18, valid 18, ") &&
 		has(clean, "samples of device 5: 100, valid 98, ") && has(clean, "end after sample 218: reason 4, ") &&
 		has(clean, "\nfile: complete\n") &&
@@ -560,7 +562,14 @@ void ReferenceRecordings(Check check)
 		has(aligned, "alignment after sample 0: system \"lighthouse\", applied 1, count 5000000000, "
 			"rotation 0.5 0.5 -0.5 0.5, translation 1.5 -0.25 2, scale 1\n") &&
 		has(aligned, "alignment after sample 20: system \"lighthouse\", applied 0, ") && has(aligned, ", scale 1.25\n") &&
-		has(aligned, "model after sample 0: device 3, render model \"{htc}vr_tracker_vive_3_0\"\n");
+		has(aligned, "model after sample 0: device 3, render model \"{htc}vr_tracker_vive_3_0\"\n") &&
+		has(clips, "pause after sample 0: cause 2, ") &&
+		has(clips, "resume after sample 0: cause 2, trigger \"base-station-moved\", ") &&
+		has(clips, "mark after sample 20: name \"base-station-moved\", device 4294967295, ") &&
+		has(clips, "resume after sample 30: cause 2, trigger \"tracking-lost\", ") &&
+		has(clips, "mark after sample 45: name \"tracking-lost\", device 3, ") &&
+		has(clips, "mark after sample 50: name \"player\", device 4294967295, ") && has(clips, "samples: 55\n") &&
+		has(clips, "\nfile: complete\n");
 	check("pose recording: a listing says what a correct reader finds in each reference recording", said,
 		said ? "" : clean.c_str());
 }
@@ -1243,6 +1252,361 @@ void RecorderModels(Check check)
 	check("pose recorder: a device's render model is a record at the start and when it changes", values, detail);
 }
 
+// A full recording gets a record where something was marked, with the moment
+// and the device it is about. Nothing after the stop is in the file, a mark
+// included.
+void RecorderMarks(Check check)
+{
+	TempFolder folder;
+	Feed feed;
+	PoseRecorder recorder;
+	bool reached = recorder.Start(feed.hub, folder.Dir(), "test", { Headset(), Tracker() }, TestLimits()) ==
+		PoseRecorder::StartResult::Started;
+	feed.Send(0);
+	reached = reached && WaitForSamples(recorder, 1);
+	const uint64_t before = recorder.GetProgress().bytes;
+	recorder.Mark(markname::TrackingLost, 3);
+	reached = reached && WaitFor([&] { return recorder.GetProgress().bytes > before; });
+	feed.Send(3);
+	reached = reached && WaitForSamples(recorder, 2);
+	recorder.RequestPause();
+	recorder.Mark(markname::Player);
+	PoseRecorder::Finished finished;
+	const bool closed = Finish(recorder, finished);
+
+	const ReadBack back = ReadBytes(FileContents(folder.File()));
+	const std::string kinds = KindsOf(back.records);
+	const bool marked = reached && closed && kinds == "SKSP" && back.records[1].mark.name == markname::TrackingLost &&
+		back.records[1].mark.deviceId == 3 && back.records[1].mark.qpc >= back.header.startQpc &&
+		back.records[1].mark.qpc <= back.records[3].pause.qpc &&
+		back.records[1].mark.unixMicroseconds >= back.header.startUnixMicroseconds &&
+		back.records[1].mark.unixMicroseconds <= back.records[3].pause.unixMicroseconds && !finished.clipMode &&
+		SamplesAre(back, feed.sent);
+	char detail[160];
+	snprintf(detail, sizeof detail, "reached %d, closed %d, records %s", reached, closed, kinds.c_str());
+	check("pose recorder: a mark is a record in a full recording, with its moment and its device", marked, detail);
+}
+
+PoseRecordingLimits ClipLimits(double before, double after)
+{
+	PoseRecordingLimits limits = TestLimits();
+	limits.clips = true;
+	limits.clipBeforeSeconds = before;
+	limits.clipAfterSeconds = after;
+	return limits;
+}
+
+// Until this many samples wait in memory for a clip.
+bool WaitForKept(const PoseRecorder &recorder, uint64_t samples)
+{
+	return WaitFor([&] { return recorder.GetProgress().kept == samples; });
+}
+
+// "Automatic": nothing reaches the file until something is marked. A mark
+// starts a clip with what waited in memory, and the clip states every device
+// as it was in front of its first sample.
+void RecorderClips(Check check)
+{
+	using Start = PoseRecorder::StartResult;
+	TempFolder folder;
+	Feed feed;
+	char detail[400];
+
+	// Yesterday's recording, ended.
+	{
+		PoseRecorder yesterday;
+		yesterday.Start(feed.hub, folder.Dir(), "yesterday", { Headset() }, TestLimits());
+		feed.Send(0);
+		WaitForSamples(yesterday, 1);
+		yesterday.StopAndWait(EndReason::AppExit, 20000);
+	}
+	const std::string old = FileContents(folder.File());
+	PoseRecorder recorder;
+
+	// Poses arrive and nothing is marked.
+	{
+		const auto started = recorder.Start(feed.hub, folder.Dir(), "clips", { Headset(), Tracker() }, ClipLimits(60.0, 60.0));
+		feed.Send(0);
+		feed.Send(3);
+		const bool kept = WaitForKept(recorder, 2);
+		const PoseRecorder::Progress waiting = recorder.GetProgress();
+		recorder.RequestPause();
+		PoseRecorder::Finished finished;
+		const bool closed = Finish(recorder, finished);
+		snprintf(detail, sizeof detail, "start %d, kept %d, samples %llu, closed %d, saved %d, clips %llu, %zu file(s)",
+			static_cast<int>(started), kept, static_cast<unsigned long long>(waiting.samples), closed, finished.saved,
+			static_cast<unsigned long long>(finished.clips), folder.Files());
+		check("pose recorder: a recording of clips with nothing marked saves nothing and replaces nothing",
+			started == Start::Started && kept && waiting.samples == 0 && closed && !finished.saved && finished.clipMode &&
+				finished.clips == 0 && FileContents(folder.File()) == old && folder.Files() == 1, detail);
+	}
+
+	// Four poses wait, the tracker's role changes between them, and a base
+	// station moves: the clip holds all four, the mark and what comes after.
+	const size_t first = feed.sent.size();
+	RecordedDevice changed = Tracker();
+	changed.controllerType = "vive_tracker_chest";
+	{
+		const auto started = recorder.Start(feed.hub, folder.Dir(), "clips", { Headset(), Tracker() }, ClipLimits(60.0, 60.0));
+		feed.Send(0);
+		feed.Send(3);
+		bool reached = started == Start::Started && WaitForKept(recorder, 2);
+		recorder.SetDevices({ Headset(), changed });
+		feed.Send(3);
+		feed.Send(0);
+		reached = reached && WaitForKept(recorder, 4);
+		const bool nothingYet = FileContents(folder.File()) == old;
+		recorder.Mark(markname::BaseStationMoved);
+		reached = reached && WaitForSamples(recorder, 4);
+		feed.Send(0);
+		reached = reached && WaitForSamples(recorder, 5);
+		const PoseRecorder::Progress open = recorder.GetProgress();
+		recorder.RequestPause();
+		PoseRecorder::Finished finished;
+		const bool closed = Finish(recorder, finished);
+
+		const ReadBack back = ReadFile(folder.File());
+		const std::string kinds = KindsOf(back.records);
+		const std::vector<Sample> clip(feed.sent.begin() + static_cast<std::ptrdiff_t>(first), feed.sent.end());
+		bool holds = reached && closed && nothingYet && kinds == "PRDDSSDSSKSP" && back.end == Reader::Next::EndOfFile &&
+			back.header.writer == "clips" && SamplesAre(back, clip);
+		if (holds)
+		{
+			const Resume &resume = back.records[1].resume;
+			const Mark &mark = back.records[9].mark;
+			holds = back.records[0].pause.cause == static_cast<uint8_t>(PauseCause::Clip) &&
+				resume.cause == static_cast<uint8_t>(PauseCause::Clip) && resume.trigger == markname::BaseStationMoved &&
+				resume.qpc >= back.records[0].pause.qpc && resume.qpc <= mark.qpc &&
+				resume.unixMicroseconds <= mark.unixMicroseconds && Describes(back.records[2].device, Headset()) &&
+				Describes(back.records[3].device, Tracker()) && Describes(back.records[6].device, changed) &&
+				mark.name == markname::BaseStationMoved && mark.deviceId == NoDevice &&
+				back.records[11].pause.cause == static_cast<uint8_t>(PauseCause::Player) && open.clipOpen &&
+				open.clips == 0 && open.kept == 0 && finished.paused && finished.saved && finished.clips == 1 &&
+				finished.samples == 5 && finished.bytes == FileContents(folder.File()).size();
+		}
+		snprintf(detail, sizeof detail, "start %d, reached %d, closed %d, nothing before the mark %d, records %s, clips %llu",
+			static_cast<int>(started), reached, closed, nothingYet, kinds.c_str(),
+			static_cast<unsigned long long>(finished.clips));
+		check("pose recorder: a mark starts a clip with what waited in memory, every device first, then the mark",
+			holds, detail);
+	}
+
+	// The recording goes on, poses arrive, and the player stops it: the file
+	// is as the clip left it.
+	const std::string afterClip = FileContents(folder.File());
+	{
+		const auto started = recorder.Start(feed.hub, folder.Dir(), "clips", { Headset(), changed }, ClipLimits(60.0, 60.0));
+		feed.Send(0);
+		feed.Send(3);
+		const bool kept = WaitForKept(recorder, 2);
+		recorder.RequestPause();
+		PoseRecorder::Finished finished;
+		const bool closed = Finish(recorder, finished);
+		const bool untouched = FileContents(folder.File()) == afterClip;
+		snprintf(detail, sizeof detail, "start %d, kept %d, closed %d, file untouched %d, saved %d, clean %d, can go on %d",
+			static_cast<int>(started), kept, closed, untouched, finished.saved, finished.closedCleanly,
+			recorder.CanResume(folder.Dir()));
+		check("pose recorder: between clips nothing reaches the file, and the player's stop adds nothing to it",
+			started == Start::Resumed && kept && closed && untouched && finished.saved && finished.paused &&
+				finished.closedCleanly && finished.clips == 1 && finished.samples == 5 && recorder.CanResume(folder.Dir()) &&
+				folder.Files() == 1, detail);
+	}
+
+	// The player saves what just happened: a clip that ends at its mark. What
+	// arrives behind it waits again, and SteamVR's end closes the file.
+	{
+		const size_t saved = feed.sent.size();
+		const auto started = recorder.Start(feed.hub, folder.Dir(), "clips", { Headset(), changed }, ClipLimits(60.0, 60.0));
+		feed.Send(3);
+		feed.Send(0);
+		feed.Send(3);
+		bool reached = started == Start::Resumed && WaitForKept(recorder, 3);
+		recorder.Mark(markname::Player, NoDevice, false);
+		reached = reached && WaitFor([&] { return recorder.GetProgress().clips == 2; });
+		feed.Send(0);
+		reached = reached && WaitForKept(recorder, 1);
+		const bool closed = recorder.StopAndWait(EndReason::SteamVrQuit, 20000);
+		PoseRecorder::Finished finished;
+		const bool taken = recorder.TakeFinished(finished);
+
+		const std::string bytes = FileContents(folder.File());
+		const ReadBack back = ReadBytes(bytes);
+		const std::string kinds = KindsOf(back.records);
+		std::vector<Sample> expected(feed.sent.begin() + static_cast<std::ptrdiff_t>(first),
+			feed.sent.begin() + static_cast<std::ptrdiff_t>(first) + 5);
+		expected.insert(expected.end(), feed.sent.begin() + static_cast<std::ptrdiff_t>(saved),
+			feed.sent.begin() + static_cast<std::ptrdiff_t>(saved) + 3);
+		bool holds = reached && closed && taken && kinds == "PRDDSSDSSKSPRDDSSSKPE" &&
+			bytes.compare(0, afterClip.size(), afterClip) == 0 && back.end == Reader::Next::EndOfFile &&
+			SamplesAre(back, expected);
+		if (holds)
+			holds = back.records[12].resume.cause == static_cast<uint8_t>(PauseCause::Clip) &&
+				back.records[12].resume.trigger == markname::Player &&
+				back.records[12].resume.qpc >= back.records[11].pause.qpc && Describes(back.records[13].device, Headset()) &&
+				Describes(back.records[14].device, changed) &&
+				back.records[14].device.label == back.header.devices[1].label &&
+				back.records[18].mark.name == markname::Player &&
+				back.records[19].pause.cause == static_cast<uint8_t>(PauseCause::Clip) &&
+				back.records[20].end.reason == static_cast<uint8_t>(EndReason::SteamVrQuit) &&
+				back.records[20].end.samples == 8 && !finished.paused && finished.clips == 2 && finished.samples == 8 &&
+				!recorder.CanResume(folder.Dir());
+		snprintf(detail, sizeof detail, "start %d, reached %d, closed %d, records %s, clips %llu, samples %llu",
+			static_cast<int>(started), reached, closed, kinds.c_str(), static_cast<unsigned long long>(finished.clips),
+			static_cast<unsigned long long>(finished.samples));
+		check("pose recorder: the player's save is a clip that ends at its mark, and what follows it waits again",
+			holds, detail);
+	}
+}
+
+// A clip reaches back as far as the time it is given and no further: what is
+// older left the memory and is in no file.
+void RecorderClipsKeepLittle(Check check)
+{
+	TempFolder folder;
+	Feed feed;
+	PoseRecorder recorder;
+	bool reached = recorder.Start(feed.hub, folder.Dir(), "clips", { Headset(), Tracker() }, ClipLimits(1.0, 60.0)) ==
+		PoseRecorder::StartResult::Started;
+	feed.Send(0);
+	feed.Send(3);
+	feed.Send(0);
+	reached = reached && WaitForKept(recorder, 3);
+	const bool dropped = WaitForKept(recorder, 0);
+	const size_t recent = feed.sent.size();
+	feed.Send(3);
+	feed.Send(0);
+	reached = reached && WaitForKept(recorder, 2);
+	recorder.Mark(markname::UniverseJump);
+	reached = reached && WaitForSamples(recorder, 2);
+	recorder.RequestPause();
+	PoseRecorder::Finished finished;
+	const bool closed = Finish(recorder, finished);
+
+	const ReadBack back = ReadFile(folder.File());
+	const std::string kinds = KindsOf(back.records);
+	const std::vector<Sample> expected(feed.sent.begin() + static_cast<std::ptrdiff_t>(recent), feed.sent.end());
+	char detail[200];
+	snprintf(detail, sizeof detail, "reached %d, old poses dropped %d, closed %d, records %s, samples %llu", reached,
+		dropped, closed, kinds.c_str(), static_cast<unsigned long long>(finished.samples));
+	check("pose recorder: a clip reaches back no further than the time before its mark",
+		reached && dropped && closed && kinds == "PRDDSSKP" && SamplesAre(back, expected) && finished.samples == 2,
+		detail);
+}
+
+// What turns into a mark: a count of Nova Calibrator's that went up, and a
+// device that had tracking for a while and lost it.
+void TriggerWatchScenarios(Check check)
+{
+	const auto names = [](const std::vector<Trigger> &triggers)
+	{
+		std::string text;
+		for (const Trigger &trigger : triggers)
+			text += std::string(text.empty() ? "" : " ") + trigger.name +
+				(trigger.deviceId == NoDevice ? "" : ":" + std::to_string(trigger.deviceId));
+		return text;
+	};
+	TriggerWatch watch;
+	std::vector<Trigger> triggers;
+	TriggerCounts counts;
+	counts.universeJumps = 3;
+	counts.baseStationMoves = 1;
+	std::vector<TriggerDevice> devices = { { 0, true }, { 3, true } };
+	watch.Step(0.0, counts, devices, triggers);
+	const std::string firstLook = names(triggers);
+	// Two jumps in one step are one mark; a stop is marked when it begins.
+	counts.universeJumps = 5;
+	counts.calibrationStopped = true;
+	watch.Step(0.1, counts, devices, triggers);
+	const std::string jumped = names(triggers);
+	triggers.clear();
+	watch.Step(0.2, counts, devices, triggers);
+	const std::string unchanged = names(triggers);
+	counts.baseStationMoves = 2;
+	counts.deviceSlides = 1;
+	counts.trackingJumps = 1;
+	counts.realignments = 1;
+	counts.calibrationStopped = false;
+	watch.Step(0.3, counts, devices, triggers);
+	const std::string rest = names(triggers);
+	const std::string detail = "first look \"" + firstLook + "\", then \"" + jumped + "\", \"" + unchanged + "\", \"" +
+		rest + "\"";
+	check("motion recorder: a count that went up is one mark, and the first look marks nothing",
+		firstLook.empty() && jumped == "universe-jump calibration-stopped" && unchanged.empty() &&
+			rest == "base-station-moved device-slid tracking-jumped calibration-realigned", detail.c_str());
+
+	// The tracker loses tracking before it had it for long: no news. It tracks
+	// again for two seconds and loses it: news, once. A flicker after it is not.
+	triggers.clear();
+	devices[1].tracked = false;
+	watch.Step(0.4, counts, devices, triggers);
+	const std::string early = names(triggers);
+	devices[1].tracked = true;
+	watch.Step(1.0, counts, devices, triggers);
+	watch.Step(3.1, counts, devices, triggers);
+	devices[1].tracked = false;
+	watch.Step(3.2, counts, devices, triggers);
+	watch.Step(3.3, counts, devices, triggers);
+	const std::string lost = names(triggers);
+	triggers.clear();
+	devices[1].tracked = true;
+	watch.Step(3.4, counts, devices, triggers);
+	devices[1].tracked = false;
+	watch.Step(3.5, counts, devices, triggers);
+	const std::string flicker = names(triggers);
+	// A device SteamVR no longer lists has no tracking.
+	devices.erase(devices.begin());
+	watch.Step(4.0, counts, devices, triggers);
+	const std::string unlisted = names(triggers);
+	// After a reset the next step is a first look again.
+	triggers.clear();
+	watch.Reset();
+	counts.universeJumps = 9;
+	watch.Step(5.0, counts, devices, triggers);
+	const std::string afterReset = names(triggers);
+	const std::string deviceDetail = "early \"" + early + "\", lost \"" + lost + "\", flicker \"" + flicker +
+		"\", unlisted \"" + unlisted + "\", after a reset \"" + afterReset + "\"";
+	check("motion recorder: a device that had tracking and lost it is marked once, and a flicker is not",
+		early.empty() && lost == "tracking-lost:3" && flicker.empty() && unlisted == "tracking-lost:0" &&
+			afterReset.empty(), deviceDetail.c_str());
+}
+
+// The reference recording of two clips, played back: each clip is a stretch
+// that names what started it, and each mark a moment on its stretch's clock
+// with the device it is about.
+void PlaybackMarks(Check check)
+{
+	std::string bytes;
+	for (const reference::File &file : reference::Files())
+		if (file.name == "clips")
+			bytes = file.bytes;
+	const auto shared = std::make_shared<const std::string>(bytes);
+	Playback playback;
+	playback.Open([shared] {
+		return std::unique_ptr<std::istream>(new std::istringstream(*shared, std::ios::in | std::ios::binary));
+	}, bytes.size(), true);
+	const Playback::Summary summary = playback.GetSummary();
+	bool holds = summary.state == Playback::State::Ready && summary.stretches.size() == 2 && summary.marks.size() == 3 &&
+		summary.samples == 55 && !summary.cutShort;
+	if (holds)
+	{
+		const std::vector<Playback::Mark> &marks = summary.marks;
+		const Playback::Stretch &one = summary.stretches[0], &two = summary.stretches[1];
+		holds = one.trigger == markname::BaseStationMoved && two.trigger == markname::TrackingLost &&
+			marks[0].name == markname::BaseStationMoved && !marks[0].hasDevice && marks[0].time > 0.0 &&
+			marks[0].time <= one.seconds && marks[1].name == markname::TrackingLost && marks[1].hasDevice &&
+			marks[1].device.deviceId == 3 && marks[1].device.controllerType == "vive_tracker_waist" &&
+			marks[1].time > two.start && marks[1].time < marks[2].time && marks[2].name == markname::Player &&
+			!marks[2].hasDevice && marks[2].time <= summary.seconds &&
+			marks[1].unixMicroseconds > marks[0].unixMicroseconds;
+	}
+	char detail[200];
+	snprintf(detail, sizeof detail, "state %d, %zu stretch(es), %zu mark(s), %llu samples, %.4f s",
+		static_cast<int>(summary.state), summary.stretches.size(), summary.marks.size(),
+		static_cast<unsigned long long>(summary.samples), summary.seconds);
+	check("playback: a clip is a stretch that names what started it, and a mark is a moment on its clock", holds,
+		detail);
+}
+
 // Two devices for three seconds: two seconds, a stop, and one second more on
 // a clock that started again (the computer was restarted), with a loss half
 // way through it. The tracker moves along x at one meter a second in a driver
@@ -1430,7 +1794,10 @@ void TextIsTranslated(Check check)
 	std::vector<std::string> shown(std::begin(text::Whole), std::end(text::Whole));
 	shown.insert(shown.end(), std::begin(text::Disclaimer), std::end(text::Disclaimer));
 	shown.insert(shown.end(), std::begin(text::DeviceNames), std::end(text::DeviceNames));
+	shown.insert(shown.end(), std::begin(text::MarkLines), std::end(text::MarkLines));
 	char built[160];
+	snprintf(built, sizeof built, text::OnForPattern, 12);
+	shown.emplace_back(built);
 	snprintf(built, sizeof built, text::StatusPattern, 12, 1.25);
 	shown.emplace_back(built);
 	snprintf(built, sizeof built, text::StatusPattern, 0, 0.0);
@@ -1473,6 +1840,11 @@ void RunPoseRecordingScenarios(Check check)
 	RecorderExits(check);
 	RecorderAlignment(check);
 	RecorderModels(check);
+	RecorderMarks(check);
+	RecorderClips(check);
+	RecorderClipsKeepLittle(check);
+	TriggerWatchScenarios(check);
 	PlaybackScenarios(check);
+	PlaybackMarks(check);
 	TextIsTranslated(check);
 }

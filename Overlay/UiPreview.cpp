@@ -434,6 +434,7 @@ void SetupPreviewState()
 		break;
 	case PreviewScenario::Recorder:
 	case PreviewScenario::RecorderLive:
+	case PreviewScenario::RecorderLiveFull:
 	case PreviewScenario::RecorderEmpty:
 	case PreviewScenario::RecorderWarning:
 	case PreviewScenario::RecorderDelete:

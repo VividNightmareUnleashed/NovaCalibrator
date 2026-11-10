@@ -68,6 +68,7 @@ constexpr size_t PausePayloadBytes = 17;
 // the largest records this version writes.
 constexpr size_t MaxResumePayloadBytes = 17 + 1 + MaxStringBytes;
 constexpr size_t MaxDevicePayloadBytes = 12 + 4 * (1 + MaxStringBytes);
+constexpr size_t MaxMarkPayloadBytes = 20 + 1 + MaxStringBytes;
 
 enum RecordKind : uint8_t
 {
@@ -80,6 +81,7 @@ enum RecordKind : uint8_t
 	KindResume = 7,
 	KindAlignment = 8,
 	KindModel = 9,
+	KindMark = 10,
 };
 
 // Why the recorder closed the file for good. Stored as a byte; a newer
@@ -97,8 +99,25 @@ enum class EndReason : uint8_t
 enum class PauseCause : uint8_t
 {
 	Player = 1,   // the player turned recording off, then on again
-	Clip = 2,     // reserved: one clip ended and another began ("Automatic")
+	Clip = 2,     // "Automatic": a clip ended, and a clip began
 };
+
+// The names the recorder gives what it marks (docs/recording-format.md, "10:
+// mark"). A newer writer may use a name this header does not list.
+namespace markname
+{
+constexpr const char *Player = "player";
+constexpr const char *UniverseJump = "universe-jump";
+constexpr const char *BaseStationMoved = "base-station-moved";
+constexpr const char *TrackingLost = "tracking-lost";
+constexpr const char *DeviceSlid = "device-slid";
+constexpr const char *TrackingJumped = "tracking-jumped";
+constexpr const char *CalibrationStopped = "calibration-stopped";
+constexpr const char *CalibrationRealigned = "calibration-realigned";
+} // namespace markname
+
+// The device id of a mark that is about no one device.
+constexpr uint32_t NoDevice = 0xFFFFFFFF;
 
 inline const char *EndReasonText(uint8_t reason)
 {
@@ -235,6 +254,16 @@ struct Model
 	std::string renderModel;
 };
 
+// Something worth finding again happened at this moment: a tracking problem
+// Nova Calibrator saw, or the player's own "save this".
+struct Mark
+{
+	int64_t qpc = 0;
+	int64_t unixMicroseconds = 0;
+	uint32_t deviceId = NoDevice;   // the device it is about, or NoDevice
+	std::string name;
+};
+
 struct Record
 {
 	uint8_t kind = 0;
@@ -247,6 +276,7 @@ struct Record
 	Resume resume;
 	Alignment alignment;
 	Model model;
+	Mark mark;
 	std::string unknown;
 };
 
@@ -427,6 +457,17 @@ inline void AppendModel(std::string &out, const Model &model)
 	out += payload;
 }
 
+inline void AppendMark(std::string &out, const Mark &mark)
+{
+	std::string payload;
+	PutI64(payload, mark.qpc);
+	PutI64(payload, mark.unixMicroseconds);
+	PutU32(payload, mark.deviceId);
+	PutString(payload, mark.name);
+	PutRecordPrefix(out, KindMark, payload.size());
+	out += payload;
+}
+
 // Any record Reader returned, as the bytes it was read from.
 inline void AppendRecord(std::string &out, const Record &record)
 {
@@ -458,6 +499,9 @@ inline void AppendRecord(std::string &out, const Record &record)
 		break;
 	case KindModel:
 		AppendModel(out, record.model);
+		break;
+	case KindMark:
+		AppendMark(out, record.mark);
 		break;
 	default:
 		PutRecordPrefix(out, record.kind, record.unknown.size());
@@ -734,6 +778,10 @@ public:
 		case KindModel:
 			fits = detail::GetU32(in, record.model.deviceId) && detail::GetString(in, record.model.renderModel) &&
 				in.at == in.end;
+			break;
+		case KindMark:
+			fits = detail::GetI64(in, record.mark.qpc) && detail::GetI64(in, record.mark.unixMicroseconds) &&
+				detail::GetU32(in, record.mark.deviceId) && detail::GetString(in, record.mark.name) && in.at == in.end;
 			break;
 		default:
 			record.unknown = payload_;

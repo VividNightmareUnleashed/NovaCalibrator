@@ -37,6 +37,7 @@ MAX_HEADER_DEVICES = 64
 KIND_SAMPLE, KIND_GAP, KIND_BOUNDARY, KIND_DEVICE, KIND_END, KIND_PAUSE, KIND_RESUME = 1, 2, 3, 4, 5, 6, 7
 KIND_ALIGNMENT = 8
 KIND_MODEL = 9
+KIND_MARK = 10
 
 HEADER = struct.Struct("<8sIIqqqI")
 PREFIX = struct.Struct("<BH")
@@ -50,6 +51,9 @@ END = struct.Struct("<BqqQ")
 PAUSE = struct.Struct("<Bqq")
 # Applied, clock count, rotation (w x y z), translation, scale; then a string.
 ALIGNMENT = struct.Struct("<Bq8d")
+# Clock count, wall-clock time, device id; then a string.
+MARK = struct.Struct("<qqI")
+NO_DEVICE = 0xFFFFFFFF
 DEVICE_START = struct.Struct("<IIi")
 FIXED_SIZES = {KIND_SAMPLE: SAMPLE.size, KIND_GAP: GAP.size, KIND_BOUNDARY: BOUNDARY.size, KIND_END: END.size,
                KIND_PAUSE: PAUSE.size}
@@ -213,6 +217,14 @@ class Recording:
                 if end != size:
                     raise NotARecording("a model record has bytes left over")
                 payload = (struct.unpack_from("<I", payload, 0)[0], name)
+            elif kind == KIND_MARK:
+                if size < MARK.size:
+                    raise NotARecording("a mark record is cut short")
+                count, time, device = MARK.unpack_from(payload, 0)
+                name, end = take_string(payload, MARK.size)
+                if end != size:
+                    raise NotARecording("a mark record has bytes left over")
+                payload = (count, time, device, name)
             self.consumed = self._taken
             yield kind, payload
 
@@ -289,6 +301,9 @@ def listing(path):
                              f"rotation {turn}, translation {shift}, scale {real(payload[9])}")
             elif kind == KIND_MODEL:
                 lines.append(f'model{after}device {payload[0]}, render model "{payload[1]}"')
+            elif kind == KIND_MARK:
+                lines.append(f'mark{after}name "{payload[3]}", device {payload[2]}, count {payload[0]}, '
+                             f"time {payload[1]} us")
             else:
                 lines.append(f"unknown record{after}kind {kind}, {len(payload)} bytes")
         lines.append(f"samples: {samples}")
@@ -328,7 +343,7 @@ def scan(path, csv_device=None, csv_out=None):
         devices = {device.id: device for device in recording.devices}
         stats = {}
         totals = {"samples": 0, "gaps": 0, "lost": 0, "boundaries": 0, "pauses": 0, "paused": 0, "unknown": 0,
-                  "alignments": 0, "end": None, "last": None, "open_pause": None}
+                  "alignments": 0, "end": None, "last": None, "open_pause": None, "clips": 0, "marks": []}
         lost_since = 0
         boundary_since = False
         pause_since = False
@@ -373,12 +388,16 @@ def scan(path, csv_device=None, csv_out=None):
                     totals["paused"] += max(payload[1] - totals["open_pause"], 0)
                     totals["open_pause"] = None
                 pause_since = True
+                if payload[0] == 2:
+                    totals["clips"] += 1
             elif kind == KIND_END:
                 totals["end"] = END.unpack(payload)
             elif kind == KIND_ALIGNMENT:
                 totals["alignments"] += 1
             elif kind == KIND_MODEL:
                 pass
+            elif kind == KIND_MARK:
+                totals["marks"].append(payload)
             else:
                 totals["unknown"] += 1
         totals["file"] = state["file"]
@@ -425,6 +444,12 @@ def print_summary(path, recording, devices, stats, totals):
         print(f"records of a kind this reader does not know: {totals['unknown']}")
     if totals["alignments"]:
         print(f"alignment records (the calibration in use, see --listing): {totals['alignments']}")
+    if totals["clips"]:
+        print(f"clips: {totals['clips']}")
+    for count, time, device, name in totals["marks"]:
+        at = datetime.datetime.fromtimestamp(0, datetime.timezone.utc) + datetime.timedelta(microseconds=time)
+        about = "" if device == NO_DEVICE else f", device {device}"
+        print(f"mark at {recording.seconds(count):.3f} s ({at:%H:%M:%S} UTC): {name}{about}")
     print()
 
     rows = [("id", "class", "label", "model", "system", "role", "samples", "Hz", "first s", "last s", "valid")]

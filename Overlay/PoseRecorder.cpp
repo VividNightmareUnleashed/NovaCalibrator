@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <deque>
 #include <mutex>
 #include <random>
 
@@ -27,6 +28,10 @@ constexpr size_t ModelRecordBytes = recording::RecordPrefixBytes + 4 + 1 + recor
 constexpr size_t AlignmentRecordBytes = recording::RecordPrefixBytes + 73 + 1 + recording::MaxStringBytes;
 constexpr size_t GapRecordBytes = recording::RecordPrefixBytes + recording::GapPayloadBytes;
 constexpr size_t BoundaryRecordBytes = recording::RecordPrefixBytes + recording::BoundaryPayloadBytes;
+constexpr size_t MarkRecordBytes = recording::RecordPrefixBytes + recording::MaxMarkPayloadBytes;
+// Marks that wait for the thread. More in one poll interval are not news.
+constexpr size_t MaxPendingMarks = 64;
+constexpr size_t MaxKnownAlignments = 16;
 // A single Drain stops at each gap; this many reach the head of any backlog
 // the hub's history holds, as PoseStreamHub::DrainThroughGaps bounds it.
 constexpr int DrainPasses = 64;
@@ -94,6 +99,73 @@ recording::Sample ToSample(const protocol::DevicePoseSample &pose)
 	return sample;
 }
 
+struct PendingMark
+{
+	recording::Mark record;
+	bool keepAfter = true;
+};
+
+// What one pass of the thread brought, kept in memory between clips: its
+// records as the file would hold them, and what they say of the devices.
+struct KeptPiece
+{
+	int64_t qpc = 0;   // when it arrived
+	std::string bytes;
+	std::vector<recording::DeviceInfo> devices;
+	std::vector<recording::Model> models;
+	std::vector<recording::Alignment> alignments;
+	uint64_t samples = 0;
+	uint64_t lost = 0;
+};
+
+// What a clip must state first for the records behind it to read by
+// themselves: every device, its model and the calibration, as they were in
+// front of the oldest record kept.
+struct KnownState
+{
+	std::vector<recording::DeviceInfo> devices;
+	std::map<uint32_t, std::string> models;
+	std::vector<recording::Alignment> alignments;
+
+	void Device(const recording::DeviceInfo &device)
+	{
+		for (recording::DeviceInfo &known : devices)
+			if (known.deviceId == device.deviceId)
+			{
+				known = device;
+				return;
+			}
+		devices.push_back(device);
+	}
+
+	void Shape(const recording::Model &model)
+	{
+		models[model.deviceId] = model.renderModel;
+	}
+
+	void Align(const recording::Alignment &alignment)
+	{
+		for (recording::Alignment &known : alignments)
+			if (known.trackingSystem == alignment.trackingSystem)
+			{
+				known = alignment;
+				return;
+			}
+		if (alignments.size() < MaxKnownAlignments)
+			alignments.push_back(alignment);
+	}
+
+	void Fold(const KeptPiece &piece)
+	{
+		for (const recording::DeviceInfo &device : piece.devices)
+			Device(device);
+		for (const recording::Model &model : piece.models)
+			Shape(model);
+		for (const recording::Alignment &alignment : piece.alignments)
+			Align(alignment);
+	}
+};
+
 } // namespace
 
 bool FreeDiskBytes(const std::wstring &directory, uint64_t &freeBytes)
@@ -143,10 +215,21 @@ struct PoseRecorder::Session
 	std::vector<recording::DeviceInfo> pendingDevices;
 	std::vector<recording::Alignment> pendingAlignments;
 	std::vector<recording::Model> pendingModels;
+	std::vector<PendingMark> pendingMarks;
+
+	// The devices, models and calibration as the start knew them, for the
+	// thread's first clip.
+	KnownState startState;
 
 	std::atomic<uint64_t> bytes{ 0 };     // the file's size
 	std::atomic<uint64_t> samples{ 0 };   // the whole recording's
 	std::atomic<uint64_t> lost{ 0 };
+	// "Automatic": the clips closed so far in the whole recording, the counts
+	// this stretch's closed clips lasted, and when the open one began (0: none).
+	std::atomic<uint64_t> clips{ 0 };
+	std::atomic<int64_t> clipTicks{ 0 };
+	std::atomic<int64_t> clipOpenSince{ 0 };
+	std::atomic<uint64_t> kept{ 0 };      // samples that wait in memory for a clip
 
 	// Written by the thread, then `done` is set; read only after it.
 	bool paused = false;
@@ -285,6 +368,7 @@ PoseRecorder::StartResult PoseRecorder::Start(PoseStreamHub &hub, const std::wst
 		session.earlierSeconds = paused_.seconds;
 		session.samples.store(paused_.samples, std::memory_order_release);
 		session.lost.store(paused_.lost, std::memory_order_release);
+		session.clips.store(paused_.clips, std::memory_order_release);
 
 		// One entry per id.
 		devices_.clear();
@@ -316,12 +400,29 @@ PoseRecorder::StartResult PoseRecorder::Start(PoseStreamHub &hub, const std::wst
 		hub.DiscardBacklog(consumer_);
 		session.startQpc = QpcNow();
 
+		for (const recording::DeviceInfo &device : devices_)
+		{
+			session.startState.Device(device);
+			if (!models_[device.deviceId].empty())
+				session.startState.Shape({ device.deviceId, models_[device.deviceId] });
+		}
+		if (hasAlignment_)
+			session.startState.Align(alignment_);
+
 		// What the stretch starts with: a new file's header, which holds as many
 		// devices as fit, or a resume record and every device again, so that the
-		// stretch reads by itself.
+		// stretch reads by itself. A stretch of clips that goes on in a file adds
+		// nothing yet: its first clip states all of it.
 		std::string bytes;
 		size_t inHeader = 0;
-		if (resume)
+		const bool silent = resume && limits.clips;
+		if (silent)
+		{
+			for (const recording::DeviceInfo &device : devices_)
+				if (device.deviceId < session.described.size())
+					session.described[device.deviceId] = true;
+		}
+		else if (resume)
 			recording::AppendResume(bytes, { static_cast<uint8_t>(recording::PauseCause::Player), session.startQpc,
 				UnixMicrosecondsNow(), std::string() });
 		else
@@ -335,7 +436,7 @@ PoseRecorder::StartResult PoseRecorder::Start(PoseStreamHub &hub, const std::wst
 			header.devices.assign(devices_.begin(), devices_.begin() + static_cast<std::ptrdiff_t>(inHeader));
 			recording::AppendHeader(bytes, header);
 		}
-		for (size_t i = 0; i < devices_.size(); ++i)
+		for (size_t i = 0; i < devices_.size() && !silent; ++i)
 		{
 			if (i >= inHeader)
 				recording::AppendDevice(bytes, devices_[i]);
@@ -345,16 +446,20 @@ PoseRecorder::StartResult PoseRecorder::Start(PoseStreamHub &hub, const std::wst
 		// The shape of each device that has one, then the calibration in use, so
 		// that this stretch too reads by itself.
 		for (const recording::DeviceInfo &device : devices_)
-			if (!models_[device.deviceId].empty())
+			if (!silent && !models_[device.deviceId].empty())
 				recording::AppendModel(bytes, { device.deviceId, models_[device.deviceId] });
-		if (hasAlignment_)
+		if (hasAlignment_ && !silent)
 		{
 			alignment_.qpc = session.startQpc;
 			recording::AppendAlignment(bytes, alignment_);
 		}
+		// A new recording of clips holds nothing until its first clip, and says so.
+		if (limits.clips && !resume)
+			recording::AppendPause(bytes, { static_cast<uint8_t>(recording::PauseCause::Clip), session.startQpc,
+				UnixMicrosecondsNow() });
 		DWORD written = 0;
-		if (!WriteFile(file, bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr) ||
-			written != bytes.size())
+		if (!bytes.empty() && (!WriteFile(file, bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr) ||
+			written != bytes.size()))
 			return abandon("writing the start of the stretch failed with error " + std::to_string(GetLastError()));
 		session.bytes.store((resume ? paused_.bytes : 0) + bytes.size(), std::memory_order_release);
 
@@ -414,6 +519,22 @@ void PoseRecorder::SetAlignment(const recording::Alignment &alignment)
 		return;
 	std::lock_guard<std::mutex> lock(session_->mutex);
 	session_->pendingAlignments.push_back(alignment);
+}
+
+void PoseRecorder::Mark(const std::string &name, uint32_t deviceId, bool keepAfter)
+{
+	if (!session_ || session_->done.load(std::memory_order_acquire))
+		return;
+	PendingMark mark;
+	mark.record.qpc = QpcNow();
+	mark.record.unixMicroseconds = UnixMicrosecondsNow();
+	mark.record.deviceId = deviceId;
+	mark.record.name = name;
+	mark.keepAfter = keepAfter;
+	std::lock_guard<std::mutex> lock(session_->mutex);
+	// Nothing after a stop reaches the file, a mark included.
+	if (!session_->stop && session_->pendingMarks.size() < MaxPendingMarks)
+		session_->pendingMarks.push_back(std::move(mark));
 }
 
 void PoseRecorder::Request(bool pause, recording::EndReason reason)
@@ -479,6 +600,7 @@ PoseRecorder::Progress PoseRecorder::GetProgress() const
 		progress.samples = paused_.samples;
 		progress.lost = paused_.lost;
 		progress.seconds = paused_.seconds;
+		progress.clips = paused_.clips;
 		return progress;
 	}
 	const Session &session = *session_;
@@ -486,10 +608,20 @@ PoseRecorder::Progress PoseRecorder::GetProgress() const
 	progress.bytes = session.bytes.load(std::memory_order_acquire);
 	progress.samples = session.samples.load(std::memory_order_acquire);
 	progress.lost = session.lost.load(std::memory_order_acquire);
-	progress.seconds = progress.recording
-		? session.earlierSeconds +
-			static_cast<double>(QpcNow() - session.startQpc) / static_cast<double>(session.qpcFrequency)
-		: session.seconds;
+	progress.clips = session.clips.load(std::memory_order_acquire);
+	const int64_t openSince = session.clipOpenSince.load(std::memory_order_acquire);
+	progress.clipOpen = progress.recording && openSince != 0;
+	progress.kept = progress.recording ? session.kept.load(std::memory_order_acquire) : 0;
+	if (!progress.recording)
+		progress.seconds = session.seconds;
+	else if (session.limits.clips)
+		progress.seconds = session.earlierSeconds +
+			static_cast<double>(session.clipTicks.load(std::memory_order_acquire) +
+				(openSince != 0 ? (std::max)(QpcNow() - openSince, static_cast<int64_t>(0)) : 0)) /
+				static_cast<double>(session.qpcFrequency);
+	else
+		progress.seconds = session.earlierSeconds +
+			static_cast<double>(QpcNow() - session.startQpc) / static_cast<double>(session.qpcFrequency);
 	return progress;
 }
 
@@ -506,11 +638,14 @@ void PoseRecorder::Harvest(Finished &finished)
 	finished.samples = session.samples.load(std::memory_order_acquire);
 	finished.lost = session.lost.load(std::memory_order_acquire);
 	finished.seconds = session.seconds;
+	finished.clipMode = session.limits.clips;
+	finished.clips = session.clips.load(std::memory_order_acquire);
 	finished.closedCleanly = session.closedCleanly;
 	finished.error = session.error;
 	paused_ = Paused();
 	if (finished.paused && finished.saved && finished.closedCleanly)
-		paused_ = { true, finished.path, finished.bytes, finished.samples, finished.lost, finished.seconds };
+		paused_ = { true, finished.path, finished.bytes, finished.samples, finished.lost, finished.seconds,
+			finished.clips };
 	session_.reset();
 }
 
@@ -525,6 +660,7 @@ bool PoseRecorder::TakeFinished(Finished &finished)
 void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 {
 	Session &session = *shared;
+	const bool clips = session.limits.clips;
 	bool pause = false;
 	recording::EndReason reason = recording::EndReason::AppExit;
 	int64_t closeQpc = 0, closeUnixMicroseconds = 0;
@@ -532,6 +668,13 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 	bool writeFailed = false;
 	uint64_t samples = session.earlierSamples;
 	std::string out;
+	// "Automatic": between clips nothing is written, and what arrives waits in
+	// memory for the next mark. `armed` is that state; otherwise a clip is open
+	// (or, in a full recording, the file is) and every record goes to the file.
+	bool armed = clips;
+	int64_t clipStartQpc = 0, clipEndQpc = 0;
+	// The counts this stretch's closed clips lasted.
+	int64_t clipTicks = 0;
 
 	const auto fail = [&](const std::string &why)
 	{
@@ -577,11 +720,17 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 			return fail("the recording could not be opened again (error " + std::to_string(GetLastError()) + ")");
 		return true;
 	};
-	// Whether a record of this size and the closing record still fit under the cap.
+	// Whether a record of this size and the closing record still fit under the
+	// cap. A clip's pause record and the end record behind it both close.
+	const size_t closingBytes = ClosingRecordBytes * (clips ? 2 : 1);
 	const auto fits = [&](size_t recordBytes)
 	{
-		return session.bytes.load(std::memory_order_relaxed) + out.size() + recordBytes + ClosingRecordBytes <=
+		return session.bytes.load(std::memory_order_relaxed) + out.size() + recordBytes + closingBytes <=
 			session.limits.maxFileBytes;
+	};
+	const auto ticksOf = [&](double seconds)
+	{
+		return static_cast<int64_t>((std::max)(0.0, seconds) * static_cast<double>(session.qpcFrequency));
 	};
 
 	// An exception escaping a thread entry ends the process without unwinding
@@ -601,14 +750,14 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 			reason = recording::EndReason::SizeLimit;
 			ended = true;
 		};
-		const auto describe = [&](const recording::DeviceInfo &device)
-		{
-			if (!fits(DeviceRecordBytes))
-				return full();
-			recording::AppendDevice(out, device);
-			if (device.deviceId < session.described.size())
-				session.described[device.deviceId] = true;
-		};
+		// What waits for the next clip, oldest first, and what was known in
+		// front of it.
+		KnownState known = session.startState;
+		std::deque<KeptPiece> kept;
+		size_t keptBytes = 0;
+		uint64_t keptSamples = 0;
+		const int64_t beforeTicks = ticksOf(session.limits.clipBeforeSeconds);
+		const int64_t afterTicks = ticksOf(session.limits.clipAfterSeconds);
 
 		while (!ended)
 		{
@@ -618,6 +767,7 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 				std::vector<recording::DeviceInfo> changed;
 				std::vector<recording::Alignment> aligned;
 				std::vector<recording::Model> shapes;
+				std::vector<PendingMark> marks;
 				PoseStreamHub::Hole hole;
 				uint64_t dropped = 0, boundaries = 0;
 				bool newBoundary = false;
@@ -635,6 +785,7 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 					changed.swap(session.pendingDevices);
 					aligned.swap(session.pendingAlignments);
 					shapes.swap(session.pendingModels);
+					marks.swap(session.pendingMarks);
 					dropped = session.hub->Drain(session.consumer, batch, &hole);
 					// Once for each boundary: an open hole reports its boundary
 					// with every drain until a sample closes it.
@@ -645,44 +796,77 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 						session.boundariesNoted = boundaries;
 					}
 				}
+				const int64_t now = QpcNow();
+				// Where this pass's records go: the file, or the memory between
+				// clips, which no cap bounds here (it is bounded when it is kept).
+				const bool keeping = armed;
+				KeptPiece piece;
+				piece.qpc = now;
+				std::string &to = keeping ? piece.bytes : out;
+				const auto room = [&](size_t recordBytes) { return keeping || fits(recordBytes); };
+				const auto describe = [&](const recording::DeviceInfo &device)
+				{
+					if (!room(DeviceRecordBytes))
+						return full();
+					recording::AppendDevice(to, device);
+					if (device.deviceId < session.described.size())
+						session.described[device.deviceId] = true;
+					if (keeping)
+						piece.devices.push_back(device);
+					else if (clips)
+						known.Device(device);
+				};
+
 				for (size_t i = 0; i < changed.size() && !ended; ++i)
 					describe(changed[i]);
 				for (size_t i = 0; i < shapes.size() && !ended; ++i)
 				{
-					if (!fits(ModelRecordBytes))
+					if (!room(ModelRecordBytes))
+					{
 						full();
-					else
-						recording::AppendModel(out, shapes[i]);
+						break;
+					}
+					recording::AppendModel(to, shapes[i]);
+					if (keeping)
+						piece.models.push_back(shapes[i]);
+					else if (clips)
+						known.Shape(shapes[i]);
 				}
 				for (size_t i = 0; i < aligned.size() && !ended; ++i)
 				{
-					if (!fits(AlignmentRecordBytes))
-						full();
-					else
+					if (!room(AlignmentRecordBytes))
 					{
-						aligned[i].qpc = QpcNow();
-						recording::AppendAlignment(out, aligned[i]);
+						full();
+						break;
 					}
+					aligned[i].qpc = now;
+					recording::AppendAlignment(to, aligned[i]);
+					if (keeping)
+						piece.alignments.push_back(aligned[i]);
+					else if (clips)
+						known.Align(aligned[i]);
 				}
-				if (dropped == 0 && batch.empty())
-					break;
-				waitForMore = false;
-				const int64_t now = QpcNow();
-				if (newBoundary && !ended)
+				const bool arrived = dropped > 0 || !batch.empty();
+				if (arrived)
+					waitForMore = false;
+				if (newBoundary && arrived && !ended)
 				{
-					if (!fits(BoundaryRecordBytes))
+					if (!room(BoundaryRecordBytes))
 						full();
 					else
-						recording::AppendBoundary(out, { now, boundaries });
+						recording::AppendBoundary(to, { now, boundaries });
 				}
 				if (dropped > 0 && !ended)
 				{
-					if (!fits(GapRecordBytes))
+					if (!room(GapRecordBytes))
 						full();
 					else
 					{
-						recording::AppendGap(out, { now, dropped, hole.size });
-						session.lost.fetch_add(dropped, std::memory_order_release);
+						recording::AppendGap(to, { now, dropped, hole.size });
+						if (keeping)
+							piece.lost += dropped;
+						else
+							session.lost.fetch_add(dropped, std::memory_order_release);
 					}
 				}
 				for (size_t i = 0; i < batch.size() && !ended; ++i)
@@ -698,7 +882,88 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 						if (ended)
 							break;
 					}
-					if (!fits(SampleRecordBytes))
+					if (!room(SampleRecordBytes))
+					{
+						full();
+						break;
+					}
+					if (!keeping && !takePlace())
+					{
+						ended = true;
+						break;
+					}
+					recording::AppendSample(to, ToSample(pose));
+					if (keeping)
+						++piece.samples;
+					else
+					{
+						++samples;
+						if (out.size() >= WriteChunkBytes && !write())
+							ended = true;
+					}
+				}
+				if (keeping && !ended)
+				{
+					if (!piece.bytes.empty())
+					{
+						keptBytes += piece.bytes.size();
+						keptSamples += piece.samples;
+						kept.push_back(std::move(piece));
+					}
+					// What is older than a clip reaches back goes, and so does
+					// what is more than the memory allowed for it. What it said of
+					// the devices stays known.
+					while (!kept.empty() &&
+						(kept.front().qpc < now - beforeTicks || keptBytes > session.limits.clipKeptBytes))
+					{
+						known.Fold(kept.front());
+						keptBytes -= kept.front().bytes.size();
+						keptSamples -= kept.front().samples;
+						kept.pop_front();
+					}
+					session.kept.store(keptSamples, std::memory_order_release);
+				}
+
+				for (size_t i = 0; i < marks.size() && !ended; ++i)
+				{
+					const PendingMark &mark = marks[i];
+					const int64_t until = mark.record.qpc + (mark.keepAfter ? afterTicks : 0);
+					if (!armed)
+					{
+						// A full recording, or a clip that is open: a record where
+						// it happened, and the clip goes on for it.
+						if (!fits(MarkRecordBytes))
+							full();
+						else
+						{
+							recording::AppendMark(out, mark.record);
+							clipEndQpc = (std::max)(clipEndQpc, until);
+						}
+						continue;
+					}
+					// A clip needs something to hold. With nothing kept, a new
+					// recording would replace the old one without a sample, and
+					// the player's "save" has nothing to save.
+					if (keptSamples == 0 && (!session.replaced || !mark.keepAfter))
+						continue;
+					// The clip reaches back to the oldest thing kept.
+					const int64_t from = kept.empty() ? mark.record.qpc : (std::min)(kept.front().qpc, mark.record.qpc);
+					const int64_t fromUnixMicroseconds = mark.record.unixMicroseconds -
+						(mark.record.qpc - from) * 1000000 / session.qpcFrequency;
+					std::string opening;
+					recording::AppendResume(opening, { static_cast<uint8_t>(recording::PauseCause::Clip), from,
+						fromUnixMicroseconds, mark.record.name });
+					for (const recording::DeviceInfo &device : known.devices)
+						recording::AppendDevice(opening, device);
+					for (const auto &model : known.models)
+						if (!model.second.empty())
+							recording::AppendModel(opening, { model.first, model.second });
+					for (recording::Alignment alignment : known.alignments)
+					{
+						alignment.qpc = from;
+						recording::AppendAlignment(opening, alignment);
+					}
+					if (!fits(opening.size() + keptBytes + MarkRecordBytes))
 					{
 						full();
 						break;
@@ -708,17 +973,55 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 						ended = true;
 						break;
 					}
-					recording::AppendSample(out, ToSample(pose));
-					++samples;
-					if (out.size() >= WriteChunkBytes && !write())
-						ended = true;
+					out += opening;
+					for (const KeptPiece &old : kept)
+					{
+						out += old.bytes;
+						samples += old.samples;
+						session.lost.fetch_add(old.lost, std::memory_order_release);
+						known.Fold(old);
+						if (out.size() >= WriteChunkBytes && !write())
+						{
+							ended = true;
+							break;
+						}
+					}
+					kept.clear();
+					keptBytes = 0;
+					keptSamples = 0;
+					session.kept.store(0, std::memory_order_release);
+					if (ended)
+						break;
+					recording::AppendMark(out, mark.record);
+					armed = false;
+					clipStartQpc = from;
+					clipEndQpc = until;
+					session.clipOpenSince.store(from, std::memory_order_release);
 				}
 				if (!ended && !out.empty() && !write())
 					ended = true;
+
+				// A clip ends when nothing was marked for clipAfterSeconds. What
+				// arrives from here on waits for the next one.
+				if (clips && !armed && !ended && now >= clipEndQpc)
+				{
+					const int64_t at = QpcNow();
+					recording::AppendPause(out, { static_cast<uint8_t>(recording::PauseCause::Clip), at,
+						UnixMicrosecondsNow() });
+					if (!write())
+						ended = true;
+					else
+					{
+						armed = true;
+						clipTicks += (std::max)(at - clipStartQpc, static_cast<int64_t>(0));
+						session.clipTicks.store(clipTicks, std::memory_order_release);
+						session.clipOpenSince.store(0, std::memory_order_release);
+						session.clips.fetch_add(1, std::memory_order_release);
+					}
+				}
+				if (!arrived)
+					break;
 			}
-			// Device records from a pass that brought no samples.
-			if (!ended && !out.empty() && !write())
-				ended = true;
 
 			const ULONGLONG tick = GetTickCount64();
 			if (!ended && tick - lastDiskCheck >= session.limits.diskCheckIntervalMs)
@@ -754,6 +1057,7 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 
 	// The record that closes the stretch, behind whatever was encoded when a
 	// limit ended the loop. A recording that never got a sample is not kept.
+	// What waited in memory for a clip is dropped here: it was never saved.
 	bool closed = false;
 	if (!writeFailed && session.replaced)
 	{
@@ -764,12 +1068,23 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 				closeQpc = QpcNow();
 				closeUnixMicroseconds = UnixMicrosecondsNow();
 			}
-			if (pause)
-				recording::AppendPause(out, { static_cast<uint8_t>(recording::PauseCause::Player), closeQpc,
-					closeUnixMicroseconds });
-			else
-				recording::AppendEnd(out, { static_cast<uint8_t>(reason), closeQpc, closeUnixMicroseconds, samples });
+			// Between clips the file already ends with a pause record (the last
+			// clip's, or the one this stretch went on from): the player's stop
+			// has nothing to add to it.
+			if (!(pause && armed))
+			{
+				if (pause)
+					recording::AppendPause(out, { static_cast<uint8_t>(recording::PauseCause::Player), closeQpc,
+						closeUnixMicroseconds });
+				else
+					recording::AppendEnd(out, { static_cast<uint8_t>(reason), closeQpc, closeUnixMicroseconds, samples });
+			}
 			closed = write();
+			if (clips && !armed)
+			{
+				clipTicks += (std::max)(closeQpc - clipStartQpc, static_cast<int64_t>(0));
+				session.clips.fetch_add(1, std::memory_order_release);
+			}
 		}
 		catch (const std::exception &e)
 		{
@@ -787,14 +1102,16 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 		DeleteFileW(session.newPath.c_str());
 
 	session.samples.store(samples, std::memory_order_release);
+	session.clipOpenSince.store(0, std::memory_order_release);
 	session.paused = pause;
 	session.reason = reason;
 	session.saved = session.replaced;
 	session.closedCleanly = closed;
-	// To the moment recording stopped, not to the moment the file closed.
+	// What the file holds of this stretch: its clips, or the time to the moment
+	// recording stopped (not to the moment the file closed).
+	const int64_t stretchTicks = clips ? clipTicks : (closeQpc != 0 ? closeQpc : QpcNow()) - session.startQpc;
 	session.seconds = session.earlierSeconds +
-		static_cast<double>((closeQpc != 0 ? closeQpc : QpcNow()) - session.startQpc) /
-			static_cast<double>(session.qpcFrequency);
+		static_cast<double>(stretchTicks) / static_cast<double>(session.qpcFrequency);
 	session.error = error;
 	session.done.store(true, std::memory_order_release);
 }

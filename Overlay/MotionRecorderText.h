@@ -21,6 +21,15 @@ inline constexpr const char *LineContinues =
 inline constexpr const char *LineReplaces = "A recording shows how your body moves. A new recording replaces this one.";
 // Minutes, then GB.
 inline constexpr const char *StatusPattern = "The recording is %d min long. It uses %.2f GB.";
+// Minutes. While a recording of clips runs.
+inline constexpr const char *OnForPattern = "The recording is on for %d min.";
+// The two modes, and what each saves.
+inline constexpr const char *ModeAutomatic = "Automatic";
+inline constexpr const char *ModeFull = "Full";
+inline constexpr const char *AutomaticLine =
+	"A clip starts when a tracking problem occurs. Between clips, nothing is saved.";
+inline constexpr const char *FullLine = "Nova Calibrator saves all motion until you stop the recording.";
+inline constexpr const char *SaveLast = "Save the last 30 seconds";
 inline constexpr const char *StartButton = "Start recording";
 inline constexpr const char *StopButton = "Stop recording";
 inline constexpr const char *Sign = "Motion recording is on";
@@ -60,6 +69,20 @@ inline constexpr const char *ViewHint = "Drag to turn the view";
 inline constexpr const char *LegendRecorded = "Recorded";
 inline constexpr const char *LegendOff = "Off: nothing recorded";
 inline constexpr const char *LegendLost = "Data lost";
+inline constexpr const char *LegendEvent = "Event";
+
+// What a mark in a recording says, by its name in the file
+// (recording::markname, in that order).
+inline constexpr const char *const MarkLines[] = {
+	"You saved this clip.",
+	"The headset tracking space moved.",
+	"A base station moved.",
+	"A device lost tracking.",
+	"A stationary device changed position.",
+	"A device got tracking again in a different position.",
+	"Continuous calibration stopped.",
+	"Continuous calibration aligned the trackers again.",
+};
 inline constexpr const char *Live = "Live";
 inline constexpr const char *LiveLine = "Nova Calibrator records now. Stop the recording to play it.";
 inline constexpr const char *Reading = "Nova Calibrator reads the recording.";
@@ -87,6 +110,7 @@ inline constexpr const char *WriteFailed =
 inline constexpr const char *DiskTooFull =
 	"Nova Calibrator did not start the recording. The disk must have more than 4 GB of free space.";
 inline constexpr const char *NoData = "Nova Calibrator did not save a recording because it received no data.";
+inline constexpr const char *NoClips = "No tracking problem occurred. Nova Calibrator saved no clip.";
 inline constexpr const char *Deleted = "Nova Calibrator deleted the recording.";
 inline constexpr const char *CannotDelete = "Nova Calibrator could not delete the recording file.";
 
@@ -99,7 +123,8 @@ inline constexpr const char *const Whole[] = {
 	CancelButton, CapTitle, CapLine, OpenFolder, DeleteRecording, DeleteTitle, DeleteLine, KeepButton,
 	ViewHint, LegendRecorded, LegendOff, LegendLost, Live, LiveLine, Reading, NoRecordingTitle, NoRecordingLine,
 	BadFileTitle, BadFileLine, NoSamplesLine, CutShortLine, StoppedAtCap, StoppedDiskFull, WriteFailed,
-	DiskTooFull, NoData, Deleted, CannotDelete,
+	DiskTooFull, NoData, Deleted, CannotDelete, ModeAutomatic, ModeFull, AutomaticLine, FullLine, SaveLast,
+	LegendEvent, NoClips,
 };
 
 } // namespace questcal::motionrecorder::text

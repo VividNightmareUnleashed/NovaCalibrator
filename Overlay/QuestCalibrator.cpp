@@ -1515,13 +1515,15 @@ static LaunchOptions ParseCommandLine(LPWSTR lpCmdLine)
 		options.previewMany = true;
 		options.previewScenario = PreviewScenario::Lighthouse;
 	}
-	else if (cmd == L"-uipreview-recorder" || cmd == L"-uipreview-recorder-live" || cmd == L"-uipreview-recorder-empty" ||
+	else if (cmd == L"-uipreview-recorder" || cmd == L"-uipreview-recorder-live" ||
+		cmd == L"-uipreview-recorder-live-full" || cmd == L"-uipreview-recorder-empty" ||
 		cmd == L"-uipreview-recorder-warning" || cmd == L"-uipreview-recorder-delete")
 	{
 		options.preview = true;
 		options.previewMany = true;
 		options.previewScenario = cmd == L"-uipreview-recorder" ? PreviewScenario::Recorder
 			: cmd == L"-uipreview-recorder-live" ? PreviewScenario::RecorderLive
+			: cmd == L"-uipreview-recorder-live-full" ? PreviewScenario::RecorderLiveFull
 			: cmd == L"-uipreview-recorder-empty" ? PreviewScenario::RecorderEmpty
 			: cmd == L"-uipreview-recorder-warning" ? PreviewScenario::RecorderWarning : PreviewScenario::RecorderDelete;
 	}

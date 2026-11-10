@@ -105,6 +105,12 @@ inline std::string CheckRecording(const uint8_t *data, size_t size)
 		if (!inside)
 			return "the playback puts a loss outside the recording";
 	}
+	for (const Playback::Mark &mark : summary.marks)
+	{
+		const bool inside = mark.time >= 0.0 && mark.time <= summary.seconds;
+		if (!inside)
+			return "the playback puts a mark outside the recording";
+	}
 	std::vector<Playback::DevicePose> poses;
 	for (double moment : { 0.0, summary.seconds * 0.5, summary.seconds, summary.seconds * 0.25 })
 	{

@@ -25,14 +25,33 @@ constexpr uint64_t CapChoicesBytes[] = { 1ull << 30, 5ull << 30, 20ull << 30 };
 constexpr int CapChoiceCount = 3;
 constexpr int DefaultCapChoice = 1;
 
+// "Automatic" saves a clip around each tracking problem and nothing between
+// them; "Full" saves every sample. The player picks before a recording
+// starts, and the choice is not a saved setting.
+enum class Mode { Automatic, Full };
+constexpr Mode DefaultMode = Mode::Automatic;
+
 struct Status
 {
 	bool on = false;           // recording now
 	bool fileExists = false;   // there is a recording file to play, open or delete
-	double seconds = 0.0;      // the recording's length, pauses left out
+	double seconds = 0.0;      // what the file holds: pauses, and the time between clips, left out
 	uint64_t bytes = 0;
+	Mode mode = DefaultMode;   // of the recording that runs, or the one picked for the next
+	double onSeconds = 0.0;    // since the player started it
 };
 Status Now();
+
+// What was marked since the recording started, oldest first: the tracking
+// problems Nova Calibrator saw and the player's own saves.
+struct Event
+{
+	int64_t unixSeconds = 0;
+	std::string name;        // recording::markname
+	bool hasDevice = false;
+	recording::DeviceInfo device;
+};
+const std::vector<Event> &Events();
 
 // Whether a start would begin a new recording, which replaces the previous
 // one, and not go on with the one that was stopped.
@@ -46,6 +65,10 @@ void DeleteRecording();
 std::wstring Folder();
 int CapChoice();
 void SetCapChoice(int choice);
+Mode ModeChoice();
+void SetModeChoice(Mode mode);
+// "Automatic": keeps what just happened as a clip, as a tracking problem would.
+void SaveLast();
 
 // The overlay's two calls: once a tick while SteamVR runs, and when SteamVR
 // or Nova Calibrator ends, before the diagnostics are written.

@@ -15,7 +15,7 @@ overlay only turns on what was chosen.
 | --- | --- | --- |
 | Lighthouse | optional | Base station tools. So far one: the Lighthouse tab, each base station and which lighthouse devices see it (`docs/lighthouse-visibility.md`). More are planned. |
 | Smoothing | not built | Its tab only, greyed out with "Work in progress". No installer offers it yet. |
-| Motion Recorder | optional | For development and playtests. Its page records every raw pose sample to one file (`docs/recording-format.md`) while the player has a recording on, and plays that file back. A recording shows how the player's body moves. |
+| Motion Recorder | optional | For development and playtests. Its page records raw pose samples to one file (`docs/recording-format.md`) while the player has a recording on, as clips around tracking problems ("Automatic") or all of them ("Full"), and plays that file back. A recording shows how the player's body moves. |
 
 What a module does not control stays core. Reading SteamVR's lighthouse
 log, its session log lines, the `[base stations]` diagnostics section and
@@ -92,6 +92,20 @@ choice is not a setting, so no recording runs when Nova Calibrator starts.
   recording replaces it when its first sample is written. Nothing published
   while the recorder is off reaches the file. The file names no hardware: a
   device has a label made up for the recording in place of its serial number.
+- The player picks one of two modes beside the start button, "Automatic"
+  unless they pick the other. "Full" writes every sample. "Automatic" writes
+  nothing until something is marked: the last 30 seconds wait in the
+  recorder's memory, a mark writes them as the start of a clip, and the clip
+  ends 10 seconds after its last mark (`PoseRecordingLimits::clips`). "Save
+  the last 30 seconds" on the page is the player's own mark. In both modes a
+  mark is a record at its moment, which the playback shows on its timeline.
+- `Overlay/RecordingTriggers.h` decides what is marked, from what Nova
+  Calibrator's monitors already count (a universe jump, a move of the
+  lighthouse frame, a device that slid or came out of a loss somewhere else,
+  continuous calibration stopped or aligned again) and from SteamVR's poses (a
+  device that had tracking for two seconds and lost it). `MotionRecorder.cpp`
+  shows it those numbers once a tick while a recording runs; nothing in the
+  calibration code calls the recorder.
 - `Overlay/RecordingPlayback.h` reads the file once on its own thread to find
   its stretches, losses and record positions, then reads only the span around
   the moment shown. The file is untrusted input (fuzz target `recording`).

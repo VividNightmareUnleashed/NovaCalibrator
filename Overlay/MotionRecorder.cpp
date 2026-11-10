@@ -14,9 +14,11 @@
 #include "MotionRecorder.h"
 #include "MotionRecorderText.h"
 #include "PoseRecorder.h"
+#include "RecordingTriggers.h"
 
 #include <cmath>
 #include <cstdio>
+#include <ctime>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -38,6 +40,14 @@ Playback ThePlayer;
 PoseStreamHub *Hub = nullptr;
 bool On = false;
 int Cap = DefaultCapChoice;
+// The mode picked for the next recording, and the one the running one has.
+Mode Chosen = DefaultMode;
+Mode Running = DefaultMode;
+ULONGLONG OnSinceTick = 0;
+// What was marked since the start, for the page, and what looks for more.
+std::vector<Event> EventList;
+constexpr size_t MaxEvents = 64;
+recording::TriggerWatch Watch;
 bool FileThere = false;
 double DeviceScan = -1e9;
 double FileScan = -1e9;
@@ -126,6 +136,42 @@ recording::Alignment AlignmentNow(const CalibrationContext &ctx)
 	return alignment;
 }
 
+// A mark in the recording, in the page's list and in the session log.
+void MarkNow(const char *name, const RecordedDevice *device, bool keepAfter)
+{
+	Recorder.Mark(name, device ? device->deviceId : recording::NoDevice, keepAfter);
+	Event event;
+	event.unixSeconds = static_cast<int64_t>(std::time(nullptr));
+	event.name = name;
+	if (device)
+	{
+		event.hasDevice = true;
+		event.device.deviceId = device->deviceId;
+		event.device.deviceClass = device->deviceClass;
+		event.device.controllerRole = device->controllerRole;
+		event.device.controllerType = device->controllerType;
+	}
+	if (EventList.size() >= MaxEvents)
+		EventList.erase(EventList.begin());
+	EventList.push_back(std::move(event));
+	AppendSessionLog(std::string("motion recording mark: ") + name +
+		(device ? ", device " + std::to_string(device->deviceId) : std::string()));
+}
+
+// What Nova Calibrator's monitors count, for the watch that turns a change
+// into a mark.
+recording::TriggerCounts CountsNow(const CalibrationContext &ctx)
+{
+	recording::TriggerCounts counts;
+	counts.universeJumps = ctx.jumpsCompensated;
+	counts.baseStationMoves = ctx.lighthouseFrameMoves;
+	counts.deviceSlides = ctx.driftSlideEvents;
+	counts.trackingJumps = ctx.discontinuousLossEvents;
+	counts.realignments = ctx.continuousReanchors;
+	counts.calibrationStopped = ctx.continuousState == ContinuousAlignment::State::Frozen;
+	return counts;
+}
+
 // The session log always; the player only for a stretch that ended while
 // Nova Calibrator stays open.
 void Report(CalibrationContext &ctx, const PoseRecorder::Finished &finished, bool tellPlayer)
@@ -148,6 +194,9 @@ void Report(CalibrationContext &ctx, const PoseRecorder::Finished &finished, boo
 		return;
 	if (!finished.paused && finished.reason == EndReason::WriteError)
 		ctx.ReportError(std::string(text::WriteFailed) + "\n");
+	else if (!finished.saved && finished.clipMode)
+		// Nothing went wrong: no clip was called for.
+		ctx.Tell(text::NoClips, CalibrationContext::Tone::Neutral);
 	else if (!finished.saved)
 		ctx.Tell(text::NoData, CalibrationContext::Tone::Warn);
 	else if (!finished.paused && finished.reason == EndReason::SizeLimit)
@@ -193,8 +242,9 @@ struct RecordingFile : private ReadBuffer, public std::ifstream
 };
 
 // ---------------------------------------------------------------------------
-// The preview's recording: a player who moves for twelve seconds, stopped once
-// and with one loss, so that every part of the page has something to show.
+// The preview's recording: a player who moves for twelve seconds, with one
+// stop, a clip behind it, two marks and one loss, so that every part of the
+// page has something to show.
 
 struct PreviewBody
 {
@@ -272,18 +322,30 @@ std::string PreviewRecording()
 			}
 		}
 	};
-	stretch(0.0, 7.0, 1000, -1.0);
+	stretch(0.0, 5.5, 1000, -1.0);
+	recording::AppendMark(bytes, { 1000 + 55 * frequency / 10, header.startUnixMicroseconds + 5500000, 3,
+		recording::markname::TrackingLost });
+	stretch(5.5, 1.5, 1000 + 55 * frequency / 10, -1.0);
 	recording::AppendPause(bytes, { 1, 1000 + 7 * frequency, header.startUnixMicroseconds + 7000000 });
-	recording::AppendResume(bytes, { 1, 1000 + 120 * frequency, header.startUnixMicroseconds + 120000000, std::string() });
-	stretch(7.0, 5.0, 1000 + 120 * frequency, 2.6);
-	recording::AppendPause(bytes, { 1, 1000 + 125 * frequency, header.startUnixMicroseconds + 125000000 });
+	recording::AppendResume(bytes, { 2, 1000 + 120 * frequency, header.startUnixMicroseconds + 120000000,
+		recording::markname::BaseStationMoved });
+	stretch(7.0, 3.0, 1000 + 120 * frequency, 1.4);
+	recording::AppendMark(bytes, { 1000 + 123 * frequency, header.startUnixMicroseconds + 123000000, recording::NoDevice,
+		recording::markname::BaseStationMoved });
+	stretch(10.0, 2.0, 1000 + 123 * frequency, -1.0);
+	recording::AppendPause(bytes, { 2, 1000 + 125 * frequency, header.startUnixMicroseconds + 125000000 });
 	return bytes;
 }
 
 bool PreviewHasFile()
 {
 	return g_uiPreviewScenario == PreviewScenario::Recorder || g_uiPreviewScenario == PreviewScenario::RecorderLive ||
-		g_uiPreviewScenario == PreviewScenario::RecorderDelete;
+		g_uiPreviewScenario == PreviewScenario::RecorderLiveFull || g_uiPreviewScenario == PreviewScenario::RecorderDelete;
+}
+
+bool PreviewIsLive()
+{
+	return g_uiPreviewScenario == PreviewScenario::RecorderLive || g_uiPreviewScenario == PreviewScenario::RecorderLiveFull;
 }
 
 } // namespace
@@ -303,10 +365,12 @@ Status Now()
 	if (g_uiPreviewMode)
 	{
 		// A recording twelve minutes in, or one that is there to play.
-		status.on = g_uiPreviewScenario == PreviewScenario::RecorderLive;
+		status.on = PreviewIsLive();
 		status.fileExists = PreviewHasFile();
 		status.seconds = 754.0;
 		status.bytes = 569ull << 20;
+		status.mode = g_uiPreviewScenario == PreviewScenario::RecorderLiveFull ? Mode::Full : Chosen;
+		status.onSeconds = 754.0;
 		return status;
 	}
 	const PoseRecorder::Progress progress = Recorder.GetProgress();
@@ -314,7 +378,53 @@ Status Now()
 	status.fileExists = FileThere;
 	status.seconds = progress.seconds;
 	status.bytes = progress.bytes;
+	status.mode = status.on ? Running : Chosen;
+	status.onSeconds = status.on ? static_cast<double>(GetTickCount64() - OnSinceTick) / 1000.0 : 0.0;
 	return status;
+}
+
+const std::vector<Event> &Events()
+{
+	if (g_uiPreviewMode && g_uiPreviewScenario == PreviewScenario::RecorderLive && EventList.empty())
+	{
+		// 2026-11-09, 22:41 and 22:47 on the player's clock.
+		struct tm at{};
+		at.tm_year = 126;
+		at.tm_mon = 10;
+		at.tm_mday = 9;
+		at.tm_hour = 22;
+		at.tm_min = 41;
+		at.tm_isdst = -1;
+		Event moved;
+		moved.unixSeconds = static_cast<int64_t>(mktime(&at));
+		moved.name = recording::markname::BaseStationMoved;
+		Event lost;
+		lost.unixSeconds = moved.unixSeconds + 6 * 60;
+		lost.name = recording::markname::TrackingLost;
+		lost.hasDevice = true;
+		lost.device.deviceId = 3;
+		lost.device.deviceClass = 3;
+		lost.device.controllerType = "vive_tracker_waist";
+		EventList = { moved, lost };
+	}
+	return EventList;
+}
+
+Mode ModeChoice()
+{
+	return Chosen;
+}
+
+void SetModeChoice(Mode mode)
+{
+	Chosen = mode;
+}
+
+void SaveLast()
+{
+	if (!On || g_uiPreviewMode || Running != Mode::Automatic)
+		return;
+	MarkNow(recording::markname::Player, nullptr, false);
 }
 
 int CapChoice()
@@ -355,17 +465,23 @@ bool Start()
 		LiveDevices = Devices();
 		PoseRecordingLimits limits;
 		limits.maxFileBytes = CapChoicesBytes[Cap];
+		limits.clips = Chosen == Mode::Automatic;
 		Recorder.SetAlignment(AlignmentNow(ctx));
 		result = Recorder.Start(*Hub, folder, std::string("Nova Calibrator ") + QUESTCAL_VERSION_STRING, LiveDevices,
 			limits, &detail);
 		if (result == PoseRecorder::StartResult::Started || result == PoseRecorder::StartResult::Resumed)
 		{
 			On = true;
+			Running = Chosen;
+			OnSinceTick = GetTickCount64();
+			EventList.clear();
+			Watch.Reset();
 			DeviceScan = -1e9;
 			AppendSessionLog(std::string("motion recording ") +
 				(result == PoseRecorder::StartResult::Resumed ? "resumed: " : "started: ") +
 				PathForLog(Utf8FromWide(PoseRecorder::FilePath(folder))) + ", " + std::to_string(LiveDevices.size()) +
-				" device(s), cap " + std::to_string(limits.maxFileBytes >> 30) + " GiB");
+				" device(s), cap " + std::to_string(limits.maxFileBytes >> 30) + " GiB, " +
+				(limits.clips ? "clips" : "every sample"));
 			return true;
 		}
 	}
@@ -437,6 +553,36 @@ void Tick(CalibrationContext &ctx, PoseStreamHub &hub, double time)
 		LiveDevices = Devices();
 		Recorder.SetDevices(LiveDevices);
 		Recorder.SetAlignment(AlignmentNow(ctx));
+	}
+	// What is worth finding again in the recording: a clip starts at it, or a
+	// full recording gets a mark.
+	if (On && vr::VRSystem())
+	{
+		static vr::TrackedDevicePose_t poses[vr::k_unMaxTrackedDeviceCount];
+		vr::VRSystem()->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseRawAndUncalibrated, 0.0f, poses,
+			vr::k_unMaxTrackedDeviceCount);
+		std::vector<recording::TriggerDevice> bodies;
+		for (const RecordedDevice &known : LiveDevices)
+		{
+			const bool body = known.deviceClass == static_cast<uint32_t>(vr::TrackedDeviceClass_HMD) ||
+				known.deviceClass == static_cast<uint32_t>(vr::TrackedDeviceClass_Controller) ||
+				known.deviceClass == static_cast<uint32_t>(vr::TrackedDeviceClass_GenericTracker);
+			if (!body || known.deviceId >= vr::k_unMaxTrackedDeviceCount)
+				continue;
+			const vr::TrackedDevicePose_t &pose = poses[known.deviceId];
+			bodies.push_back({ known.deviceId, pose.bPoseIsValid && pose.bDeviceIsConnected &&
+				pose.eTrackingResult == vr::TrackingResult_Running_OK });
+		}
+		std::vector<recording::Trigger> triggers;
+		Watch.Step(time, CountsNow(ctx), bodies, triggers);
+		for (const recording::Trigger &trigger : triggers)
+		{
+			const RecordedDevice *about = nullptr;
+			for (const RecordedDevice &known : LiveDevices)
+				if (trigger.deviceId != recording::NoDevice && known.deviceId == trigger.deviceId)
+					about = &known;
+			MarkNow(trigger.name, about, true);
+		}
 	}
 }
 

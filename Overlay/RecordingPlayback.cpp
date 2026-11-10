@@ -22,6 +22,7 @@ constexpr int FrameRecordBudget = 200000;
 // Bounds on what an untrusted file can make this keep.
 constexpr size_t MaxKeptRecords = 100000;
 constexpr size_t MaxLosses = 4096;
+constexpr size_t MaxMarks = 4096;
 constexpr size_t MaxStretches = 4096;
 constexpr size_t MaxDevices = 256;
 constexpr size_t MaxSystems = 16;
@@ -327,6 +328,8 @@ void Playback::Read(const std::shared_ptr<Index> &shared, const Source &source, 
 		bool cleanEnd = false;
 		std::set<uint32_t> seen;
 		uint64_t published = 0;
+		// Each device as the file last described it, for the marks.
+		std::vector<DeviceInfo> described = header.devices;
 
 		const auto close = [&]
 		{
@@ -393,9 +396,45 @@ void Playback::Read(const std::shared_ptr<Index> &shared, const Source &source, 
 				}
 				break;
 			case KindDevice:
+			{
 				if (index.deviceRecords.size() < MaxKeptRecords)
 					index.deviceRecords.emplace_back(offset, record.device);
+				bool known = false;
+				for (DeviceInfo &device : described)
+					if (device.deviceId == record.device.deviceId)
+					{
+						device = record.device;
+						known = true;
+					}
+				if (!known && described.size() < MaxDevices)
+					described.push_back(record.device);
 				break;
+			}
+			case KindMark:
+			{
+				if (summary.marks.size() >= MaxMarks)
+					break;
+				Mark mark;
+				// On the open stretch's clock, and never outside what was read of it.
+				mark.time = total;
+				if (open)
+				{
+					const Index::Span &span = index.spans.back();
+					const double into = (static_cast<double>(record.mark.qpc) - static_cast<double>(span.baseQpc)) /
+						index.frequency;
+					mark.time = span.start + (into > 0.0 ? (std::min)(into, span.seconds) : 0.0);
+				}
+				mark.unixMicroseconds = record.mark.unixMicroseconds;
+				mark.name = record.mark.name;
+				for (const DeviceInfo &device : described)
+					if (record.mark.deviceId != NoDevice && device.deviceId == record.mark.deviceId)
+					{
+						mark.hasDevice = true;
+						mark.device = device;
+					}
+				summary.marks.push_back(std::move(mark));
+				break;
+			}
 			case KindAlignment:
 				if (index.alignments.size() < MaxKeptRecords)
 					index.alignments.emplace_back(offset, record.alignment);
