@@ -1235,3 +1235,137 @@ en: Do it later
 ja: あとで
 en: Start calibration
 ja: キャリブレーション開始
+
+# ---- The Motion Recorder module (MotionRecorderText.h) ----
+en: Motion Recorder
+ja: Motion Recorder
+en: The Motion Recorder module is not installed. Select it when you install Nova Calibrator.
+ja: Motion Recorder モジュールはインストールされていません。インストール時に選択してください。
+en: Record motion
+ja: モーションを記録
+en: Privacy risk
+ja: プライバシーのリスク
+en: A recording shows how your body moves. Nova Calibrator records only after you start a recording.
+ja: 記録から、体の動きがわかります。記録を開始するまで、何も記録しません。
+en: A recording shows how your body moves. The recording continues in the same file.
+ja: 記録から、体の動きがわかります。記録は同じファイルに続けて保存されます。
+en: A recording shows how your body moves. A new recording replaces this one.
+ja: 記録から、体の動きがわかります。新しい記録は、この記録を置き換えます。
+en: The recording is %d min long. It uses %.2f GB.
+ja: 記録時間：{0} 分、サイズ：{1} GB
+en: Start recording
+ja: 記録を開始
+en: Stop recording
+ja: 記録を停止
+en: Motion recording is on
+ja: モーションを記録中
+en: A recording shows how your body moves, almost as a motion capture does.
+ja: 記録から、モーションキャプチャーに近い精度で体の動きがわかります。
+en: Record only when you accept that another person can see your movements.
+ja: 自分の動きを他の人に見られてもよいときだけ記録してください。
+en: A recording is the most useful data for a problem report.
+ja: 記録は、問題の報告に最も役立つデータです。
+en: You can stop and start the recording at any time.
+ja: 記録はいつでも停止・再開できます。
+en: Nova Calibrator records only after you start a recording and until you stop it.
+ja: 記録するのは、記録を開始してから停止するまでの間だけです。
+en: A recording does not change the diagnostics file.
+ja: 記録は診断ファイルに影響しません。
+en: A recording stays on your computer until you send it.
+ja: 記録は、あなたが送信するまでこのコンピューターに残ります。
+en: A new recording replaces the previous recording. To keep the previous recording, copy the file first.
+ja: 新しい記録は前の記録を置き換えます。前の記録を残すには、先にファイルをコピーしてください。
+en: Maximum recording size
+ja: 記録の最大サイズ
+en: One hour of recording can use 3 GB. The recording stops when the file has this size.
+ja: 記録は 1 時間で約 3 GB になることがあります。ファイルがこのサイズになると、記録を停止します。
+en: Open recording folder
+ja: 記録フォルダーを開く
+en: Delete recording
+ja: 記録を削除
+en: Delete the recording?
+ja: 記録を削除しますか？
+en: Nova Calibrator deletes the recording file from this computer. You cannot get the file back.
+ja: 記録ファイルをこのコンピューターから削除します。削除したファイルは元に戻せません。
+en: Keep recording
+ja: 記録を残す
+en: Recorded %s
+ja: 記録日時：{0}
+en: %d device%s, %.2f GB
+ja: デバイス {0} 台、{2} GB
+en: Front
+ja: 正面
+en: Top
+ja: 上
+en: Side
+ja: 横
+en: Recorded
+ja: 記録あり
+en: Off: nothing recorded
+ja: オフ：記録なし
+en: Data lost
+ja: データ欠落
+en: Live
+ja: ライブ
+en: Nova Calibrator records now. Stop the recording to play it.
+ja: 記録中です。再生するには、記録を停止してください。
+en: Nova Calibrator reads the recording.
+ja: 記録を読み込んでいます。
+en: No recording
+ja: 記録がありません
+en: Start a recording. Then you can play it here.
+ja: 記録を開始すると、ここで再生できます。
+en: Nova Calibrator cannot read the recording
+ja: 記録を読み込めません
+en: The recording file is not correct. Delete the recording or start a new recording.
+ja: 記録ファイルが正しくありません。記録を削除するか、新しい記録を開始してください。
+en: The recording has no data.
+ja: 記録にデータがありません。
+en: The recorder stopped before it closed the file. The end of the recording can be missing.
+ja: ファイルを閉じる前に記録が止まりました。記録の最後が欠けている可能性があります。
+en: Left hand
+ja: 左手
+en: Right hand
+ja: 右手
+en: Waist
+ja: 腰
+en: Chest
+ja: 胸
+en: Left foot
+ja: 左足
+en: Right foot
+ja: 右足
+en: Left knee
+ja: 左ひざ
+en: Right knee
+ja: 右ひざ
+en: Left elbow
+ja: 左ひじ
+en: Right elbow
+ja: 右ひじ
+en: Left shoulder
+ja: 左肩
+en: Right shoulder
+ja: 右肩
+en: Tracker
+ja: トラッカー
+en: Controller
+ja: コントローラー
+en: Nova Calibrator saved the recording to %s
+ja: 記録を保存しました：{0}
+en: Nova Calibrator could not create the recording file in %s.
+ja: {0} に記録ファイルを作成できませんでした。
+en: The recording stopped because the file reached its maximum size.
+ja: ファイルが最大サイズに達したため、記録を停止しました。
+en: The recording stopped because the disk is almost full.
+ja: ディスクの空き容量が少ないため、記録を停止しました。
+en: Nova Calibrator could not write to the recording file. The recording stopped.
+ja: 記録ファイルに書き込めなかったため、記録を停止しました。
+en: Nova Calibrator did not start the recording. The disk must have more than 4 GB of free space.
+ja: 記録を開始できませんでした。ディスクに 4 GB を超える空き容量が必要です。
+en: Nova Calibrator did not save a recording because it received no data.
+ja: データを受信しなかったため、記録は保存されませんでした。
+en: Nova Calibrator deleted the recording.
+ja: 記録を削除しました。
+en: Nova Calibrator could not delete the recording file.
+ja: 記録ファイルを削除できませんでした。

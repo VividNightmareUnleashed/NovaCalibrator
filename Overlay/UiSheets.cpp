@@ -90,6 +90,7 @@ static void BuildDialogLayer()
 	case Dialog::ClearCalibration: BuildClearCalibrationDialog(); break;
 	case Dialog::ClearAnchors: BuildClearAnchorsDialog(); break;
 	case Dialog::ChaperoneWarning: BuildChaperoneWarningDialog(); break;
+	case Dialog::MotionRecorder: questcal::motionrecorder::BuildDialog(); break;
 	case Dialog::None: break;
 	}
 	if (s_dialogClose)

@@ -432,6 +432,19 @@ void SetupPreviewState()
 	case PreviewScenario::Lighthouse:
 		g_page = Page::Lighthouse;
 		break;
+	case PreviewScenario::Recorder:
+	case PreviewScenario::RecorderLive:
+	case PreviewScenario::RecorderEmpty:
+	case PreviewScenario::RecorderWarning:
+	case PreviewScenario::RecorderDelete:
+		// The module installed, on its page, with the dialog a scenario names.
+		CalCtx.modules.motionRecorder = questcal::ModuleStatus::Installed;
+		g_page = Page::MotionRecorder;
+		if (g_uiPreviewScenario == PreviewScenario::RecorderWarning)
+			questcal::motionrecorder::OpenWarning();
+		else if (g_uiPreviewScenario == PreviewScenario::RecorderDelete)
+			questcal::motionrecorder::OpenDeleteConfirm();
+		break;
 	case PreviewScenario::Settings:
 	case PreviewScenario::SettingsMore:
 		g_page = Page::Settings;

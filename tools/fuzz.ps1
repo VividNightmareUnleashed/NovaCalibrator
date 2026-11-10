@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     One executable per target in Tests/Fuzz/FuzzTargets.h (profile, settings,
-    feed, signature, lighthouse, request, frame-recovery), built with MSVC's
+    feed, signature, lighthouse, request, frame-recovery, recording), built with MSVC's
     /fsanitize=fuzzer,address into x64\fuzz\. Each run starts from the target's
     seeds and the corpus earlier runs grew (x64\fuzz\<target>\corpus), and stops
     at the time limit or at the first failure: a crash, a sanitizer report, an
@@ -23,7 +23,7 @@
 #>
 param(
     [int]$Seconds = 60,
-    [string[]]$Targets = @('profile', 'settings', 'feed', 'signature', 'lighthouse', 'request', 'frame-recovery')
+    [string[]]$Targets = @('profile', 'settings', 'feed', 'signature', 'lighthouse', 'request', 'frame-recovery', 'recording')
 )
 
 # Continue, not Stop: cl and the fuzzers write progress to stderr, which
@@ -46,6 +46,7 @@ foreach ($line in (& cmd.exe /c "`"$vcvars`" >nul 2>nul && set"))
 }
 
 $sources = @('Tests\Fuzz\FuzzMain.cpp', 'Driver\AlignmentField.cpp', 'Overlay\LighthouseLog.cpp',
+    'Overlay\RecordingPlayback.cpp',
     'Overlay\UpdateSignature.cpp', 'lib\monocypher\monocypher.c', 'lib\monocypher\monocypher-ed25519.c') |
     ForEach-Object { Join-Path $root $_ }
 
@@ -72,6 +73,7 @@ $dictionaries = @{
         'Fri ', 'Sep ', 'Feb ', ' 2026 ', '23:59:', '60.999', ' [Info] - ')
     request    = @()
     "frame-recovery" = @()
+    recording  = @('NOVAPOSE')
 }
 $failed = @()
 foreach ($t in $Targets)

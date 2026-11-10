@@ -25,6 +25,10 @@ struct Modules
 	// either way (docs/modules.md says which side a new feature goes on).
 	ModuleStatus lighthouse = ModuleStatus::NotInstalled;
 	ModuleStatus smoothing = ModuleStatus::NotBuilt;
+	// Records every raw pose sample to a file and plays the file back, for
+	// development and playtests (MotionRecorder.h). A recording shows how the
+	// player's body moves, so nothing of it runs unless this is installed.
+	ModuleStatus motionRecorder = ModuleStatus::NotInstalled;
 
 	static bool On(ModuleStatus s) { return s == ModuleStatus::Installed; }
 };

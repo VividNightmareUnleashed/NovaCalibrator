@@ -25,6 +25,11 @@
 //                       mutation is dispatched, and anything accepted is
 //                       bounded and keeps every pose the driver computes from
 //                       it finite
+//   CheckRecording      a pose recording (PoseRecordingFormat.h,
+//                       RecordingPlayback.h; the property is in
+//                       Tests/RecordingProperty.h): what the reader returns is
+//                       the front of the file byte for byte, and a playback of
+//                       it holds together
 
 #include "../../Driver/AlignmentField.h"
 #include "../../Driver/IPCProtocolGate.h"
@@ -34,6 +39,7 @@
 #include "../../Overlay/ProfileRecordJson.h"
 #include "../../Overlay/UpdatePolicy.h"
 #include "../../Overlay/UpdateSignature.h"
+#include "../RecordingProperty.h"
 #include "../SignatureFixture.h"
 
 #include <cmath>
@@ -739,6 +745,18 @@ inline std::vector<std::string> SettingsSeeds()
     };
 }
 
+// The pose recording's property and its seeds are in Tests/RecordingProperty.h,
+// beside the reference recordings they start from.
+inline std::string CheckRecording(const uint8_t *data, size_t size)
+{
+	return questcal::recording::CheckRecording(data, size);
+}
+
+inline std::vector<std::string> RecordingSeeds()
+{
+	return questcal::recording::PropertySeeds();
+}
+
 struct Target
 {
 	const char *name;
@@ -756,6 +774,7 @@ inline const std::vector<Target> &Targets()
 		{ "lighthouse", CheckLighthouseLine, LighthouseSeeds },
 		{ "request", CheckDriverRequest, RequestSeeds },
 		{ "frame-recovery", CheckFrameRecovery, FrameRecoverySeeds },
+		{ "recording", CheckRecording, RecordingSeeds },
 	};
 	return targets;
 }

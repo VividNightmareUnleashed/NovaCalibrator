@@ -121,6 +121,7 @@ static void BuildSidebar(bool runningInOverlay)
 
 	// The pages. A module the installer left out greys its page out.
 	const bool lighthouse = questcal::Modules::On(CalCtx.modules.lighthouse);
+	const bool recorder = questcal::Modules::On(CalCtx.modules.motionRecorder);
 	float y = o.y + 92.0f;
 	if (ui::NavRow("##navcalibration", NavSlot(o, y), ui::Icon::Reticle, "Calibration", g_page == Page::Calibration, false))
 		g_page = Page::Calibration;
@@ -130,6 +131,13 @@ static void BuildSidebar(bool runningInOverlay)
 		g_page = Page::Lighthouse;
 	y += 52.0f;
 	ui::NavRow("##navsmoothing", NavSlot(o, y), ui::Icon::Smoothing, "Smoothing", false, true, "Soon", "Work in progress");
+	y += 52.0f;
+	if (ui::NavRow("##navrecorder", NavSlot(o, y), ui::Icon::Motion, "Motion Recorder", g_page == Page::MotionRecorder, !recorder,
+		nullptr, "The Motion Recorder module is not installed. Select it when you install Nova Calibrator."))
+		g_page = Page::MotionRecorder;
+	// On every page while a recording runs.
+	const FlexRect sign = NavSlot(o, y + 52.0f + 12.0f);
+	questcal::motionrecorder::BuildSidebarSign(sign.min, sign.max);
 
 	// Settings and the version at the foot, with a line on how to drive the
 	// window when it would otherwise be a mystery.
@@ -165,6 +173,7 @@ static const char *PageTitle(Page page)
 	switch (page)
 	{
 	case Page::Lighthouse: return "Lighthouse";
+	case Page::MotionRecorder: return "Motion Recorder";
 	case Page::Settings: return "Settings";
 	default: return "Calibration";
 	}
@@ -204,6 +213,9 @@ static void BuildPage(const VRState &state)
 		break;
 	case Page::Lighthouse:
 		height = BuildLighthousePage(state, pageOrigin, width);
+		break;
+	case Page::MotionRecorder:
+		height = BuildMotionRecorderPage(state, pageOrigin, width);
 		break;
 	case Page::Settings:
 		height = BuildSettingsPage(state, pageOrigin, width);
@@ -269,6 +281,8 @@ void BuildMainWindow(bool runningInOverlay)
 
 	// A page whose module went away falls back to calibration.
 	if (g_page == Page::Lighthouse && !questcal::Modules::On(CalCtx.modules.lighthouse))
+		g_page = Page::Calibration;
+	if (g_page == Page::MotionRecorder && !questcal::Modules::On(CalCtx.modules.motionRecorder))
 		g_page = Page::Calibration;
 	ImGui::SetCursorScreenPos(ImVec2(kSidebarW, 0.0f));
 	// -uipreview-settings-more shows the page scrolled to its end (ImGui

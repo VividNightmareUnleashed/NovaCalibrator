@@ -1,0 +1,13 @@
+novapose listing 1
+format: version 1, mode 1
+writer: novapose reference generator
+clock: 10000000 ticks per second, start count 5000000000, start time 1794230000000000 us
+header devices: 3
+device 0: class 1, role 0, label "a1b2c3d4", model "Headset model", system "oculus", type ""
+device 3: class 3, role 0, label "0f0e0d0c", model "Tracker model", system "lighthouse", type "vive_tracker_waist"
+device 5: class 3, role 0, label "9a8b7c6d", model "Tracker model", system "lighthouse", type "vive_tracker_left_foot"
+samples: 217
+samples of device 0: 18, valid 18, first count 5000001000 position 0 1 -0.5 rotation 1 0 0 0, last count 5002362096 position 0.0166015625 1.000244140625 -0.5 rotation 0.5 0.5 0.5 0.5
+samples of device 3: 100, valid 100, first count 5000001400 position 0.75 1 -0.875 rotation 1 0 0 0, last count 5002476400 position 0.8466796875 1.000732421875 -0.875 rotation 0.5 -0.5 0.5 -0.5
+samples of device 5: 99, valid 98, first count 5000001400 position 1.25 1 -1.125 rotation 1 0 0 0, last count 5002451400 position 1.345703125 1.00048828125 -1.125 rotation 0 1 0 0
+file: cut short inside a record after 41263 bytes

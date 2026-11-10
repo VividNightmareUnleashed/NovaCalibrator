@@ -107,6 +107,7 @@ void RunFormalConformanceScenarios(void (*check)(const char *, bool, const char 
 int EmitFormalTraces(const char *dir);
 #endif
 void RunLighthouseScenarios(void (*check)(const char *, bool, const char *));
+void RunPoseRecordingScenarios(void (*check)(const char *, bool, const char *));
 void RunPropertyScenarios(void (*check)(const char *, bool, const char *), int trials, uint32_t propertySeed);
 void RunPredictionModelScenarios(void (*check)(const char *, bool, const char *));
 void RunLocalizationScenarios(void (*check)(const char *, bool, const char *));
@@ -8101,6 +8102,7 @@ DOCTEST_TEST_CASE("review regressions") { Group([] { RunReviewRegressionScenario
 DOCTEST_TEST_CASE("tracker frame corrections") { Group([] { RunTrackerFrameCorrectionScenarios(Check); }); }
 DOCTEST_TEST_CASE("persistence") { Group([] { RunPersistenceScenarios(); }); }
 DOCTEST_TEST_CASE("device pictures") { Group([] { RunDevicePictureScenarios(Check); }); }
+DOCTEST_TEST_CASE("pose recording") { Group([] { RunPoseRecordingScenarios(Check); }); }
 
 int main(int argc, char **argv)
 {

@@ -1,0 +1,15 @@
+// The reference recordings and their listings (Tests/recordings), built into
+// the harness so it can check that the generator in ReferenceRecordings.h
+// still makes these exact bytes.
+REFERENCE_CLEAN RCDATA "clean.novapose"
+REFERENCE_CLEAN_LISTING RCDATA "clean.txt"
+REFERENCE_GAP_AND_BOUNDARY RCDATA "gap-and-boundary.novapose"
+REFERENCE_GAP_AND_BOUNDARY_LISTING RCDATA "gap-and-boundary.txt"
+REFERENCE_PAUSE_AND_RESUME RCDATA "pause-and-resume.novapose"
+REFERENCE_PAUSE_AND_RESUME_LISTING RCDATA "pause-and-resume.txt"
+REFERENCE_CUT_SHORT RCDATA "cut-short.novapose"
+REFERENCE_CUT_SHORT_LISTING RCDATA "cut-short.txt"
+REFERENCE_NEWER_RECORDS RCDATA "newer-records.novapose"
+REFERENCE_NEWER_RECORDS_LISTING RCDATA "newer-records.txt"
+REFERENCE_ALIGNMENT RCDATA "alignment.novapose"
+REFERENCE_ALIGNMENT_LISTING RCDATA "alignment.txt"

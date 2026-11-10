@@ -1,0 +1,19 @@
+novapose listing 1
+format: version 1, mode 1
+writer: novapose reference generator
+clock: 10000000 ticks per second, start count 5000000000, start time 1794230000000000 us
+header devices: 3
+device 0: class 1, role 0, label "a1b2c3d4", model "Headset model", system "oculus", type ""
+device 3: class 3, role 0, label "0f0e0d0c", model "Tracker model", system "lighthouse", type "vive_tracker_waist"
+device 5: class 3, role 0, label "9a8b7c6d", model "Tracker model", system "lighthouse", type "vive_tracker_left_foot"
+pause after sample 100: cause 1, count 5001126700, time 1794230000112670 us
+resume after sample 100: cause 1, trigger "", count 5301126700, time 1794230030112670 us
+device record after sample 100: device 0: class 1, role 0, label "a1b2c3d4", model "Headset model", system "oculus", type ""
+device record after sample 100: device 3: class 3, role 0, label "0f0e0d0c", model "Tracker model", system "lighthouse", type "vive_tracker_waist"
+device record after sample 100: device 5: class 3, role 0, label "9a8b7c6d", model "Tracker model", system "lighthouse", type "vive_tracker_left_foot"
+end after sample 160: reason 4, count 5301804100, time 1794230030180410 us, samples 160
+samples: 160
+samples of device 0: 14, valid 14, first count 5000001000 position 0 1 -0.5 rotation 1 0 0 0, last count 5301683252 position 0.98046875 1.0029296875 -0.5 rotation 1 0 0 0
+samples of device 3: 74, valid 74, first count 5000001400 position 0.75 1 -0.875 rotation 1 0 0 0, last count 5301803100 position 1.7529296875 1.000732421875 -0.875 rotation 0.5 -0.5 0.5 -0.5
+samples of device 5: 72, valid 72, first count 5000001400 position 1.25 1 -1.125 rotation 1 0 0 0, last count 5301778100 position 2.251953125 1.00048828125 -1.125 rotation 0 1 0 0
+file: complete

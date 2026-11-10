@@ -192,7 +192,7 @@ namespace ui
 	enum class Icon
 	{
 		None,
-		Reticle, Identify, Chaperone, Anchor, Lighthouse, Smoothing, Gear,
+		Reticle, Identify, Chaperone, Anchor, Lighthouse, Smoothing, Motion, Gear,
 		Chevron, ChevronLeft, ChevronUpDown, Close, Check, Plus, Minus,
 		Trash, Download, Doc, Pencil, Info, Warn, Refresh, Power, Pause, Play,
 		Book, Globe, Bell, Clock, ShieldCheck, Headset, Tracker, Controller, More,

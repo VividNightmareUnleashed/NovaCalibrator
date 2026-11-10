@@ -126,6 +126,7 @@
     <ClCompile Include="IPCServerTransportTests.cpp" />
     <ClCompile Include="TrackingRecoveryTests.cpp" />
     <ClCompile Include="LighthouseLogTests.cpp" />
+    <ClCompile Include="PoseRecordingTests.cpp" />
     <ClCompile Include="LocalizationTests.cpp" />
     <ClCompile Include="PredictionModelTests.cpp" />
     <ClCompile Include="PropertyTests.cpp" />
@@ -165,6 +166,8 @@
     <ClCompile Include="..\Overlay\LighthouseVisibility.cpp" />
     <ClCompile Include="..\Overlay\JumpDetector.cpp" />
     <ClCompile Include="..\Overlay\PoseStreamHub.cpp" />
+    <ClCompile Include="..\Overlay\PoseRecorder.cpp" />
+    <ClCompile Include="..\Overlay\RecordingPlayback.cpp" />
     <ClCompile Include="..\Overlay\Updater.cpp" />
     <ClCompile Include="..\Overlay\UpdateSignature.cpp" />
   </ItemGroup>
@@ -216,12 +219,24 @@
     <ClInclude Include="..\Overlay\RingSampleGate.h" />
     <ClInclude Include="..\Overlay\UpdatePolicy.h" />
     <ClInclude Include="..\Overlay\PoseStreamHub.h" />
+    <ClInclude Include="..\Overlay\MotionRecorderText.h" />
+    <ClInclude Include="..\Overlay\PoseRecorder.h" />
+    <ClInclude Include="..\Overlay\PoseRecordingFormat.h" />
+    <ClInclude Include="..\Overlay\PoseRecordingListing.h" />
+    <ClInclude Include="..\Overlay\RecordingPlayback.h" />
+    <ClInclude Include="RecordingProperty.h" />
+    <ClInclude Include="ReferenceRecordings.h" />
   </ItemGroup>
   <!-- The translation tables the localization tests read, as the overlay
        builds them in. -->
   <ItemGroup>
     <ResourceCompile Include="..\Overlay\Translations.rc">
       <AdditionalIncludeDirectories>$(ProjectDir)..\Overlay;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <!-- The reference recordings the pose recording tests compare with what
+         their generator makes. -->
+    <ResourceCompile Include="ReferenceRecordings.rc">
+      <AdditionalIncludeDirectories>$(ProjectDir)recordings;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
   </ItemGroup>
   <!-- First-party code builds at /W4 with warnings as errors. The vendored

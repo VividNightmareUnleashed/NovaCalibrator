@@ -135,6 +135,24 @@
     <ClInclude Include="Modules.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="MotionRecorder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="MotionRecorderText.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="PoseRecorder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="PoseRecordingFormat.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="PoseRecordingListing.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RecordingPlayback.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="TrackingStreamDigest.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -270,6 +288,18 @@
       <Filter>Source Files\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="Modules.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MotionRecorder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="PoseRecorder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="RecordingPlayback.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="UiMotionRecorder.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="UserInterface.cpp">

@@ -1239,3 +1239,137 @@ en: Do it later
 it: Più tardi
 en: Start calibration
 it: Avvia calibrazione
+
+# ---- The Motion Recorder module (MotionRecorderText.h) ----
+en: Motion Recorder
+it: Motion Recorder
+en: The Motion Recorder module is not installed. Select it when you install Nova Calibrator.
+it: Il modulo Motion Recorder non è installato. Selezionalo durante l'installazione.
+en: Record motion
+it: Registra il movimento
+en: Privacy risk
+it: Rischio per la privacy
+en: A recording shows how your body moves. Nova Calibrator records only after you start a recording.
+it: Una registrazione mostra come si muove il tuo corpo. Nova Calibrator registra solo dopo l'avvio di una registrazione.
+en: A recording shows how your body moves. The recording continues in the same file.
+it: Una registrazione mostra come si muove il tuo corpo. La registrazione continua nello stesso file.
+en: A recording shows how your body moves. A new recording replaces this one.
+it: Una registrazione mostra come si muove il tuo corpo. Una nuova registrazione sostituisce questa.
+en: The recording is %d min long. It uses %.2f GB.
+it: Registrazione: {0} min, {1} GB
+en: Start recording
+it: Avvia registrazione
+en: Stop recording
+it: Interrompi registrazione
+en: Motion recording is on
+it: Registrazione del movimento attiva
+en: A recording shows how your body moves, almost as a motion capture does.
+it: Una registrazione mostra come si muove il tuo corpo, quasi come una motion capture.
+en: Record only when you accept that another person can see your movements.
+it: Registra solo se accetti che un'altra persona possa vedere i tuoi movimenti.
+en: A recording is the most useful data for a problem report.
+it: Una registrazione è il dato più utile per segnalare un problema.
+en: You can stop and start the recording at any time.
+it: Puoi interrompere e riavviare la registrazione in qualsiasi momento.
+en: Nova Calibrator records only after you start a recording and until you stop it.
+it: Nova Calibrator registra solo dall'avvio di una registrazione fino a quando la interrompi.
+en: A recording does not change the diagnostics file.
+it: Una registrazione non modifica il file di diagnostica.
+en: A recording stays on your computer until you send it.
+it: Una registrazione resta sul tuo computer finché non la invii.
+en: A new recording replaces the previous recording. To keep the previous recording, copy the file first.
+it: Una nuova registrazione sostituisce la precedente. Per conservare la precedente, copia prima il file.
+en: Maximum recording size
+it: Dimensione massima della registrazione
+en: One hour of recording can use 3 GB. The recording stops when the file has this size.
+it: Un'ora di registrazione può occupare 3 GB. La registrazione si arresta quando il file raggiunge questa dimensione.
+en: Open recording folder
+it: Apri la cartella della registrazione
+en: Delete recording
+it: Elimina registrazione
+en: Delete the recording?
+it: Eliminare la registrazione?
+en: Nova Calibrator deletes the recording file from this computer. You cannot get the file back.
+it: Nova Calibrator elimina il file di registrazione da questo computer. Non è possibile recuperarlo.
+en: Keep recording
+it: Conserva registrazione
+en: Recorded %s
+it: Registrata il {0}
+en: %d device%s, %.2f GB
+it: {0} {0|dispositivo|dispositivi}, {2} GB
+en: Front
+it: Frontale
+en: Top
+it: Dall'alto
+en: Side
+it: Laterale
+en: Recorded
+it: Registrato
+en: Off: nothing recorded
+it: Spento: nessuna registrazione
+en: Data lost
+it: Dati persi
+en: Live
+it: Dal vivo
+en: Nova Calibrator records now. Stop the recording to play it.
+it: Nova Calibrator sta registrando. Interrompi la registrazione per riprodurla.
+en: Nova Calibrator reads the recording.
+it: Nova Calibrator sta leggendo la registrazione.
+en: No recording
+it: Nessuna registrazione
+en: Start a recording. Then you can play it here.
+it: Avvia una registrazione. Poi potrai riprodurla qui.
+en: Nova Calibrator cannot read the recording
+it: Impossibile leggere la registrazione
+en: The recording file is not correct. Delete the recording or start a new recording.
+it: Il file di registrazione non è corretto. Elimina la registrazione o avviane una nuova.
+en: The recording has no data.
+it: La registrazione non contiene dati.
+en: The recorder stopped before it closed the file. The end of the recording can be missing.
+it: Il registratore si è fermato prima di chiudere il file. La fine della registrazione può mancare.
+en: Left hand
+it: Mano sinistra
+en: Right hand
+it: Mano destra
+en: Waist
+it: Vita
+en: Chest
+it: Petto
+en: Left foot
+it: Piede sinistro
+en: Right foot
+it: Piede destro
+en: Left knee
+it: Ginocchio sinistro
+en: Right knee
+it: Ginocchio destro
+en: Left elbow
+it: Gomito sinistro
+en: Right elbow
+it: Gomito destro
+en: Left shoulder
+it: Spalla sinistra
+en: Right shoulder
+it: Spalla destra
+en: Tracker
+it: Tracker
+en: Controller
+it: Controller
+en: Nova Calibrator saved the recording to %s
+it: Registrazione salvata in {0}
+en: Nova Calibrator could not create the recording file in %s.
+it: Impossibile creare il file di registrazione in {0}.
+en: The recording stopped because the file reached its maximum size.
+it: La registrazione si è arrestata perché il file ha raggiunto la dimensione massima.
+en: The recording stopped because the disk is almost full.
+it: La registrazione si è arrestata perché il disco è quasi pieno.
+en: Nova Calibrator could not write to the recording file. The recording stopped.
+it: Impossibile scrivere nel file di registrazione. La registrazione si è arrestata.
+en: Nova Calibrator did not start the recording. The disk must have more than 4 GB of free space.
+it: Impossibile avviare la registrazione. Il disco deve avere più di 4 GB di spazio libero.
+en: Nova Calibrator did not save a recording because it received no data.
+it: Nessuna registrazione salvata, perché Nova Calibrator non ha ricevuto dati.
+en: Nova Calibrator deleted the recording.
+it: Registrazione eliminata.
+en: Nova Calibrator could not delete the recording file.
+it: Impossibile eliminare il file di registrazione.

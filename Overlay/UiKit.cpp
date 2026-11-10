@@ -438,6 +438,7 @@ namespace ui
 				P("M5.5 16.5c-1.6.6-2.5 1.4-2.5 2.2 0 1.8 4 3.3 9 3.3s9-1.5 9-3.3c0-.8-.9-1.6-2.5-2.2") };
 			case Icon::Lighthouse: return { B(4.5f, 4, 15, 16, 3.5f), O(12, 12.5f, 3.6f), P("M8.5 6.9h7") };
 			case Icon::Smoothing: return { P("M3 14c2.2-5 4.4-7 6.4-7 3.2 0 2.8 10 6.2 10 1.8 0 3.4-2 5.4-6") };
+			case Icon::Motion: return { O(12, 5, 2.2f), P("M12 7.5v6M12 13.5l-3.5 6.5M12 13.5l3.5 6.5M6.5 10.5l5.5-1.5 5.5 1.5") };
 			case Icon::Chevron: return { P("M9.5 5.5L16 12l-6.5 6.5") };
 			case Icon::ChevronLeft: return { P("M14.5 5.5L8 12l6.5 6.5") };
 			case Icon::ChevronUpDown: return { P("M8 9.5l4-4 4 4M8 14.5l4 4 4-4") };

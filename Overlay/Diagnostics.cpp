@@ -564,7 +564,8 @@ void DescribeModules(std::ostream &out, const CalibrationContext &ctx)
 {
 	out << "[modules]\n";
 	out << "lighthouse: " << questcal::ModuleStatusName(ctx.modules.lighthouse) << "\n";
-	out << "smoothing: " << questcal::ModuleStatusName(ctx.modules.smoothing) << "\n\n";
+	out << "smoothing: " << questcal::ModuleStatusName(ctx.modules.smoothing) << "\n";
+	out << "motion recorder: " << questcal::ModuleStatusName(ctx.modules.motionRecorder) << "\n\n";
 }
 
 void DescribeBaseStations(std::ostream &out, const CalibrationContext &ctx, const DiagnosticCapture &capture)

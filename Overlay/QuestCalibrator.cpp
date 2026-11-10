@@ -3,6 +3,7 @@
 #include "Configuration.h"
 #include "Diagnostics.h"
 #include "Localization.h"
+#include "MotionRecorder.h"
 #include "Updater.h"
 #include "UiKit.h"
 #include "UserInterface.h"
@@ -982,6 +983,7 @@ bool RunLoop(const LaunchOptions &options, const OverlayFramebuffer &framebuffer
 		if (SteamVrServerEnded())
 		{
 			AppendSessionLog("SteamVR's server process ended without the quit event");
+			questcal::motionrecorder::Close(true);
 			SaveDiagnosticsAtExit(DiagnosticsTrigger::SteamVrCrash, nullptr);
 			return true;
 		}
@@ -1091,6 +1093,8 @@ bool RunLoop(const LaunchOptions &options, const OverlayFramebuffer &framebuffer
 					// diagnostics: players quit without saving them.
 					if (vr::VRSystem())
 						vr::VRSystem()->AcknowledgeQuit_Exiting();
+					// Before the diagnostics, so that they name the recording.
+					questcal::motionrecorder::Close(true);
 					SaveDiagnosticsAtExit(DiagnosticsTrigger::SteamVrQuit, vr::VRSystem());
 					return true;
 				}
@@ -1510,6 +1514,16 @@ static LaunchOptions ParseCommandLine(LPWSTR lpCmdLine)
 		options.preview = true;
 		options.previewMany = true;
 		options.previewScenario = PreviewScenario::Lighthouse;
+	}
+	else if (cmd == L"-uipreview-recorder" || cmd == L"-uipreview-recorder-live" || cmd == L"-uipreview-recorder-empty" ||
+		cmd == L"-uipreview-recorder-warning" || cmd == L"-uipreview-recorder-delete")
+	{
+		options.preview = true;
+		options.previewMany = true;
+		options.previewScenario = cmd == L"-uipreview-recorder" ? PreviewScenario::Recorder
+			: cmd == L"-uipreview-recorder-live" ? PreviewScenario::RecorderLive
+			: cmd == L"-uipreview-recorder-empty" ? PreviewScenario::RecorderEmpty
+			: cmd == L"-uipreview-recorder-warning" ? PreviewScenario::RecorderWarning : PreviewScenario::RecorderDelete;
 	}
 	else if (cmd == L"-uipreview-settings" || cmd == L"-uipreview-settings-more" || cmd == L"-uipreview-editor" ||
 		cmd == L"-uipreview-credits")

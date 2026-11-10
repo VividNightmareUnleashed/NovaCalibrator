@@ -1,0 +1,4 @@
+# The reference recordings and their listings are compared byte for byte:
+# nothing may change their line endings.
+*.novapose binary
+*.txt -text

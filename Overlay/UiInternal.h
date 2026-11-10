@@ -12,6 +12,7 @@
 #include "UiLayout.h"
 #include "UiKit.h"
 #include "Localization.h"
+#include "MotionRecorder.h"
 #include "../common/Protocol.h"
 #include "../common/Version.h"
 
@@ -136,16 +137,16 @@ static const float kCountdownSeconds = 3.0f;
 // Exceed the four-row scroll threshold and exercise several battery states.
 static const int kPreviewManyTrackerCount = 6;
 
-// The pages the sidebar switches between. Lighthouse and Smoothing are
-// optional modules (CalCtx.modules); a page whose module is not installed
-// stays greyed out in the sidebar.
-enum class Page { Calibration = 0, Lighthouse, Settings };
+// The pages the sidebar switches between. Lighthouse, Smoothing and Motion
+// Recorder are optional modules (CalCtx.modules); a page whose module is not
+// installed stays greyed out in the sidebar.
+enum class Page { Calibration = 0, Lighthouse, MotionRecorder, Settings };
 
 // What covers the page: one sheet at a time, and a dialog that may sit over
 // it. Both live at the window's root (UiSheets.cpp), so anything can open
 // them.
 enum class Sheet { None, Pair, Calibrate, Chaperone, Anchors, Activity, Editor, Credits };
-enum class Dialog { None, ClearCalibration, ClearAnchors, ChaperoneWarning };
+enum class Dialog { None, ClearCalibration, ClearAnchors, ChaperoneWarning, MotionRecorder };
 
 // The sidebar's width; pages lay out in what is left of the window.
 static const float kSidebarW = 248.0f;
@@ -220,6 +221,7 @@ bool LanguagePicker(const char *id, const FlexRect &r, float lead = 0.0f);
 // the height it took so the page can scroll.
 float BuildHomePage(const VRState &state, ImVec2 origin, float width);
 float BuildLighthousePage(const VRState &state, ImVec2 origin, float width);
+float BuildMotionRecorderPage(const VRState &state, ImVec2 origin, float width);
 float BuildSettingsPage(const VRState &state, ImVec2 origin, float width);
 
 // Sheets and dialogs (UiSheets.cpp). Opening one from anywhere takes effect

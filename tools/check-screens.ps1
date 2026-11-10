@@ -31,7 +31,9 @@ $Screens = @('-uipreview', '-uipreview-many', '-uipreview-empty', '-uipreview-fr
     '-uipreview-notices', '-uipreview-pair', '-uipreview-guide', '-uipreview-guide-wait', '-uipreview-move',
     '-uipreview-result', '-uipreview-failed', '-uipreview-chaperone', '-uipreview-chapwarn', '-uipreview-anchors',
     '-uipreview-activity', '-uipreview-clear', '-uipreview-lighthouse', '-uipreview-settings', '-uipreview-settings-more',
-    '-uipreview-editor', '-uipreview-credits', '-uipreview-setup-welcome', '-uipreview-setup-headset',
+    '-uipreview-editor', '-uipreview-credits', '-uipreview-recorder', '-uipreview-recorder-live',
+    '-uipreview-recorder-empty', '-uipreview-recorder-warning', '-uipreview-recorder-delete',
+    '-uipreview-setup-welcome', '-uipreview-setup-headset',
     '-uipreview-setup-trackers', '-uipreview-setup-updates', '-uipreview-setup-calibrate')
 $Languages = @('en', 'ja', 'it')
 

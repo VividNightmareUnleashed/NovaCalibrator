@@ -15,6 +15,7 @@ overlay only turns on what was chosen.
 | --- | --- | --- |
 | Lighthouse | optional | Base station tools. So far one: the Lighthouse tab, each base station and which lighthouse devices see it (`docs/lighthouse-visibility.md`). More are planned. |
 | Smoothing | not built | Its tab only, greyed out with "Work in progress". No installer offers it yet. |
+| Motion Recorder | optional | For development and playtests. Its page records every raw pose sample to one file (`docs/recording-format.md`) while the player has a recording on, and plays that file back. A recording shows how the player's body moves. |
 
 What a module does not control stays core. Reading SteamVR's lighthouse
 log, its session log lines, the `[base stations]` diagnostics section and
@@ -45,10 +46,15 @@ Module features build on the core data; core never depends on a module.
 1. `Install.ps1` asks about each module before it changes anything. On an
    upgrade the default is the previous install's choice, otherwise no.
    `-Lighthouse` installs the module without asking; an `-Unattended`
-   install gets only the modules named on its command line.
+   install gets only the modules named on its command line. The Motion
+   Recorder is asked about differently, because of what it records: the
+   answer is no unless the player presses Y within 10 seconds, on an upgrade
+   too, and no without a console to ask on. `-MotionRecorder` installs it
+   without asking.
 2. It records each choice as a DWORD, 1 or 0, under
-   `HKLM\Software\NovaCalibrator\Modules` (value `Lighthouse`). Running the
-   installer again is how a player adds or removes a module.
+   `HKLM\Software\NovaCalibrator\Modules` (values `Lighthouse` and
+   `MotionRecorder`). Running the installer again is how a player adds or
+   removes a module.
 3. At startup the overlay reads that key once (`ReadInstalledModules`,
    `Overlay/Modules.cpp`) into `CalCtx.modules`. A missing key or value
    means not installed. Everything a module gates asks `CalCtx.modules`.
@@ -66,8 +72,35 @@ A manual install has no installer to ask; the install readme gives the
   progress".
 - A diagnostics export has a `[modules]` section with each module's
   status (`installed`, `not installed`, `not built`).
-- The preview never reads the registry: every module is off except in
-  `-uipreview-lighthouse`, which turns the Lighthouse module on.
+- The preview never reads the registry: the Lighthouse module is on, as the
+  design shows the sidebar, and the Motion Recorder module is on only in the
+  `-uipreview-recorder` screens.
+
+## The Motion Recorder
+
+Everything of it is gated on `Modules::On(CalCtx.modules.motionRecorder)`:
+without the module the overlay makes no recorder thread, opens no file and
+shows only the greyed-out page link. With it, nothing is recorded until the
+player presses "Start recording" on the page and reads the warning; the
+choice is not a setting, so no recording runs when Nova Calibrator starts.
+
+- `Overlay/PoseRecorder.h` is one more consumer of the pose stream hub, on
+  its own thread: a slow disk delays neither the hub nor the window, and
+  samples it cannot fetch in time are a gap record. There is one recording,
+  `%LOCALAPPDATA%\NovaCalibrator\recordings\NovaCalibrator-recording.novapose`.
+  A stop closes it with a pause record and the next start goes on in it; a new
+  recording replaces it when its first sample is written. Nothing published
+  while the recorder is off reaches the file. The file names no hardware: a
+  device has a label made up for the recording in place of its serial number.
+- `Overlay/RecordingPlayback.h` reads the file once on its own thread to find
+  its stretches, losses and record positions, then reads only the span around
+  the moment shown. The file is untrusted input (fuzz target `recording`).
+- `Overlay/MotionRecorder.h` is the module's side of the overlay,
+  `Overlay/UiMotionRecorder.cpp` its page, its two dialogs and the sign in the
+  sidebar while a recording runs. Every sentence is in
+  `Overlay/MotionRecorderText.h`.
+- The size cap ends the recording (1, 5 or 20 GB, picked on the page), as
+  does a drive with less than 4 GB free.
 
 ## Adding a module
 

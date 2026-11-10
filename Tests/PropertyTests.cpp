@@ -141,7 +141,8 @@ void FuzzReplay(Check check, int trials, uint32_t propertySeed)
 	for (const auto &target : questcalfuzz::Targets())
 	{
 		const std::vector<std::string> seeds = target.seeds();
-		const bool binary = std::string(target.name) == "request" || std::string(target.name) == "frame-recovery";
+		const bool binary = std::string(target.name) == "request" || std::string(target.name) == "frame-recovery" ||
+			std::string(target.name) == "recording";
 		std::mt19937 rng(propertySeed ^ static_cast<uint32_t>(std::hash<std::string>()(target.name)));
 		std::string failure, input;
 		int seedFailures = 0;

@@ -8,6 +8,7 @@
 #include "DriftMonitor.h"
 #include "LighthouseFrameWatch.h"
 #include "Diagnostics.h"
+#include "MotionRecorder.h"
 #include "PoseStreamHub.h"
 #include "ProfileValidation.h"
 #include "RingPoseMath.h"
@@ -233,6 +234,8 @@ void InitCalibrator()
 
 void ShutdownCalibrator(bool cleanExit)
 {
+	// A recording in progress ends here, with its closing record.
+	questcal::motionrecorder::Close(false);
 	bool reconcileDriver = CalCtx.run.neutralizationSequence != 0;
 	if (reconcileDriver)
 		questcal::ReleaseCalibrationDeviceNeutralization();
@@ -587,6 +590,7 @@ void CalibrationTick(double time)
 	// while the runtime is unavailable or the advanced editor is open.
 	PersistenceTick(ctx, time);
 	questcal::PollCalibrationDriver(ctx);
+	questcal::motionrecorder::Tick(ctx, PoseHub, time);
 
 	if (!vr::VRSystem())
 		return;
