@@ -37,6 +37,11 @@ and settings. It also asks whether you want the optional **Lighthouse** module, 
 page that shows your base stations and which of them each device can see. Run the
 installer again to add or remove it.
 
+The installer also offers the **Motion Recorder** module, which is for development
+and playtests: it can record how your headset, controllers and trackers move, and
+play the recording back. A recording shows how your body moves, so the module is
+left out unless you press Y within 10 seconds, each time you run the installer.
+
 The first time it opens, Nova Calibrator walks you through your language, your
 headset, the kinds of tracker you use, automatic updates and a first calibration.
 

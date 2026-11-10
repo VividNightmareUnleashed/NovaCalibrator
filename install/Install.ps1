@@ -13,7 +13,11 @@ param(
     [switch]$Unattended,
     # Optional modules. An unattended install gets only the ones named here;
     # an interactive one asks, offering what the previous install had.
-    [switch]$Lighthouse
+    [switch]$Lighthouse,
+    # The Motion Recorder records how the player's body moves, so an
+    # interactive install asks again each time and never offers a previous
+    # choice: without this switch or a Y in time, it is not installed.
+    [switch]$MotionRecorder
 )
 
 $ErrorActionPreference = 'Stop'
@@ -53,6 +57,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
         '-UserLocalAppData', "`"$env:LOCALAPPDATA`""
     )
     if ($Lighthouse) { $relaunchArgs += '-Lighthouse' }
+    if ($MotionRecorder) { $relaunchArgs += '-MotionRecorder' }
     Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $relaunchArgs
     exit 0
 }
@@ -84,6 +89,72 @@ if (-not $Unattended -and -not $Lighthouse) {
     $answer = Read-Host "Install the Lighthouse module? [Y/N] (default $default)"
     if (-not $answer) { $answer = $default }
     $installLighthouse = $answer -match '^[Yy]'
+}
+
+# A question whose answer is N unless the player presses Y within $Seconds.
+# Any other key answers N at once. Returns $true for Y and $false for N.
+# Without a console to read keys from or to show the question on, the answer
+# is N without the wait; Read-Host is no substitute there, it would block a
+# redirected install on a question nobody sees.
+function Read-TimedYes([int]$Seconds) {
+    try {
+        if ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected) { return $false }
+        # Keys typed before the question showed, such as the Enter that ended
+        # the answer before this one, do not answer it.
+        while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) }
+    } catch {
+        return $false
+    }
+    $yes = $false
+    $shown = 0
+    $width = 0
+    $rewrite = $true
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    try {
+        while ($true) {
+            $left = [int][Math]::Ceiling($Seconds - $watch.Elapsed.TotalSeconds)
+            if ($left -le 0) { break }
+            if ($left -ne $shown -and $rewrite) {
+                $unit = if ($left -eq 1) { 'second' } else { 'seconds' }
+                $line = "  If you do not press Y, the answer is N in $left $unit."
+                # The first line is the longest: later ones are padded to it,
+                # so a shorter number leaves no characters of the line before.
+                if ($line.Length -gt $width) { $width = $line.Length }
+                Write-Host ("`r" + $line.PadRight($width)) -NoNewline
+                $shown = $left
+                # A line that wraps cannot be rewritten from its start: in a
+                # window that narrow the first line stays as it is.
+                if ([Console]::BufferWidth -le $width) { $rewrite = $false }
+            }
+            if ([Console]::KeyAvailable) {
+                $key = [Console]::ReadKey($true)
+                $yes = $key.Key -eq [ConsoleKey]::Y -or [string]$key.KeyChar -eq 'y'
+                break
+            }
+            Start-Sleep -Milliseconds 50
+        }
+    } catch {
+        $yes = $false
+    }
+    if ($shown -gt 0) { Write-Host "" }
+    return $yes
+}
+
+$installMotionRecorder = [bool]$MotionRecorder
+if (-not $Unattended -and -not $MotionRecorder) {
+    Write-Host ""
+    Write-Host "Optional module: Motion Recorder" -ForegroundColor Cyan
+    Write-Host "  This module is for development and for playtests."
+    Write-Host "  It records how your headset, controllers and trackers move. A recording"
+    Write-Host "  shows how your body moves."
+    Write-Host "  Do not install it if you are not sure that you need it." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Install the Motion Recorder module? [Y/N]"
+    # Only an exact $true installs it: anything else the function could give
+    # back is N.
+    $answer = Read-TimedYes 10
+    $installMotionRecorder = $answer -is [bool] -and $answer
+    Write-Host $(if ($installMotionRecorder) { 'Y' } else { 'N' })
 }
 
 $packageDir = $PSScriptRoot
@@ -371,6 +442,7 @@ Set-ItemProperty -Path 'HKLM:\Software\NovaCalibrator\Driver' -Name '(default)' 
 # The overlay reads this at startup (UserInterface.cpp) to enable each module.
 New-Item -Path $modulesKey -Force | Out-Null
 Set-ItemProperty -Path $modulesKey -Name 'Lighthouse' -Value ([int]$installLighthouse) -Type DWord
+Set-ItemProperty -Path $modulesKey -Name 'MotionRecorder' -Value ([int]$installMotionRecorder) -Type DWord
 
 $installedKb  = [int](((Get-ChildItem $installDir -Recurse -File | Measure-Object -Property Length -Sum).Sum) / 1KB)
 $uninstallCmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$installDir\Uninstall.ps1`""
@@ -399,6 +471,7 @@ $shortcut.Save()
 Write-Host ""
 Write-Host "Nova Calibrator $version is installed." -ForegroundColor Green
 Write-Host ("Lighthouse module: " + $(if ($installLighthouse) { 'installed.' } else { 'not installed. To add it, start the installer again.' }))
+Write-Host ("Motion Recorder module: " + $(if ($installMotionRecorder) { 'installed.' } else { 'not installed. To add it, start the installer again.' }))
 Write-Host "The installer added a Nova Calibrator shortcut to the Start menu."
 Write-Host "To use Nova Calibrator, start SteamVR."
 Write-Host ""
