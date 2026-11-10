@@ -28,6 +28,11 @@ struct ChaperoneRecord
 // player's own choice in Nova Calibrator (MigrateSettings).
 constexpr int SettingsSchema = 2;
 
+// The Motion Recorder's size cap is one of this many choices
+// (MotionRecorder.h names their sizes), saved as its index.
+constexpr int MotionRecorderCapChoices = 3;
+constexpr int MotionRecorderCapDefault = 1;
+
 // The Settings record's switches, each listed once: its member (named as in
 // CalibrationContext), its key and its default. The record's members, the
 // writer, the parser and Configuration.cpp's capture and apply all expand
@@ -45,7 +50,8 @@ constexpr int SettingsSchema = 2;
 	X(usesViveTracker3, "uses_vive_tracker_3", false) \
 	X(usesTundraTracker, "uses_tundra_tracker", false) \
 	X(usesIndexControllers, "uses_index_controllers", false) \
-	X(usesViveTracker2018, "uses_vive_tracker_2018", false)
+	X(usesViveTracker2018, "uses_vive_tracker_2018", false) \
+	X(motionRecorderFull, "motion_recorder_full", false)
 
 // The switches the settings screen marks "Experimental", by member. Records
 // saved under the QuestCalibrator name come in with these off
@@ -90,6 +96,7 @@ struct SettingsRecord
 	QUESTCAL_SETTINGS_SWITCHES(QUESTCAL_SWITCH_MEMBER)
 #undef QUESTCAL_SWITCH_MEMBER
 	PersistedCalibrationSpeed calibrationSpeed = PersistedCalibrationSpeed::Fast;
+	int motionRecorderCap = MotionRecorderCapDefault;
 	std::string language;
 	std::map<std::string, std::string> deviceNames;
 	ChaperoneRecord chaperone;
@@ -241,6 +248,8 @@ inline void WriteSettings(const SettingsRecord &record,
 	QUESTCAL_SETTINGS_SWITCHES(QUESTCAL_WRITE_SWITCH)
 #undef QUESTCAL_WRITE_SWITCH
 	settings["calibration_speed"].set<double>(calibrationSpeed);
+	double motionRecorderCap = record.motionRecorderCap;
+	settings["motion_recorder_cap"].set<double>(motionRecorderCap);
 	if (!record.language.empty())
 		settings["language"].set<std::string>(record.language);
 	if (!record.deviceNames.empty())
@@ -292,6 +301,15 @@ inline PersistedRevision ParseSettingsUnchecked(SettingsRecord &settings, std::i
 		const std::string code = obj.at("language").get<std::string>();
 		if (i18n::LanguageCodeIndex(code) >= 0)
 			settings.language = code;
+	}
+	// A number that is none of the choices is dropped, as an unknown language
+	// is: an optional module's preference never refuses the record.
+	if (HasTypedValue<double>(obj, "motion_recorder_cap"))
+	{
+		const double cap = GetDouble(obj.at("motion_recorder_cap"));
+		for (int choice = 0; choice < MotionRecorderCapChoices; ++choice)
+			if (cap == static_cast<double>(choice))
+				settings.motionRecorderCap = choice;
 	}
 	if (HasTypedValue<picojson::object>(obj, "device_names"))
 	{

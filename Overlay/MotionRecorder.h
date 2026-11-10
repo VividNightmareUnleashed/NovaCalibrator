@@ -27,7 +27,9 @@ constexpr int DefaultCapChoice = 1;
 
 // "Automatic" saves a clip around each tracking problem and nothing between
 // them; "Full" saves every sample. The player picks before a recording
-// starts, and the choice is not a saved setting.
+// starts. This choice and the size cap are saved settings
+// (CalibrationContext::motionRecorderFull and motionRecorderCap); whether a
+// recording runs is not.
 enum class Mode { Automatic, Full };
 constexpr Mode DefaultMode = Mode::Automatic;
 
@@ -64,9 +66,7 @@ void Pause();
 void DeleteRecording();
 std::wstring Folder();
 int CapChoice();
-void SetCapChoice(int choice);
 Mode ModeChoice();
-void SetModeChoice(Mode mode);
 // "Automatic": keeps what just happened as a clip, as a tracking problem would.
 void SaveLast();
 

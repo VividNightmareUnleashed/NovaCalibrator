@@ -6789,6 +6789,29 @@ void RunPersistenceLegacyScenario()
 		questcal::ParseSettings(record, reread, &schema);
 		if (schema != questcal::SettingsSchema || questcal::SettingsSchema != 2)
 			why += " E7(the writer does not stamp schema 2)";
+
+		// The Motion Recorder's two choices travel with the record, and a cap
+		// that is none of the choices is dropped, not refused.
+		record = questcal::SettingsRecord();
+		record.motionRecorderFull = true;
+		record.motionRecorderCap = 2;
+		std::ostringstream choices;
+		questcal::WriteSettings(record, 3, choices);
+		std::istringstream choicesBack(choices.str());
+		questcal::SettingsRecord kept;
+		questcal::ParseSettings(kept, choicesBack);
+		if (!kept.motionRecorderFull || kept.motionRecorderCap != 2)
+			why += " E7(the recorder's choices do not round-trip)";
+		for (const char *text : { "{\"motion_recorder_cap\":7,\"motion_recorder_full\":true}",
+			"{\"motion_recorder_cap\":1.5,\"motion_recorder_full\":true}",
+			"{\"motion_recorder_cap\":-1,\"motion_recorder_full\":true}" })
+		{
+			std::istringstream noChoice(text);
+			kept = questcal::SettingsRecord();
+			questcal::ParseSettings(kept, noChoice);
+			if (kept.motionRecorderCap != questcal::MotionRecorderCapDefault || !kept.motionRecorderFull)
+				why += " E7(a recorder cap that is no choice is not dropped)";
+		}
 	}
 
 	char detail[384];

@@ -166,7 +166,26 @@ struct KnownState
 	}
 };
 
+// A place the file can be cut at: a record's edge, what a file that starts
+// there must state first, and what the recording held in front of it.
+struct CutPoint
+{
+	uint64_t offset = 0;
+	int64_t qpc = 0;
+	int64_t unixMicroseconds = 0;
+	KnownState state;
+	uint64_t samplesBefore = 0;
+	uint64_t lostBefore = 0;
+	uint64_t clipsBefore = 0;
+	double secondsBefore = 0.0;
+};
+
 } // namespace
+
+struct PoseRecorder::CutPoints
+{
+	std::vector<CutPoint> points;
+};
 
 bool FreeDiskBytes(const std::wstring &directory, uint64_t &freeBytes)
 {
@@ -193,6 +212,9 @@ struct PoseRecorder::Session
 	std::wstring newPath;
 	bool replaced = false;
 	PoseRecordingLimits limits;
+	// For the header of the file that is left when the oldest part is dropped.
+	std::string writer;
+	std::shared_ptr<CutPoints> cuts;
 	int64_t qpcFrequency = 1;
 	int64_t startQpc = 0;
 	// The recording's counts and length before this stretch.
@@ -230,6 +252,12 @@ struct PoseRecorder::Session
 	std::atomic<int64_t> clipTicks{ 0 };
 	std::atomic<int64_t> clipOpenSince{ 0 };
 	std::atomic<uint64_t> kept{ 0 };      // samples that wait in memory for a clip
+	// The oldest part dropped at the cap: how often in this stretch, the
+	// samples and the seconds that went with it, and whether one is under way.
+	std::atomic<uint64_t> trims{ 0 };
+	std::atomic<uint64_t> trimmedSamples{ 0 };
+	std::atomic<double> droppedSeconds{ 0.0 };
+	std::atomic<bool> trimming{ false };
 
 	// Written by the thread, then `done` is set; read only after it.
 	bool paused = false;
@@ -330,6 +358,8 @@ PoseRecorder::StartResult PoseRecorder::Start(PoseStreamHub &hub, const std::wst
 	const bool resume = CanResume(directory);
 	const std::wstring finalPath = FilePath(directory);
 	const std::wstring newPath = finalPath + L".new";
+	// What a drop of the oldest part left half made, if the program ended in it.
+	DeleteFileW((finalPath + L".keep").c_str());
 	// A new recording is written beside the old one until it has a sample.
 	const std::wstring &path = resume ? finalPath : newPath;
 	const HANDLE file = OpenForAppend(path, resume ? OPEN_EXISTING : CREATE_ALWAYS);
@@ -361,6 +391,10 @@ PoseRecorder::StartResult PoseRecorder::Start(PoseStreamHub &hub, const std::wst
 		session.newPath = newPath;
 		session.replaced = resume;
 		session.limits = limits;
+		session.writer = writer;
+		if (!resume || !cuts_)
+			cuts_ = std::make_shared<CutPoints>();
+		session.cuts = cuts_;
 		LARGE_INTEGER frequency{};
 		QueryPerformanceFrequency(&frequency);
 		session.qpcFrequency = frequency.QuadPart;
@@ -612,15 +646,19 @@ PoseRecorder::Progress PoseRecorder::GetProgress() const
 	const int64_t openSince = session.clipOpenSince.load(std::memory_order_acquire);
 	progress.clipOpen = progress.recording && openSince != 0;
 	progress.kept = progress.recording ? session.kept.load(std::memory_order_acquire) : 0;
+	progress.trims = session.trims.load(std::memory_order_acquire);
+	progress.trimmedSamples = session.trimmedSamples.load(std::memory_order_acquire);
+	progress.trimming = progress.recording && session.trimming.load(std::memory_order_acquire);
+	const double dropped = session.droppedSeconds.load(std::memory_order_acquire);
 	if (!progress.recording)
 		progress.seconds = session.seconds;
 	else if (session.limits.clips)
-		progress.seconds = session.earlierSeconds +
+		progress.seconds = session.earlierSeconds - dropped +
 			static_cast<double>(session.clipTicks.load(std::memory_order_acquire) +
 				(openSince != 0 ? (std::max)(QpcNow() - openSince, static_cast<int64_t>(0)) : 0)) /
 				static_cast<double>(session.qpcFrequency);
 	else
-		progress.seconds = session.earlierSeconds +
+		progress.seconds = session.earlierSeconds - dropped +
 			static_cast<double>(QpcNow() - session.startQpc) / static_cast<double>(session.qpcFrequency);
 	return progress;
 }
@@ -640,6 +678,7 @@ void PoseRecorder::Harvest(Finished &finished)
 	finished.seconds = session.seconds;
 	finished.clipMode = session.limits.clips;
 	finished.clips = session.clips.load(std::memory_order_acquire);
+	finished.trims = session.trims.load(std::memory_order_acquire);
 	finished.closedCleanly = session.closedCleanly;
 	finished.error = session.error;
 	paused_ = Paused();
@@ -720,13 +759,233 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 			return fail("the recording could not be opened again (error " + std::to_string(GetLastError()) + ")");
 		return true;
 	};
+	// What the file holds of the recording at `now`, in seconds.
+	double droppedSeconds = 0.0;
+	const auto heldSeconds = [&](int64_t now)
+	{
+		const int64_t ticks = !clips ? now - session.startQpc
+			: clipTicks + (armed ? 0 : (std::max)(now - clipStartQpc, static_cast<int64_t>(0)));
+		return session.earlierSeconds - droppedSeconds +
+			static_cast<double>(ticks) / static_cast<double>(session.qpcFrequency);
+	};
+
+	// The size cap with `keepNewest`: the oldest part of the file is dropped.
+	// A file written front to back cannot lose its front in place, so the part
+	// that stays is copied into a new file behind a header of its own, and the
+	// new file takes the old one's place in one step. Until that step the old
+	// file is whole and still written to, so a crash or a stop at any moment
+	// costs nothing: the copy is thrown away.
+	const bool keepNewest = session.limits.keepNewest;
+	const uint64_t cap = session.limits.maxFileBytes;
+	const uint64_t trimStart = cap - (std::min)(cap,
+		session.limits.trimHeadroomBytes != 0 ? session.limits.trimHeadroomBytes : cap / 16);
+	const uint64_t trimSpacing = (std::max)(
+		session.limits.trimSpacingBytes != 0 ? session.limits.trimSpacingBytes : cap / 64, static_cast<uint64_t>(1));
+	const std::wstring keepPath = session.finalPath + L".keep";
+	std::vector<CutPoint> &cuts = session.cuts->points;
+	struct
+	{
+		bool active = false;
+		HANDLE in = INVALID_HANDLE_VALUE;
+		HANDLE out = INVALID_HANDLE_VALUE;
+		size_t index = 0;       // the cut point the new file starts at
+		uint64_t at = 0;        // how far the old file is copied
+		uint64_t prefix = 0;    // what the new file states in front of the copy
+		uint64_t written = 0;   // the new file's size so far
+	} trim;
+	// A drop that could not be done is not tried again in this stretch: the
+	// cap then ends the recording.
+	bool trimFailed = false;
+	std::vector<char> slice;
+
+	const auto abandonTrim = [&]()
+	{
+		if (trim.in != INVALID_HANDLE_VALUE)
+			CloseHandle(trim.in);
+		if (trim.out != INVALID_HANDLE_VALUE)
+			CloseHandle(trim.out);
+		trim.in = INVALID_HANDLE_VALUE;
+		trim.out = INVALID_HANDLE_VALUE;
+		if (trim.active)
+			DeleteFileW(keepPath.c_str());
+		trim.active = false;
+		session.trimming.store(false, std::memory_order_release);
+	};
+	const auto failTrim = [&](const std::string &why)
+	{
+		abandonTrim();
+		trimFailed = true;
+		if (error.empty())
+			error = why;
+		return false;
+	};
+	// Starts a drop at the first cut point that leaves no more than
+	// keepFraction of the cap. False when no cut point frees enough.
+	const auto beginTrim = [&]()
+	{
+		if (cuts.empty())
+			return false;
+		const uint64_t bytes = session.bytes.load(std::memory_order_relaxed);
+		const uint64_t keep = static_cast<uint64_t>(
+			static_cast<double>(cap) * (std::min)(1.0, (std::max)(0.0, session.limits.keepFraction)));
+		size_t index = cuts.size() - 1;
+		for (size_t i = 0; i < cuts.size(); ++i)
+			if (cuts[i].offset + keep >= bytes)
+			{
+				index = i;
+				break;
+			}
+		const CutPoint &point = cuts[index];
+		// A header that begins at the cut, then what the file had said by then of
+		// each device, its model and the calibration.
+		std::string prefix;
+		recording::Header header;
+		header.qpcFrequency = session.qpcFrequency;
+		header.startQpc = point.qpc;
+		header.startUnixMicroseconds = point.unixMicroseconds;
+		header.writer = session.writer;
+		const size_t inHeader = (std::min)(point.state.devices.size(), recording::MaxHeaderDevices);
+		header.devices.assign(point.state.devices.begin(),
+			point.state.devices.begin() + static_cast<std::ptrdiff_t>(inHeader));
+		recording::AppendHeader(prefix, header);
+		for (size_t i = inHeader; i < point.state.devices.size(); ++i)
+			recording::AppendDevice(prefix, point.state.devices[i]);
+		for (const auto &model : point.state.models)
+			if (!model.second.empty())
+				recording::AppendModel(prefix, { model.first, model.second });
+		for (recording::Alignment alignment : point.state.alignments)
+		{
+			alignment.qpc = point.qpc;
+			recording::AppendAlignment(prefix, alignment);
+		}
+		// Not worth a copy unless what is left is under where dropping starts.
+		if (point.offset > bytes || point.offset <= prefix.size() || prefix.size() + (bytes - point.offset) >= trimStart)
+			return false;
+
+		trim.in = CreateFileW(session.finalPath.c_str(), GENERIC_READ,
+			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+			FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+		trim.out = CreateFileW(keepPath.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+			FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
+		trim.active = true;
+		LARGE_INTEGER from{};
+		from.QuadPart = static_cast<LONGLONG>(point.offset);
+		DWORD wrote = 0;
+		if (trim.in == INVALID_HANDLE_VALUE || trim.out == INVALID_HANDLE_VALUE ||
+			!SetFilePointerEx(trim.in, from, nullptr, FILE_BEGIN) ||
+			!WriteFile(trim.out, prefix.data(), static_cast<DWORD>(prefix.size()), &wrote, nullptr) ||
+			wrote != prefix.size())
+			return failTrim("the recording's newer part could not be copied (error " +
+				std::to_string(GetLastError()) + ")");
+		trim.index = index;
+		trim.at = point.offset;
+		trim.prefix = prefix.size();
+		trim.written = prefix.size();
+		session.trimming.store(true, std::memory_order_release);
+		return true;
+	};
+	// The copy reached the old file's end: the new file takes its place, and
+	// every count becomes the new file's own. False when it did not.
+	const auto finishTrim = [&]()
+	{
+		const CutPoint point = cuts[trim.index];
+		const bool flushed = FlushFileBuffers(trim.out) != 0;
+		CloseHandle(trim.in);
+		CloseHandle(trim.out);
+		trim.in = INVALID_HANDLE_VALUE;
+		trim.out = INVALID_HANDLE_VALUE;
+		if (!flushed)
+			return failTrim("the recording's newer part could not be written out (error " +
+				std::to_string(GetLastError()) + ")");
+		CloseHandle(session.file);
+		session.file = INVALID_HANDLE_VALUE;
+		const bool moved = MoveFileExW(keepPath.c_str(), session.finalPath.c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
+		const DWORD moveError = GetLastError();
+		session.file = OpenForAppend(session.finalPath, OPEN_EXISTING);
+		if (session.file == INVALID_HANDLE_VALUE)
+		{
+			abandonTrim();
+			return fail("the recording could not be opened again (error " + std::to_string(GetLastError()) + ")");
+		}
+		if (!moved)
+			return failTrim("the recording's newer part could not take its place (error " +
+				std::to_string(moveError) + ")");
+		trim.active = false;
+		session.trimming.store(false, std::memory_order_release);
+
+		const uint64_t removed = point.offset - trim.prefix;
+		session.bytes.store(trim.written, std::memory_order_release);
+		samples -= (std::min)(samples, point.samplesBefore);
+		session.samples.store(samples, std::memory_order_release);
+		session.lost.fetch_sub((std::min)(session.lost.load(std::memory_order_relaxed), point.lostBefore),
+			std::memory_order_release);
+		session.clips.fetch_sub((std::min)(session.clips.load(std::memory_order_relaxed), point.clipsBefore),
+			std::memory_order_release);
+		droppedSeconds += point.secondsBefore;
+		session.droppedSeconds.store(droppedSeconds, std::memory_order_release);
+		session.trimmedSamples.fetch_add(point.samplesBefore, std::memory_order_release);
+		session.trims.fetch_add(1, std::memory_order_release);
+		cuts.erase(cuts.begin(), cuts.begin() + static_cast<std::ptrdiff_t>(trim.index) + 1);
+		for (CutPoint &later : cuts)
+		{
+			later.offset -= removed;
+			later.samplesBefore -= point.samplesBefore;
+			later.lostBefore -= point.lostBefore;
+			later.clipsBefore -= point.clipsBefore;
+			later.secondsBefore -= point.secondsBefore;
+		}
+		return true;
+	};
+	// Copies the next piece of the old file, or with `toEnd` all that is left,
+	// and swaps the files when the copy has reached the old file's end. `out`
+	// must be empty. False only when a write to the recording itself failed.
+	const auto stepTrim = [&](bool toEnd)
+	{
+		if (slice.empty())
+			slice.resize((std::max)(session.limits.trimSliceBytes, static_cast<size_t>(1)));
+		for (;;)
+		{
+			const uint64_t end = session.bytes.load(std::memory_order_relaxed);
+			if (trim.at >= end)
+				return finishTrim() || !writeFailed;
+			const DWORD want = static_cast<DWORD>((std::min)(static_cast<uint64_t>(slice.size()), end - trim.at));
+			DWORD got = 0, wrote = 0;
+			if (!ReadFile(trim.in, slice.data(), want, &got, nullptr) || got == 0 ||
+				!WriteFile(trim.out, slice.data(), got, &wrote, nullptr) || wrote != got)
+			{
+				failTrim("the recording's newer part could not be copied (error " + std::to_string(GetLastError()) + ")");
+				return true;
+			}
+			trim.at += got;
+			trim.written += got;
+			if (!toEnd && trim.at < end)
+				return true;
+		}
+	};
+
 	// Whether a record of this size and the closing record still fit under the
-	// cap. A clip's pause record and the end record behind it both close.
+	// cap. A clip's pause record and the end record behind it both close. The
+	// size cap's policy is in this one place: with `keepNewest`, a record that
+	// does not fit has the oldest part dropped for it first.
 	const size_t closingBytes = ClosingRecordBytes * (clips ? 2 : 1);
+	const auto underCap = [&](size_t recordBytes)
+	{
+		return session.bytes.load(std::memory_order_relaxed) + out.size() + recordBytes + closingBytes <= cap;
+	};
 	const auto fits = [&](size_t recordBytes)
 	{
-		return session.bytes.load(std::memory_order_relaxed) + out.size() + recordBytes + closingBytes <=
-			session.limits.maxFileBytes;
+		if (underCap(recordBytes))
+			return true;
+		// The cap is here before a drop was done (the disk was slow, or nothing
+		// could be cut yet): the drop is done now, in one go, while the hub
+		// holds what arrives.
+		if (!keepNewest || trimFailed || writeFailed || !session.replaced)
+			return false;
+		if (!write())
+			return false;
+		if (!trim.active && !beginTrim())
+			return false;
+		return stepTrim(true) && underCap(recordBytes);
 	};
 	const auto ticksOf = [&](double seconds)
 	{
@@ -741,13 +1000,15 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 		std::vector<protocol::DevicePoseSample> batch;
 		ULONGLONG lastDiskCheck = GetTickCount64();
 		bool ended = false;
-		// The size cap's policy, in this one place: the recording ends, and what
-		// it holds stays. (Keeping the newest instead means copying the file's
-		// newer part into a new file; docs/recording-format.md, "The size cap".)
+		// Nothing more fits (`fits` above): the recording ends, and what it
+		// holds stays.
 		const auto full = [&]()
 		{
-			pause = false;
-			reason = recording::EndReason::SizeLimit;
+			if (!writeFailed)
+			{
+				pause = false;
+				reason = recording::EndReason::SizeLimit;
+			}
 			ended = true;
 		};
 		// What waits for the next clip, oldest first, and what was known in
@@ -813,7 +1074,7 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 						session.described[device.deviceId] = true;
 					if (keeping)
 						piece.devices.push_back(device);
-					else if (clips)
+					else
 						known.Device(device);
 				};
 
@@ -829,7 +1090,7 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 					recording::AppendModel(to, shapes[i]);
 					if (keeping)
 						piece.models.push_back(shapes[i]);
-					else if (clips)
+					else
 						known.Shape(shapes[i]);
 				}
 				for (size_t i = 0; i < aligned.size() && !ended; ++i)
@@ -843,7 +1104,7 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 					recording::AppendAlignment(to, aligned[i]);
 					if (keeping)
 						piece.alignments.push_back(aligned[i]);
-					else if (clips)
+					else
 						known.Align(aligned[i]);
 				}
 				const bool arrived = dropped > 0 || !batch.empty();
@@ -1019,8 +1280,42 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 						session.clips.fetch_add(1, std::memory_order_release);
 					}
 				}
+				// A place the file can later be cut at: what was written ends on
+				// a record's edge here, and `known` is what a file that starts
+				// here must state (between clips the next clip states the rest).
+				if (keepNewest && session.replaced && !ended && out.empty())
+				{
+					const uint64_t bytes = session.bytes.load(std::memory_order_relaxed);
+					if (bytes >= (cuts.empty() ? 0 : cuts.back().offset) + trimSpacing)
+					{
+						CutPoint point;
+						point.offset = bytes;
+						point.qpc = QpcNow();
+						point.unixMicroseconds = UnixMicrosecondsNow();
+						point.state = known;
+						point.samplesBefore = samples;
+						point.lostBefore = session.lost.load(std::memory_order_relaxed);
+						point.clipsBefore = session.clips.load(std::memory_order_relaxed);
+						point.secondsBefore = heldSeconds(point.qpc);
+						cuts.push_back(std::move(point));
+					}
+				}
 				if (!arrived)
 					break;
+			}
+
+			// Near the cap the oldest part is dropped, a piece at a time between
+			// two looks at the hub, so that recording goes on meanwhile.
+			if (keepNewest && session.replaced && !ended && !trimFailed)
+			{
+				if (!trim.active && session.bytes.load(std::memory_order_relaxed) >= trimStart)
+					beginTrim();
+				if (trim.active)
+				{
+					waitForMore = false;
+					if (!stepTrim(false))
+						ended = true;
+				}
 			}
 
 			const ULONGLONG tick = GetTickCount64();
@@ -1058,6 +1353,9 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 	// The record that closes the stretch, behind whatever was encoded when a
 	// limit ended the loop. A recording that never got a sample is not kept.
 	// What waited in memory for a clip is dropped here: it was never saved.
+	// A drop of the oldest part that is under way is given up: the file it was
+	// copying from is the recording, and it is whole.
+	abandonTrim();
 	bool closed = false;
 	if (!writeFailed && session.replaced)
 	{
@@ -1110,7 +1408,7 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 	// What the file holds of this stretch: its clips, or the time to the moment
 	// recording stopped (not to the moment the file closed).
 	const int64_t stretchTicks = clips ? clipTicks : (closeQpc != 0 ? closeQpc : QpcNow()) - session.startQpc;
-	session.seconds = session.earlierSeconds +
+	session.seconds = session.earlierSeconds - droppedSeconds +
 		static_cast<double>(stretchTicks) / static_cast<double>(session.qpcFrequency);
 	session.error = error;
 	session.done.store(true, std::memory_order_release);

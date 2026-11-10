@@ -206,6 +206,10 @@ struct CalibrationContext : CalibrationProfileState
 	// plain-language calibration rating.
 	bool uiAdvanced = false;
 	bool notifyPoorCalibration = true;
+	// The Motion Recorder's two choices (persisted): every sample in place of
+	// clips, and which of its size caps. Whether it records is never saved.
+	bool motionRecorderFull = false;
+	int motionRecorderCap = questcal::MotionRecorderCapDefault;
 
 	// The overlay's language as a code ("en", "ja"); empty until the player
 	// picks one, meaning "follow Windows". Persisted setting.

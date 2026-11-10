@@ -68,6 +68,7 @@ static SettingsRecord CaptureSettingsRecord(const CalibrationContext &ctx)
 	QUESTCAL_SETTINGS_SWITCHES(QUESTCAL_CAPTURE_SWITCH)
 #undef QUESTCAL_CAPTURE_SWITCH
 	record.calibrationSpeed = static_cast<questcal::PersistedCalibrationSpeed>(ctx.calibrationSpeed);
+	record.motionRecorderCap = ctx.motionRecorderCap;
 	record.language = ctx.language;
 	record.deviceNames = ctx.deviceNames;
 	record.chaperone = CaptureChaperoneRecord(ctx.chaperone);
@@ -140,6 +141,7 @@ static void ApplySettingsRecord(CalibrationContext &ctx, SettingsRecord record)
 	QUESTCAL_SETTINGS_SWITCHES(QUESTCAL_APPLY_SWITCH)
 #undef QUESTCAL_APPLY_SWITCH
 	ctx.calibrationSpeed = static_cast<CalibrationContext::Speed>(record.calibrationSpeed);
+	ctx.motionRecorderCap = record.motionRecorderCap;
 	ctx.language = record.language;
 	ctx.deviceNames = record.deviceNames;
 	ApplyChaperoneRecord(ctx, std::move(record.chaperone));

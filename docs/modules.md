@@ -118,8 +118,13 @@ choice is not a setting, so no recording runs when Nova Calibrator starts.
   `Overlay/UiMotionRecorder.cpp` its page, its two dialogs and the sign in the
   sidebar while a recording runs. Every sentence is in
   `Overlay/MotionRecorderText.h`.
-- The size cap ends the recording (1, 5 or 20 GB, picked on the page), as
-  does a drive with less than 4 GB free.
+- At the size cap (1, 5 or 20 GB, picked on the page) the recorder drops the
+  oldest part of the file and goes on (`PoseRecordingLimits::keepNewest`;
+  `docs/recording-format.md`, "The size cap"). A drive with less than 4 GB
+  free ends the recording.
+- The mode and the size cap are saved settings (`motion_recorder_full` and
+  `motion_recorder_cap` in the settings record). Whether a recording runs is
+  never saved.
 
 ## Adding a module
 

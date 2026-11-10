@@ -51,7 +51,8 @@ inline constexpr const char *CancelButton = "Cancel";
 // The size cap.
 inline constexpr const char *CapTitle = "Maximum recording size";
 inline constexpr const char *CapLine =
-	"One hour of recording can use 3 GB. The recording stops when the file has this size.";
+	"One hour of recording can use 3 GB. When the file has this size, Nova Calibrator deletes the oldest part of "
+	"the recording.";
 
 // The file.
 inline constexpr const char *OpenFolder = "Open recording folder";

@@ -24,9 +24,20 @@ struct PoseRecordingLimits
 	static constexpr uint64_t DefaultMinFreeDiskBytes = 4ull << 30;
 
 	// The file never grows past this. What happens at the cap is decided in
-	// one place, `full` in PoseRecorder::Run: today the recording ends at the
-	// last record that fits.
+	// one place, `fits` in PoseRecorder::Run: with `keepNewest` the oldest part
+	// of the file is dropped and recording goes on; without it, or when the
+	// dropping cannot be done, the recording ends at the last record that fits.
 	uint64_t maxFileBytes = 5ull << 30;
+	bool keepNewest = false;
+	// About this much of the cap stays when the oldest part is dropped.
+	double keepFraction = 0.5;
+	// The dropping starts this far under the cap, so that it is done before
+	// the cap is reached (0: a sixteenth of the cap). The file can be cut at
+	// places this far apart (0: a 64th of the cap). The newer part is copied
+	// in pieces of `trimSliceBytes`, with a look at the hub between two.
+	uint64_t trimHeadroomBytes = 0;
+	uint64_t trimSpacingBytes = 0;
+	size_t trimSliceBytes = 4u << 20;
 	// A recording does not start or go on, and one in progress ends, while the
 	// drive has less than this free.
 	uint64_t minFreeDiskBytes = DefaultMinFreeDiskBytes;
@@ -102,6 +113,11 @@ public:
 		uint64_t clips = 0;       // clips closed so far, in the whole recording
 		bool clipOpen = false;
 		uint64_t kept = 0;        // samples that wait in memory for a clip to start
+		// How often this stretch dropped the file's oldest part, the samples
+		// that went with it, and whether a drop is in progress.
+		uint64_t trims = 0;
+		uint64_t trimmedSamples = 0;
+		bool trimming = false;
 	};
 
 	// How a stretch of recording ended, once its file is closed.
@@ -122,6 +138,8 @@ public:
 		// The stretch was one of clips, and how many the recording has now.
 		bool clipMode = false;
 		uint64_t clips = 0;
+		// How often this stretch dropped the file's oldest part at the cap.
+		uint64_t trims = 0;
 		// The file ends with its pause or end record. False after a failed write.
 		bool closedCleanly = false;
 		std::string error;   // for the log; empty when nothing failed
@@ -192,6 +210,10 @@ private:
 
 	std::shared_ptr<Session> session_;
 	std::thread thread_;
+	// Where the recording's file can be cut when its oldest part is dropped.
+	// The thread's while a stretch runs; kept from one stretch to the next.
+	struct CutPoints;
+	std::shared_ptr<CutPoints> cuts_;
 	std::vector<recording::DeviceInfo> devices_;
 	// Serial (or id, for a device without one) to this recording's label.
 	std::map<std::string, std::string> labels_;

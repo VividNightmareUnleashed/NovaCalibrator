@@ -1493,6 +1493,203 @@ void RecorderClipsKeepLittle(Check check)
 		detail);
 }
 
+PoseRecordingLimits KeepLimits(uint64_t cap, uint64_t headroom, uint64_t spacing)
+{
+	PoseRecordingLimits limits = TestLimits();
+	limits.maxFileBytes = cap;
+	limits.keepNewest = true;
+	limits.trimHeadroomBytes = headroom;
+	limits.trimSpacingBytes = spacing;
+	return limits;
+}
+
+// Every sample the recorder wrote so far, those that went with a dropped
+// oldest part included.
+uint64_t Written(const PoseRecorder &recorder)
+{
+	const PoseRecorder::Progress progress = recorder.GetProgress();
+	return progress.samples + progress.trimmedSamples;
+}
+
+// Whether the file's samples are the newest of `sent`, in order; `count`
+// takes how many it holds.
+bool NewestOf(const ReadBack &back, const std::vector<Sample> &sent, size_t &count)
+{
+	count = 0;
+	for (const Record &record : back.records)
+		count += record.kind == KindSample ? 1 : 0;
+	return count <= sent.size() &&
+		SamplesAre(back, std::vector<Sample>(sent.end() - static_cast<std::ptrdiff_t>(count), sent.end()));
+}
+
+// At the cap the oldest part of the file goes and the recording goes on. What
+// is left is a whole recording by itself: it starts with a header that says
+// of each device what the dropped part said, and holds the newest samples.
+void RecorderKeepsNewest(Check check)
+{
+	TempFolder folder;
+	Feed feed;
+	PoseRecorder recorder;
+	const PoseRecordingLimits limits = KeepLimits(16 * 1024, 2048, 1024);
+	const RecordedDevice headset = Headset();
+	RecordedDevice tracker = Tracker();
+	tracker.renderModel = "{htc}vr_tracker_vive_3_0";
+	recorder.SetAlignment(QuarterTurn(true, 0.5));
+	bool reached = recorder.Start(feed.hub, folder.Dir(), "test", { headset, tracker }, limits) ==
+		PoseRecorder::StartResult::Started;
+	const auto send = [&](size_t count)
+	{
+		for (size_t i = 0; i < count; ++i)
+			feed.Send(i % 2 ? 3 : 0);
+		return WaitFor([&] { return Written(recorder) == feed.sent.size(); });
+	};
+	reached = reached && send(10);
+	// The tracker gets another role early: the part of the file that says so
+	// is dropped long before the end.
+	RecordedDevice changed = tracker;
+	changed.controllerType = "vive_tracker_chest";
+	const uint64_t before = recorder.GetProgress().bytes;
+	recorder.SetDevices({ headset, changed });
+	reached = reached && WaitFor([&] { return recorder.GetProgress().bytes > before; });
+	// Three and a half times the cap.
+	uint64_t largest = 0;
+	for (int batch = 0; batch < 29 && reached; ++batch)
+	{
+		reached = send(10);
+		largest = (std::max)(largest, recorder.GetProgress().bytes);
+	}
+	const PoseRecorder::Progress progress = recorder.GetProgress();
+	recorder.RequestPause();
+	PoseRecorder::Finished finished;
+	const bool closed = Finish(recorder, finished);
+
+	const std::string bytes = FileContents(folder.File());
+	const ReadBack back = ReadBytes(bytes);
+	const std::string kinds = KindsOf(back.records);
+	size_t inFile = 0;
+	bool holds = reached && closed && back.headerRead && back.end == Reader::Next::EndOfFile &&
+		bytes.size() <= limits.maxFileBytes && largest <= limits.maxFileBytes && NewestOf(back, feed.sent, inFile) &&
+		inFile >= 20 && inFile < feed.sent.size() && kinds.size() == inFile + 3 && kinds.compare(0, 2, "MA") == 0 &&
+		kinds.back() == 'P' && kinds.find_first_not_of('S', 2) == kinds.size() - 1;
+	if (holds)
+		holds = back.header.writer == "test" && back.header.devices.size() == 2 &&
+			Describes(back.header.devices[0], headset) && Describes(back.header.devices[1], changed) &&
+			back.records[0].model.deviceId == 3 && back.records[0].model.renderModel == tracker.renderModel &&
+			back.records[1].alignment.applied && back.records[1].alignment.qpc == back.header.startQpc &&
+			back.header.startQpc <= back.records.back().pause.qpc &&
+			back.header.startUnixMicroseconds <= back.records.back().pause.unixMicroseconds &&
+			finished.samples == inFile && finished.trims >= 1 && finished.trims == progress.trims &&
+			progress.trimmedSamples + inFile == feed.sent.size() && finished.paused && finished.closedCleanly &&
+			finished.bytes == bytes.size() && finished.seconds >= 0.0 && folder.Files() == 1 &&
+			recorder.CanResume(folder.Dir());
+	char detail[320];
+	snprintf(detail, sizeof detail,
+		"reached %d, closed %d, %zu of %zu samples in %zu bytes under a cap of %llu (largest %llu), dropped %llu time(s), "
+		"records %.12s..., %zu file(s) [%s]", reached, closed, inFile, feed.sent.size(), bytes.size(),
+		static_cast<unsigned long long>(limits.maxFileBytes), static_cast<unsigned long long>(largest),
+		static_cast<unsigned long long>(finished.trims), kinds.c_str(), folder.Files(), finished.error.c_str());
+	check("pose recorder: at the cap the oldest part goes, and what is left is a whole recording of the newest samples",
+		holds, detail);
+}
+
+// The same with clips: the file that is left starts at a clip, and every clip
+// in it is whole.
+void RecorderKeepsNewestClips(Check check)
+{
+	TempFolder folder;
+	Feed feed;
+	PoseRecorder recorder;
+	PoseRecordingLimits limits = KeepLimits(8 * 1024, 1024, 512);
+	limits.clips = true;
+	limits.clipBeforeSeconds = 60.0;
+	limits.clipAfterSeconds = 60.0;
+	bool reached = recorder.Start(feed.hub, folder.Dir(), "clips", { Headset(), Tracker() }, limits) ==
+		PoseRecorder::StartResult::Started;
+	for (int clip = 0; clip < 14 && reached; ++clip)
+	{
+		for (int i = 0; i < 6; ++i)
+			feed.Send(i % 2 ? 3 : 0);
+		reached = WaitForKept(recorder, 6);
+		recorder.Mark(markname::Player, NoDevice, false);
+		reached = reached && WaitFor([&]
+		{
+			const PoseRecorder::Progress progress = recorder.GetProgress();
+			return Written(recorder) == feed.sent.size() && !progress.clipOpen && progress.kept == 0;
+		});
+	}
+	const PoseRecorder::Progress progress = recorder.GetProgress();
+	recorder.RequestPause();
+	PoseRecorder::Finished finished;
+	const bool closed = Finish(recorder, finished);
+
+	const std::string bytes = FileContents(folder.File());
+	const ReadBack back = ReadBytes(bytes);
+	const std::string kinds = KindsOf(back.records);
+	size_t inFile = 0;
+	std::string expected;
+	for (uint64_t clip = 0; clip < finished.clips; ++clip)
+		expected += "RDDSSSSSSKP";
+	bool causes = true;
+	for (const Record &record : back.records)
+		causes = causes && (record.kind != KindResume || record.resume.cause == static_cast<uint8_t>(PauseCause::Clip)) &&
+			(record.kind != KindPause || record.pause.cause == static_cast<uint8_t>(PauseCause::Clip));
+	const bool holds = reached && closed && back.end == Reader::Next::EndOfFile && bytes.size() <= limits.maxFileBytes &&
+		NewestOf(back, feed.sent, inFile) && finished.clips >= 2 && finished.clips < 14 && kinds == expected && causes &&
+		inFile == finished.clips * 6 && finished.samples == inFile && finished.trims >= 1 &&
+		progress.clips == finished.clips && finished.closedCleanly && folder.Files() == 1 &&
+		recorder.CanResume(folder.Dir());
+	char detail[256];
+	snprintf(detail, sizeof detail, "reached %d, closed %d, %llu of 14 clips and %zu samples in %zu bytes, dropped %llu time(s), "
+		"records %.14s... [%s]", reached, closed, static_cast<unsigned long long>(finished.clips), inFile, bytes.size(),
+		static_cast<unsigned long long>(finished.trims), kinds.c_str(), finished.error.c_str());
+	check("pose recorder: a recording of clips that drops its oldest part starts at a clip and keeps whole clips",
+		holds, detail);
+}
+
+// The player stops while the newer part is being copied. The copy is thrown
+// away and the file it was made from is the recording, whole, with every
+// sample up to the stop. (When the copy is done before the stop arrives, the
+// file is the newer part: either way there is one whole file.)
+void RecorderStopsWhileDropping(Check check)
+{
+	TempFolder folder;
+	Feed feed;
+	PoseRecorder recorder;
+	PoseRecordingLimits limits = KeepLimits(16 * 1024, 2048, 1024);
+	// A byte at a time, so that the stop lands inside the copy.
+	limits.trimSliceBytes = 1;
+	bool reached = recorder.Start(feed.hub, folder.Dir(), "test", { Headset(), Tracker() }, limits) ==
+		PoseRecorder::StartResult::Started;
+	bool began = false;
+	while (reached && !began && feed.sent.size() < 300)
+	{
+		for (int i = 0; i < 10; ++i)
+			feed.Send(i % 2 ? 3 : 0);
+		reached = WaitFor([&] { return Written(recorder) == feed.sent.size(); });
+		const PoseRecorder::Progress progress = recorder.GetProgress();
+		began = progress.trimming || progress.trims > 0;
+	}
+	const bool dropping = recorder.GetProgress().trimming;
+	recorder.RequestPause();
+	PoseRecorder::Finished finished;
+	const bool closed = Finish(recorder, finished);
+
+	const std::string bytes = FileContents(folder.File());
+	const ReadBack back = ReadBytes(bytes);
+	const std::string kinds = KindsOf(back.records);
+	size_t inFile = 0;
+	const bool holds = reached && began && closed && back.end == Reader::Next::EndOfFile &&
+		bytes.size() <= limits.maxFileBytes && NewestOf(back, feed.sent, inFile) && inFile > 0 &&
+		finished.samples == inFile && (finished.trims > 0 || inFile == feed.sent.size()) && !kinds.empty() &&
+		kinds.back() == 'P' && finished.paused && finished.closedCleanly && finished.bytes == bytes.size() &&
+		folder.Files() == 1 && recorder.CanResume(folder.Dir());
+	char detail[256];
+	snprintf(detail, sizeof detail, "reached %d, a drop began %d, in progress at the stop %d, closed %d, %zu of %zu samples, "
+		"dropped %llu time(s), %zu file(s) [%s]", reached, began, dropping, closed, inFile, feed.sent.size(),
+		static_cast<unsigned long long>(finished.trims), folder.Files(), finished.error.c_str());
+	check("pose recorder: a stop while the oldest part is dropped leaves one whole file", holds, detail);
+}
+
 // What turns into a mark: a count of Nova Calibrator's that went up, and a
 // device that had tracking for a while and lost it.
 void TriggerWatchScenarios(Check check)
@@ -1843,6 +2040,9 @@ void RunPoseRecordingScenarios(Check check)
 	RecorderMarks(check);
 	RecorderClips(check);
 	RecorderClipsKeepLittle(check);
+	RecorderKeepsNewest(check);
+	RecorderKeepsNewestClips(check);
+	RecorderStopsWhileDropping(check);
 	TriggerWatchScenarios(check);
 	PlaybackScenarios(check);
 	PlaybackMarks(check);

@@ -1007,7 +1007,11 @@ float BuildMotionRecorderPage(const VRState &, ImVec2 origin, float width)
 		const int mode = status.mode == Mode::Automatic ? 0 : 1;
 		const int picked = ui::PillSegmented("##recordingmode", mode, modes, 2, modeR, 16.0f);
 		if (picked != mode && !live)
-			SetModeChoice(picked == 0 ? Mode::Automatic : Mode::Full);
+		{
+			const bool previous = CalCtx.motionRecorderFull;
+			CalCtx.motionRecorderFull = picked == 1;
+			SaveSettingOrRestore(CalCtx.motionRecorderFull, previous);
+		}
 	}
 	// Start asks first when the recording is a new one; stop is at once.
 	if (ui::PillButton("##recordmotion", recordButton, live ? ui::Btn::Secondary : ui::Btn::Primary, recordR,
@@ -1027,7 +1031,11 @@ float BuildMotionRecorderPage(const VRState &, ImVec2 origin, float width)
 		const int choice = CapChoice();
 		const int picked = ui::PillSegmented("##recordingcap", choice, sizes, CapChoiceCount, fl.Rect(cap.control), 16.0f, false);
 		if (picked != choice && !live)
-			SetCapChoice(picked);
+		{
+			const int previous = CalCtx.motionRecorderCap;
+			CalCtx.motionRecorderCap = picked;
+			SaveSettingOrRestore(CalCtx.motionRecorderCap, previous);
+		}
 	}
 	{
 		const FlexRect r = fl.Rect(links);

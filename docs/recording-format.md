@@ -9,6 +9,8 @@ alone, in any language, is correct when it reports for each file in
 standard library; `tools/read-recording.py` is a second reader written from
 this document. The Motion Recorder module (`docs/modules.md`) writes the file
 and plays it back (`Overlay/RecordingPlayback.h`).
+`tools/measure-recording.py` measures how small a recording could be stored;
+it defines no format.
 
 A recording holds every pose the driver captured while recording was on (or,
 in "Automatic", the poses around each tracking problem: see "Clips"): for
@@ -345,21 +347,38 @@ that knows nothing of clips reads the file correctly.
 
 ## The size cap
 
-The player picks a cap of 1, 5 or 20 GB. In this version the recording ends
-when the file reaches the cap, with end reason 1, and the data it holds stays.
+The player picks a cap of 1, 5 or 20 GB. The file never grows past it. Near
+the cap the recorder drops the oldest part of the file, so that about half the
+cap stays, and goes on.
 
-Keeping the newest data and dropping the oldest instead is not built. A file
-that is written front to back cannot lose its front in place, and a ring
-inside the file would need an index a reader must trust. The way that keeps
-one whole file at every moment is to write the newer part to a second file (a
-new header, the device entries, then the records from a record's edge on) and
-put it in the old file's place in one step, as a new recording replaces an
-old one. A crash at any point then leaves one complete file, and the result
-is an ordinary version 1 file that starts later: the layout does not change.
+A file that is written front to back cannot lose its front in place, and a
+ring inside the file would need an index a reader must trust. So the recorder
+writes the newer part to a second file and puts it in the old file's place in
+one step, as a new recording replaces an old one. The second file is:
 
-The cost is the copy. For clips, which are tens of megabytes, it is short.
-For a full recording at a 20 GB cap it moves gigabytes while samples keep
-arriving, so the recorder must hold them or record a gap.
+```
+header                                   start count and time: the cut
+device, model and alignment records      everything the dropped part said
+the old file's records from the cut on   byte for byte
+```
+
+The cut is on a record's edge. The header's start count and start time are
+those of the cut, its device entries are the newest ones the dropped part held
+for each id, and the labels stay the same. The result is an ordinary version 1
+file that starts later: a reader needs to know nothing of this, and nothing in
+the file says how much was dropped. In a recording of clips the file can start
+at a clip's resume record or inside a clip.
+
+Until the one step that swaps the files, the old file is whole and is still
+the recording: the recorder keeps writing to it while it copies, the copy
+follows, and a crash or a stop at any moment leaves one complete file. The
+copy starts a sixteenth of the cap before the cap. When the disk is too slow
+for the copy to be done before the cap is reached, the recorder finishes it
+first, and the samples it could not fetch meanwhile are a gap record.
+
+When the drop cannot be done (the new file cannot be written or cannot take
+the old one's place), the recording ends when the file reaches the cap, with
+end reason 1, and the data it holds stays.
 
 ## The listing
 

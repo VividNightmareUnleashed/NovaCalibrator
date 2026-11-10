@@ -39,10 +39,10 @@ Playback ThePlayer;
 // for as long as the module is not installed.
 PoseStreamHub *Hub = nullptr;
 bool On = false;
-int Cap = DefaultCapChoice;
-// The mode picked for the next recording, and the one the running one has.
-Mode Chosen = DefaultMode;
+// The mode of the recording that runs.
 Mode Running = DefaultMode;
+static_assert(CapChoiceCount == MotionRecorderCapChoices && DefaultCapChoice == MotionRecorderCapDefault,
+	"the settings record saves the cap as one of these choices");
 ULONGLONG OnSinceTick = 0;
 // What was marked since the start, for the page, and what looks for more.
 std::vector<Event> EventList;
@@ -187,6 +187,7 @@ void Report(CalibrationContext &ctx, const PoseRecorder::Finished &finished, boo
 			recording::EndReasonText(static_cast<uint8_t>(finished.reason)) + ")") + ": " + path + numbers +
 		(finished.saved ? "" : ", no sample arrived and no file was kept") +
 		(finished.saved && !finished.closedCleanly ? ", no closing record" : "") +
+		(finished.trims > 0 ? ", oldest part dropped " + std::to_string(finished.trims) + " time(s)" : "") +
 		(finished.error.empty() ? "" : " [" + finished.error + "]"));
 	FileThere = Exists(finished.path);
 	PlayerScan = -1e9;
@@ -369,7 +370,7 @@ Status Now()
 		status.fileExists = PreviewHasFile();
 		status.seconds = 754.0;
 		status.bytes = 569ull << 20;
-		status.mode = g_uiPreviewScenario == PreviewScenario::RecorderLiveFull ? Mode::Full : Chosen;
+		status.mode = g_uiPreviewScenario == PreviewScenario::RecorderLiveFull ? Mode::Full : ModeChoice();
 		status.onSeconds = 754.0;
 		return status;
 	}
@@ -378,7 +379,7 @@ Status Now()
 	status.fileExists = FileThere;
 	status.seconds = progress.seconds;
 	status.bytes = progress.bytes;
-	status.mode = status.on ? Running : Chosen;
+	status.mode = status.on ? Running : ModeChoice();
 	status.onSeconds = status.on ? static_cast<double>(GetTickCount64() - OnSinceTick) / 1000.0 : 0.0;
 	return status;
 }
@@ -412,12 +413,7 @@ const std::vector<Event> &Events()
 
 Mode ModeChoice()
 {
-	return Chosen;
-}
-
-void SetModeChoice(Mode mode)
-{
-	Chosen = mode;
+	return CalCtx.motionRecorderFull ? Mode::Full : Mode::Automatic;
 }
 
 void SaveLast()
@@ -429,13 +425,8 @@ void SaveLast()
 
 int CapChoice()
 {
-	return Cap;
-}
-
-void SetCapChoice(int choice)
-{
-	if (choice >= 0 && choice < CapChoiceCount)
-		Cap = choice;
+	const int choice = CalCtx.motionRecorderCap;
+	return choice >= 0 && choice < CapChoiceCount ? choice : DefaultCapChoice;
 }
 
 bool BeginsNewRecording()
@@ -464,15 +455,17 @@ bool Start()
 		CreateDirectoryW(folder.substr(0, folder.rfind(L'\\')).c_str(), nullptr);
 		LiveDevices = Devices();
 		PoseRecordingLimits limits;
-		limits.maxFileBytes = CapChoicesBytes[Cap];
-		limits.clips = Chosen == Mode::Automatic;
+		limits.maxFileBytes = CapChoicesBytes[CapChoice()];
+		// At the cap the oldest part goes and the recording goes on.
+		limits.keepNewest = true;
+		limits.clips = ModeChoice() == Mode::Automatic;
 		Recorder.SetAlignment(AlignmentNow(ctx));
 		result = Recorder.Start(*Hub, folder, std::string("Nova Calibrator ") + QUESTCAL_VERSION_STRING, LiveDevices,
 			limits, &detail);
 		if (result == PoseRecorder::StartResult::Started || result == PoseRecorder::StartResult::Resumed)
 		{
 			On = true;
-			Running = Chosen;
+			Running = ModeChoice();
 			OnSinceTick = GetTickCount64();
 			EventList.clear();
 			Watch.Reset();
@@ -518,6 +511,7 @@ void DeleteRecording()
 	ClosePlayer();
 	const std::wstring path = PoseRecorder::FilePath(folder);
 	DeleteFileW((path + L".new").c_str());
+	DeleteFileW((path + L".keep").c_str());
 	const bool gone = DeleteFileW(path.c_str()) != 0 || GetLastError() == ERROR_FILE_NOT_FOUND;
 	FileThere = Exists(path);
 	if (gone)
