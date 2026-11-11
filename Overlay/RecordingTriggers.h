@@ -2,7 +2,7 @@
 
 // What makes the Motion Recorder mark a moment (and, in "Automatic", start a
 // clip): the tracking problems Nova Calibrator already counts, and a device
-// that had tracking and lost it. The watch only compares what it is shown
+// that had tracking and stays without it. The watch only compares what it is shown
 // from one step to the next, so it needs nothing but the standard library and
 // the format's names.
 
@@ -40,9 +40,14 @@ struct Trigger
 class TriggerWatch
 {
 public:
-	// A device must have tracked this long before its loss is news, so one
-	// that goes in and out of view says so once, not at every flicker.
+	// A device must have tracked this long before its loss is news, and must
+	// then stay without tracking this long. A lighthouse device behind a body
+	// or with a weak radio link loses tracking for a few hundredths of a second
+	// again and again (a recorded session had one such break every three
+	// seconds), and the pose carries on through them: a mark at each would make
+	// a recording of clips a full recording.
 	static constexpr double SettledSeconds = 2.0;
+	static constexpr double LostSeconds = 0.5;
 	static constexpr size_t MaxDevices = 128;
 
 	// The next step is a first look: it reports nothing.
@@ -87,7 +92,12 @@ public:
 			{
 				if (seen_.size() >= MaxDevices)
 					continue;
-				seen_.push_back({ device.id, device.tracked, false, time, true });
+				Seen first;
+				first.id = device.id;
+				first.tracked = device.tracked;
+				first.since = first.stretch = time;
+				first.listed = true;
+				seen_.push_back(first);
 				continue;
 			}
 			seen->listed = true;
@@ -104,24 +114,53 @@ private:
 	{
 		uint32_t id = NoDevice;
 		bool tracked = false;
-		bool settled = false;   // tracked for SettledSeconds without a break
+		bool settled = false;   // tracked for SettledSeconds, breaks shorter than LostSeconds aside
+		bool told = false;      // the loss it is in has had its mark, or was not news
 		double since = 0.0;     // when `tracked` last changed
+		double stretch = 0.0;   // when the tracking it has now began; a short break does not end it
 		bool listed = false;
 	};
 
 	void Note(Seen &seen, bool tracked, double time, std::vector<Trigger> &triggers) const
 	{
-		if (tracked == seen.tracked)
+		if (tracked)
 		{
-			if (tracked && time - seen.since >= SettledSeconds)
+			if (!seen.tracked)
+			{
+				// Back. A loss this long is news even when no step fell inside
+				// it (the recorder steps once a frame, and a frame can be late).
+				if (time - seen.since >= LostSeconds)
+				{
+					Tell(seen, triggers);
+					seen.settled = false;
+					seen.stretch = time;
+				}
+				seen.tracked = true;
+				seen.since = time;
+			}
+			if (time - seen.stretch >= SettledSeconds)
 				seen.settled = true;
 			return;
 		}
-		if (!tracked && seen.settled && primed_)
+		if (seen.tracked)
+		{
+			seen.tracked = false;
+			seen.told = false;
+			seen.since = time;
+		}
+		if (time - seen.since >= LostSeconds)
+		{
+			Tell(seen, triggers);
+			seen.settled = false;
+		}
+	}
+
+	// One mark for a loss, and only of tracking that had settled.
+	void Tell(Seen &seen, std::vector<Trigger> &triggers) const
+	{
+		if (seen.settled && !seen.told && primed_)
 			triggers.push_back({ markname::TrackingLost, seen.id });
-		seen.tracked = tracked;
-		seen.settled = false;
-		seen.since = time;
+		seen.told = true;
 	}
 
 	bool primed_ = false;

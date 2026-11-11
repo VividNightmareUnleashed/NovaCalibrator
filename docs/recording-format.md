@@ -317,7 +317,7 @@ The names this version writes:
 | `player` | The player saved what just happened |
 | `universe-jump` | The headset's tracking space jumped, and Nova Calibrator corrected for it |
 | `base-station-moved` | SteamVR moved the lighthouse devices' frame: a base station moved, or SteamVR placed it again |
-| `tracking-lost` | The named device had tracking for at least two seconds and lost it |
+| `tracking-lost` | The named device had tracking for at least two seconds and then had none for half a second. A shorter break is not marked: the driver's poses carry on through it |
 | `device-slid` | A device that was still changed position |
 | `tracking-jumped` | A device got tracking again in a different position |
 | `calibration-stopped` | Continuous calibration stopped because the values moved too far from the calibration |

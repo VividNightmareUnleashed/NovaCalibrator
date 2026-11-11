@@ -2522,40 +2522,63 @@ void TriggerWatchScenarios(Check check)
 		firstLook.empty() && jumped == "universe-jump calibration-stopped" && unchanged.empty() &&
 			rest == "base-station-moved device-slid tracking-jumped calibration-realigned", detail.c_str());
 
-	// The tracker loses tracking before it had it for long: no news. It tracks
-	// again for two seconds and loses it: news, once. A flicker after it is not.
+	// The tracker loses tracking before it had it for long: no news, however
+	// long it stays away.
+	const auto step = [&](double time, bool tracked)
+	{
+		devices.back().tracked = tracked;
+		watch.Step(time, counts, devices, triggers);
+	};
 	triggers.clear();
-	devices[1].tracked = false;
-	watch.Step(0.4, counts, devices, triggers);
+	step(0.4, false);
+	step(0.95, false);
 	const std::string early = names(triggers);
-	devices[1].tracked = true;
-	watch.Step(1.0, counts, devices, triggers);
-	watch.Step(3.1, counts, devices, triggers);
-	devices[1].tracked = false;
-	watch.Step(3.2, counts, devices, triggers);
-	watch.Step(3.3, counts, devices, triggers);
+	// It tracks again for two seconds. A break of a fifth of a second is not
+	// news, and does not start the two seconds again.
+	step(1.0, true);
+	step(3.1, true);
+	step(3.2, false);
+	step(3.3, false);
+	step(3.4, true);
+	step(3.5, false);
+	step(3.9, false);
+	const std::string brief = names(triggers);
+	// Half a second without tracking is news, once.
+	step(4.0, false);
+	step(4.6, false);
 	const std::string lost = names(triggers);
 	triggers.clear();
-	devices[1].tracked = true;
-	watch.Step(3.4, counts, devices, triggers);
-	devices[1].tracked = false;
-	watch.Step(3.5, counts, devices, triggers);
+	// Tracking that came back a moment ago and goes again is not.
+	step(4.7, true);
+	step(4.8, false);
+	step(5.5, false);
 	const std::string flicker = names(triggers);
+	// A loss with no step inside it (a late frame) is marked when it ends.
+	step(5.6, true);
+	step(7.7, true);
+	step(7.8, false);
+	step(8.5, true);
+	const std::string late = names(triggers);
+	triggers.clear();
 	// A device SteamVR no longer lists has no tracking.
 	devices.erase(devices.begin());
-	watch.Step(4.0, counts, devices, triggers);
+	watch.Step(9.0, counts, devices, triggers);
+	const std::string justGone = names(triggers);
+	watch.Step(9.5, counts, devices, triggers);
+	watch.Step(10.5, counts, devices, triggers);
 	const std::string unlisted = names(triggers);
 	// After a reset the next step is a first look again.
 	triggers.clear();
 	watch.Reset();
 	counts.universeJumps = 9;
-	watch.Step(5.0, counts, devices, triggers);
+	watch.Step(11.0, counts, devices, triggers);
 	const std::string afterReset = names(triggers);
-	const std::string deviceDetail = "early \"" + early + "\", lost \"" + lost + "\", flicker \"" + flicker +
-		"\", unlisted \"" + unlisted + "\", after a reset \"" + afterReset + "\"";
-	check("motion recorder: a device that had tracking and lost it is marked once, and a flicker is not",
-		early.empty() && lost == "tracking-lost:3" && flicker.empty() && unlisted == "tracking-lost:0" &&
-			afterReset.empty(), deviceDetail.c_str());
+	const std::string deviceDetail = "early \"" + early + "\", brief \"" + brief + "\", lost \"" + lost + "\", flicker \"" +
+		flicker + "\", late \"" + late + "\", just gone \"" + justGone + "\", unlisted \"" + unlisted +
+		"\", after a reset \"" + afterReset + "\"";
+	check("motion recorder: a device that had tracking and stays without it is marked once, and a short break is not",
+		early.empty() && brief.empty() && lost == "tracking-lost:3" && flicker.empty() && late == "tracking-lost:3" &&
+			justGone.empty() && unlisted == "tracking-lost:0" && afterReset.empty(), deviceDetail.c_str());
 }
 
 // The reference recording of two clips, played back: each clip is a stretch
