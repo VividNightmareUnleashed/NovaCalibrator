@@ -162,7 +162,13 @@ void ApplyCompletion(CalibrationContext &ctx,
 		ctx.driverObserverFailedMask = order.observerFailedMask;
 		ctx.driverObservedPoseUpdates = order.observedPoseUpdates;
 		ctx.driverUnobservedPoseUpdates = order.unobservedPoseUpdates;
+		ctx.driverRestoredPoseUpdates = order.restoredPoseUpdates;
 		ctx.driverForeignModule = ForeignModuleFile(order.foreignModule, sizeof order.foreignModule);
+		ctx.otherAddOns = postprocess::ReadOtherAddOns(order.foreignAheadMask, order.observerMask,
+			order.observerFailedMask, ForeignDriverName(ctx.driverForeignModule));
+		// The state just sent was planned before this status: plan again now.
+		if (postprocess::ClassicWaits(ctx.otherAddOns) != ctx.classicPaused)
+			ctx.timeLastScan = -1e9;
 		uint64_t tracked = 0;
 		uint64_t targets = 0;
 		for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
@@ -281,6 +287,33 @@ DriverSyncTracker CaptureDriverSyncDiagnostics()
 	return Tracker;
 }
 
+// The devices the Post Processing page's filters know, as PostProcessing.h
+// sorts them. Read only while the filters are on: every property is a call
+// into vrserver.
+static std::vector<postprocess::Device> EnumerateFilterDevices(const CalibrationContext &ctx)
+{
+	std::vector<postprocess::Device> devices;
+	const auto system = vr::VRSystem();
+	if (!system)
+		return devices;
+	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+	{
+		const vr::ETrackedDeviceClass deviceClass = system->GetTrackedDeviceClass(id);
+		if (postprocess::KindOf(deviceClass, false, false) == postprocess::DeviceKind::Other)
+			continue;
+		postprocess::Device device;
+		device.id = id;
+		std::string trackingSystem;
+		if (!ReadTrackedDeviceString(id, vr::Prop_TrackingSystemName_String, trackingSystem) ||
+			!ReadTrackedDeviceString(id, vr::Prop_SerialNumber_String, device.serial))
+			continue;
+		device.kind = postprocess::KindOf(deviceClass, IsVirtualTrackerSystem(trackingSystem),
+			ctx.continuousEnabled && device.serial == ctx.continuousTrackerSerial);
+		devices.push_back(std::move(device));
+	}
+	return devices;
+}
+
 void SynchronizeCalibrationDriver(CalibrationContext &ctx)
 {
 	ctx.enabled = ctx.validProfile && !ctx.profileUniverseUnsafe;
@@ -358,6 +391,17 @@ void SynchronizeCalibrationDriver(CalibrationContext &ctx)
 	desired.continuousTrackerSerial = ctx.continuousTrackerSerial;
 	job.request.field = BuildAlignmentField(ctx);
 	job.time = ctx.timeLastTick;
+	// The pose filters do not wait for a profile: they act on a device whether
+	// or not it is calibrated.
+	{
+		ctx.classicPaused = postprocess::ClassicWaits(ctx.otherAddOns);
+		const bool active = Modules::On(ctx.modules.postProcessing) && ctx.postProcessing.enabled;
+		const postprocess::DriverPlan plan = postprocess::PlanFor(ctx.postProcessing,
+			active ? EnumerateFilterDevices(ctx) : std::vector<postprocess::Device>(), active, ctx.classicPaused);
+		job.request.filter = plan.filter;
+		job.request.filterMask = plan.filterMask;
+		job.request.predictionCut = plan.predictionCut;
+	}
 	if (job.request.enabled)
 		for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
 		{

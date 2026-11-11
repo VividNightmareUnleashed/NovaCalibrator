@@ -37,12 +37,10 @@ en: Calibration
 it: Calibrazione
 en: Lighthouse
 it: Lighthouse
-en: Smoothing
-it: Fluidità
+en: Post Processing
+it: Post-elaborazione
 en: The Lighthouse module is not installed. Select it when you install Nova Calibrator.
 it: Il modulo Lighthouse non è installato. Selezionalo durante l'installazione.
-en: Work in progress
-it: In lavorazione
 en: Arrow keys to move · Enter to select
 it: Frecce per spostarti · Invio per selezionare
 en: Close the SteamVR dashboard to use the mouse
@@ -65,8 +63,6 @@ en: More actions
 it: Altre azioni
 en: Select a tracker
 it: Scegli un tracker
-en: Soon
-it: In arrivo
 en: Version %s
 it: Versione {0}
 
@@ -1403,3 +1399,62 @@ en: Continuous calibration aligned the trackers again.
 it: La calibrazione continua ha riallineato i tracker.
 en: No tracking problem occurred. Nova Calibrator saved no clip.
 it: Non si è verificato nessun problema di tracciamento. Nova Calibrator non ha salvato nessuna clip.
+
+# ---- Post Processing ----
+# A run between two asterisks is drawn stronger; keep both asterisks.
+en: The Post Processing module is not installed. Select it when you install Nova Calibrator.
+it: Il modulo Post-elaborazione non è installato. Selezionalo durante l'installazione.
+en: One Euro
+it: One Euro
+en: (Recommended)
+it: (Consigliato)
+en: Classic
+it: Classico
+en: Soften jumps
+it: Attenua i salti
+en: Light
+it: Leggero
+en: Medium
+it: Medio
+en: Strong
+it: Forte
+en: On
+it: Acceso
+en: Paused
+it: In pausa
+en: (default)
+it: (default)
+en: Local
+it: Locale
+en: Devices
+it: Dispositivi
+en: Change
+it: Cambia
+en: No devices
+it: Nessun dispositivo
+en: %d devices
+it: {0} dispositivi
+en: HMD
+it: HMD
+en: This filter decreases the shake of your trackers when you stand still. It adds almost no delay when you move.
+it: Questo filtro riduce il tremolio dei tracker quando stai fermo. Quando ti muovi non aggiunge quasi alcun ritardo.
+en: SteamVR corrects the position of a tracker many times each second. You see a large correction as a jump.
+it: SteamVR corregge la posizione di un tracker molte volte al secondo. Una correzione grande si vede come un salto.
+en: With this filter, the tracker moves to its new position in a tenth of a second. The filter adds no delay, but it can make mistakes and cause problems of its own.
+it: Con questo filtro, il tracker raggiunge la nuova posizione in un decimo di secondo. Il filtro non aggiunge ritardo, ma può sbagliare e causare problemi propri.
+en: This filter makes tracking very fluid, but it adds more delay. It can cause motion sickness if you use it on the HMD.
+it: Questo filtro rende il tracciamento molto fluido, ma aggiunge più ritardo. Se lo usi sull'HMD può causare nausea.
+en: This filter decreases SteamVR's *local* motion prediction. Other players do not see any difference.
+it: Questo filtro riduce la previsione del movimento *locale* di SteamVR. Gli altri giocatori non vedono alcuna differenza.
+en: "OpenVR-SmoothTracking" operates in the same way.
+it: "OpenVR-SmoothTracking" funziona allo stesso modo.
+en: *Paused.* "OpenVR-SmoothTracking" is running.
+it: *In pausa.* "OpenVR-SmoothTracking" è in esecuzione.
+en: While this switch is on, other post-processing add-ons have no effect on the devices that Nova Calibrator filters.
+it: Mentre questo interruttore è attivo, gli altri componenti aggiuntivi di post-elaborazione non hanno effetto sui dispositivi che Nova Calibrator filtra.
+en: While this switch is on, other post-processing add-ons, such as "OpenVR-SmoothTracking", have no effect on the devices that Nova Calibrator filters.
+it: Mentre questo interruttore è attivo, gli altri componenti aggiuntivi di post-elaborazione, come "OpenVR-SmoothTracking", non hanno effetto sui dispositivi che Nova Calibrator filtra.
+en: Devices to filter
+it: Dispositivi da filtrare
+en: This filter never changes the headset or the headset tracker.
+it: Questo filtro non modifica mai il visore né il tracker del visore.

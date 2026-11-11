@@ -406,7 +406,8 @@ std::string DescribeContinuousDiagnostics(const CalibrationContext &ctx, double 
 		<< (ctx.driverForeignModule.empty() ? "(no module)" : ctx.driverForeignModule)
 		<< ", raw-pose observer active 0x" << ctx.driverObserverMask << ", could not observe 0x"
 		<< ctx.driverObserverFailedMask << std::dec << ", observed updates " << ctx.driverObservedPoseUpdates
-		<< ", updates around the observer " << ctx.driverUnobservedPoseUpdates << "\n";
+		<< ", updates around the observer " << ctx.driverUnobservedPoseUpdates
+		<< ", filtered updates given their own motion back " << ctx.driverRestoredPoseUpdates << "\n";
 	out << "Quest last engine update age: ";
 	age(input.lastUpdateTime);
 	out << "; last observation age: ";
@@ -564,8 +565,18 @@ void DescribeModules(std::ostream &out, const CalibrationContext &ctx)
 {
 	out << "[modules]\n";
 	out << "lighthouse: " << questcal::ModuleStatusName(ctx.modules.lighthouse) << "\n";
-	out << "smoothing: " << questcal::ModuleStatusName(ctx.modules.smoothing) << "\n";
-	out << "motion recorder: " << questcal::ModuleStatusName(ctx.modules.motionRecorder) << "\n\n";
+	out << "post processing: " << questcal::ModuleStatusName(ctx.modules.postProcessing) << "\n";
+	out << "motion recorder: " << questcal::ModuleStatusName(ctx.modules.motionRecorder) << "\n";
+	// What the page is set to, whether or not the module is installed.
+	const questcal::postprocess::Settings &filters = ctx.postProcessing;
+	static const char *const strengths[] = { "off", "light", "medium", "strong" };
+	static_assert(sizeof strengths / sizeof *strengths == questcal::postprocess::StrengthCount, "name every strength");
+	out << "post processing settings: switch " << OnOff(filters.enabled) << ", one euro "
+		<< strengths[static_cast<int>(filters.oneEuro)] << ", soften jumps " << OnOff(filters.softenJumps)
+		<< ", device choices " << filters.filtered.size() << ", classic values " << filters.classic.size()
+		<< ", classic paused " << OnOff(ctx.classicPaused) << ", other add-ons: "
+		<< (ctx.otherAddOns.noEffect ? "no effect on filtered devices" : "in effect, the driver cannot get behind them")
+		<< (ctx.otherAddOns.smoothTracking ? " (OpenVR-SmoothTracking)" : "") << "\n\n";
 }
 
 void DescribeBaseStations(std::ostream &out, const CalibrationContext &ctx, const DiagnosticCapture &capture)

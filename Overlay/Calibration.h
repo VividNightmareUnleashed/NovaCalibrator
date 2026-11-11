@@ -253,6 +253,15 @@ struct CalibrationContext : CalibrationProfileState
 	static constexpr size_t DeviceNameMaxCount = questcal::DeviceNameMaxCount;
 	std::map<std::string, std::string> deviceNames;
 
+	// The Post Processing page's filters (persisted in Settings; PostProcessing.h);
+	// what other add-ons' code ahead of the driver's pose hook means for them
+	// (from the driver's last hook status); and whether the state last planned
+	// for the driver had "Classic" stand back, because the add-on
+	// OpenVR-SmoothTracking still takes the prediction down.
+	questcal::postprocess::Settings postProcessing;
+	questcal::postprocess::OtherAddOns otherAddOns;
+	bool classicPaused = false;
+
 	// One-time drift warning shown before the first chaperone protect.
 	// Top-level (not in Chaperone) so it survives Clear() and persists even
 	// after the snapshot is discarded.
@@ -310,8 +319,9 @@ struct CalibrationContext : CalibrationProfileState
 	// Whose code runs first in the driver's hooks (protocol::HookStatus): the
 	// hooks another module runs ahead of, now and at any check this session;
 	// the pose hooks whose observation hook records raw poses ahead of it, and
-	// those where none could; and the module's file name (empty: none, or no
-	// module).
+	// those where none could; the poses of filtered devices that got their own
+	// driver's motion back from it; and the module's file name (empty: none, or
+	// no module).
 	uint32_t driverOrderChecks = 0;
 	uint32_t driverForeignAheadMask = 0;
 	uint32_t driverForeignAheadSeenMask = 0;
@@ -319,6 +329,7 @@ struct CalibrationContext : CalibrationProfileState
 	uint32_t driverObserverFailedMask = 0;
 	uint32_t driverObservedPoseUpdates = 0;
 	uint32_t driverUnobservedPoseUpdates = 0;
+	uint32_t driverRestoredPoseUpdates = 0;
 	std::string driverForeignModule;
 	// Target devices SteamVR tracks whose poses have not reached the hook over
 	// several synchronizations: calibration cannot move them.

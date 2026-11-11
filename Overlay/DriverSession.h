@@ -63,10 +63,17 @@ struct DriverApplyRequest
 	uint64_t frameProfileKey = 0;
 	uint64_t driverSessionId = 0;
 	bool recoverFrames = false;
+	// Post-processing of the forwarded poses, by device id. It does not depend
+	// on `enabled`: a filter stays on a device whether or not the profile is
+	// applied.
+	protocol::PoseFilter filter;
+	uint64_t filterMask = 0;
+	std::array<double, vr::k_unMaxTrackedDeviceCount> predictionCut{};
 
 	bool operator==(const DriverApplyRequest &other) const
 	{
-		return enabled == other.enabled && desired == other.desired &&
+		return filter == other.filter && filterMask == other.filterMask && predictionCut == other.predictionCut &&
+			enabled == other.enabled && desired == other.desired &&
 			field == other.field && frames == other.frames && frameSerialKeys == other.frameSerialKeys &&
 			frameBoundMask == other.frameBoundMask && frameProfileKey == other.frameProfileKey &&
 			driverSessionId == other.driverSessionId &&
@@ -203,6 +210,9 @@ public:
 		desiredState.frameProfileKey = request.frameProfileKey;
 		desiredState.expectedSessionId = batch.driverSessionId;
 		std::copy(request.frameSerialKeys.begin(), request.frameSerialKeys.end(), desiredState.frameSerialKeys);
+		desiredState.filter = request.filter;
+		desiredState.filterMask = request.filterMask;
+		std::copy(request.predictionCut.begin(), request.predictionCut.end(), desiredState.predictionCut);
 		if (request.recoverFrames)
 		{
 			protocol::Response snapshot;

@@ -1,6 +1,7 @@
 // -uipreview: fake devices and fake calibration state, no SteamVR.
 #include "stdafx.h"
 #include "UiInternal.h"
+#include "HookCoverage.h"
 #include "QualityBands.h"
 
 // ---------------------------------------------------------------------------
@@ -157,8 +158,9 @@ void SetupPreviewState()
 	CalCtx.enabled = true;
 	// Past the first-launch setup, unless a scenario shows it.
 	CalCtx.onboarded = true;
-	// The Lighthouse module installed, as the design shows the sidebar.
+	// Both modules installed, as the design shows the sidebar.
 	CalCtx.modules.lighthouse = questcal::ModuleStatus::Installed;
+	CalCtx.modules.postProcessing = questcal::ModuleStatus::Installed;
 	CalCtx.referenceTrackingSystem = "oculus";
 	CalCtx.targetTrackingSystem = "lighthouse";
 
@@ -462,6 +464,57 @@ void SetupPreviewState()
 		g_page = Page::Settings;
 		OpenSheet(Sheet::Credits);
 		break;
+	case PreviewScenario::PostProcessing:
+	case PreviewScenario::PostProcessingOff:
+	case PreviewScenario::PostProcessingClassic:
+	case PreviewScenario::PostProcessingJumps:
+	case PreviewScenario::PostProcessingDevices:
+	case PreviewScenario::PostProcessingPaused:
+	case PreviewScenario::PostProcessingAddOn:
+	{
+		// The page as the design draws it: the body trackers named and
+		// filtered, the controllers not.
+		g_page = Page::PostProcessing;
+		CalCtx.deviceNames["LHR-77E5A215"] = "Right foot";
+		CalCtx.postProcessing = questcal::postprocess::Settings();
+		CalCtx.postProcessing.enabled = g_uiPreviewScenario != PreviewScenario::PostProcessingOff;
+		const bool classic = g_uiPreviewScenario == PreviewScenario::PostProcessingClassic ||
+			g_uiPreviewScenario == PreviewScenario::PostProcessingPaused ||
+			g_uiPreviewScenario == PreviewScenario::PostProcessingAddOn;
+		if (classic)
+		{
+			g_filterPane = FilterPane::Classic;
+			CalCtx.postProcessing.oneEuro = questcal::postprocess::Strength::Off;
+			for (int i = 1; i <= 4; ++i)
+				questcal::postprocess::SetClassicPercent(CalCtx.postProcessing, FormatString("LHR-77E5A2%02X", 0x11 + i), 50);
+		}
+		if (g_uiPreviewScenario == PreviewScenario::PostProcessingJumps)
+			g_filterPane = FilterPane::SoftenJumps;
+		if (g_uiPreviewScenario == PreviewScenario::PostProcessingDevices)
+			OpenSheet(Sheet::FilterDevices);
+		if (g_uiPreviewScenario == PreviewScenario::PostProcessingAddOn)
+		{
+			// OpenVR-SmoothTracking ahead of the pose hook, with the raw-pose
+			// observer in front of it: the filtered devices get their own
+			// motion back, and the page names the add-on.
+			CalCtx.driverForeignAheadMask = CalCtx.driverForeignAheadSeenMask = protocol::PoseHook006;
+			CalCtx.driverObserverMask = protocol::PoseHook006;
+			CalCtx.driverForeignModule = "driver_SmoothTracking.dll";
+		}
+		if (g_uiPreviewScenario == PreviewScenario::PostProcessingPaused)
+		{
+			// The same add-on, and the observer could not be placed in front of
+			// it (rare): "Classic" waits.
+			CalCtx.driverForeignAheadMask = CalCtx.driverForeignAheadSeenMask = protocol::PoseHook006;
+			CalCtx.driverObserverFailedMask = protocol::PoseHook006;
+			CalCtx.driverForeignModule = "driver_SmoothTracking.dll";
+		}
+		CalCtx.otherAddOns = questcal::postprocess::ReadOtherAddOns(CalCtx.driverForeignAheadMask,
+			CalCtx.driverObserverMask, CalCtx.driverObserverFailedMask,
+			questcal::ForeignDriverName(CalCtx.driverForeignModule));
+		CalCtx.classicPaused = questcal::postprocess::ClassicWaits(CalCtx.otherAddOns);
+		break;
+	}
 	case PreviewScenario::Healthy:
 		break;
 	}

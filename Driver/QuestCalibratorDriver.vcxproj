@@ -118,6 +118,8 @@
     <ClInclude Include="IPCServer.h" />
     <ClInclude Include="IPCProtocolGate.h" />
     <ClInclude Include="Logging.h" />
+    <ClInclude Include="PoseFilter.h" />
+    <ClInclude Include="PoseFilterSlot.h" />
     <ClInclude Include="PoseScale.h" />
     <ClInclude Include="PoseTransform.h" />
     <ClInclude Include="ProtocolValidation.h" />

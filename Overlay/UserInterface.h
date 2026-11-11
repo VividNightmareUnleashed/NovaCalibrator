@@ -12,14 +12,18 @@ extern bool g_uiPreviewMany;
 // pair, chaperone, anchors and activity sheets, the confirmation dialogs, the
 // home screen's notices, the Lighthouse page, Settings (scrolled to its end
 // too), the calibration editor, the credits, the Motion Recorder page (with a
-// recording to play, while it records, with none, and its two dialogs) and
-// each page of the first-launch setup. Each implies -uipreview-many.
+// recording to play, while it records, with none, and its two dialogs), each
+// page of the first-launch setup, and the Post Processing page: each filter's
+// pane, the page switched off, its device sheet, and "Classic" paused for
+// OpenVR-SmoothTracking. Each implies -uipreview-many.
 enum class PreviewScenario
 {
 	Healthy, Frozen, TrackerOff, Failed, Empty, Guide, GuideWait, Move, Result, Lighthouse, Settings,
 	Pair, Chaperone, Anchors, Activity, ClearCalibration, ChaperoneWarning, Notices, SettingsMore, Editor, Credits,
 	Recorder, RecorderLive, RecorderLiveFull, RecorderEmpty, RecorderWarning, RecorderDelete,
-	SetupWelcome, SetupHeadset, SetupTrackers, SetupUpdates, SetupCalibrate
+	SetupWelcome, SetupHeadset, SetupTrackers, SetupUpdates, SetupCalibrate,
+	PostProcessing, PostProcessingOff, PostProcessingClassic, PostProcessingJumps, PostProcessingDevices,
+	PostProcessingPaused, PostProcessingAddOn
 };
 extern PreviewScenario g_uiPreviewScenario;
 

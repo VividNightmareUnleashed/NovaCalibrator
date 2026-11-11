@@ -22,6 +22,7 @@ Modules ReadInstalledModules()
 {
 	Modules modules;
 	modules.lighthouse = ReadModule("Lighthouse");
+	modules.postProcessing = ReadModule("PostProcessing");
 	modules.motionRecorder = ReadModule("MotionRecorder");
 	return modules;
 }

@@ -54,6 +54,12 @@
     <ClInclude Include="AlignmentField.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="PoseFilter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="PoseFilterSlot.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="PoseScale.h">
       <Filter>Header Files</Filter>
     </ClInclude>

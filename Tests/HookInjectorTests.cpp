@@ -41,6 +41,9 @@ thread_local int HostDepth = 0;
 // The driver-space position x of the last pose an outer host call received,
 // and how many calls each low device id received.
 std::atomic<double> HostReceivedPositionX{ 0.0 };
+// That pose's velocity x, and whether it reports its device as connected.
+std::atomic<double> HostReceivedVelocityX{ 0.0 };
+std::atomic<bool> HostReceivedConnected{ false };
 std::atomic<int> HostCallsByDevice[8] = {};
 // Run once from inside the host's next pose update, as another thread's pose
 // can arrive while the host handles one.
@@ -63,7 +66,11 @@ struct FakeHost
 		if (device < 8)
 			HostCallsByDevice[device].fetch_add(1);
 		if (HostDepth == 0)
+		{
 			HostReceivedPositionX.store(pose.vecPosition[0]);
+			HostReceivedVelocityX.store(pose.vecVelocity[0]);
+			HostReceivedConnected.store(pose.deviceIsConnected);
+		}
 		(HostDepth > 0 ? InnerOriginX : HostReceivedOriginX).store(pose.vecWorldFromDriverTranslation[0]);
 		if (ReenterOnce.exchange(false))
 		{
@@ -761,15 +768,20 @@ void ForeignModuleNameScenario(Check check)
 }
 
 // What OpenVR-SmoothTracking's detour does to a pose: moves it (smoothing) and
-// zeroes its velocity, then calls the code its patch displaced.
+// zeroes its velocity, then calls the code its patch displaced. With
+// ForeignHides set it also reports the device as disconnected, as Standable
+// does to hide a tracker.
 PoseUpdateFn ForeignDisplaced = nullptr;
 std::atomic<int> ForeignCalls{ 0 };
+std::atomic<bool> ForeignHides{ false };
 void ForeignSmoothingDetour(void *host, uint32_t device, const vr::DriverPose_t &pose, uint32_t size)
 {
 	ForeignCalls.fetch_add(1);
 	vr::DriverPose_t smoothed = pose;
 	smoothed.vecPosition[0] += 0.5;
 	smoothed.vecVelocity[0] = smoothed.vecVelocity[1] = smoothed.vecVelocity[2] = 0.0;
+	if (ForeignHides.load())
+		smoothed.deviceIsConnected = false;
 	ForeignDisplaced(host, device, smoothed, size);
 }
 
@@ -931,6 +943,93 @@ void ForeignHookObservedScenario(Check check)
 		gone.observerMask == protocol::PoseHook006 && released && slotBack, detail);
 }
 
+// A device this driver post-processes must not also get the smoothing of a
+// driver hooked ahead: two filters on one device. The pose hook gives its pose
+// the motion its own driver sent, which the observation hook holds. That
+// driver's code still runs, and what else it changed (here it hides the
+// tracker) stays. A device this driver does not post-process keeps that
+// driver's smoothing, and so does every device before the order check has
+// placed the observation hook.
+void ForeignMotionRestoredScenario(Check check)
+{
+	const char *name = "hooks: a filtered device gets its own motion back from a driver hooking poses ahead";
+	auto provider = std::make_unique<ServerTrackedDeviceProvider>();
+	auto *context = reinterpret_cast<vr::IVRDriverContext *>(&Context);
+	// Device 0's reported velocities are halved ("Classic"); device 1 has no filter.
+	protocol::SetRuntimeState state;
+	state.predictionCut[0] = 0.5;
+	const bool filtered = provider->TrySetRuntimeState(state);
+	if (!InjectHooks(provider.get(), context))
+	{
+		check(name, false, "InjectHooks failed");
+		return;
+	}
+	RequestHostInterface();
+	void *const target = *HostPoseSlot();
+	RefreshPoseHookOrder();
+	uint8_t ownPatch[5];
+	const bool patched = PatchForeignHookAhead(target, ownPatch);
+	ForeignHides.store(true);
+	const auto send = [](uint32_t device, double x)
+	{
+		vr::DriverPose_t pose{};
+		pose.vecPosition[0] = x;
+		pose.vecVelocity[0] = 0.25;
+		pose.poseIsValid = pose.deviceIsConnected = true;
+		pose.result = vr::TrackingResult_Running_OK;
+		pose.qRotation.w = pose.qWorldFromDriverRotation.w = pose.qDriverFromHeadRotation.w = 1;
+		reinterpret_cast<PoseUpdateFn>(*HostPoseSlot())(&Host, device, pose, sizeof pose);
+	};
+
+	// Before the order check: no observation hook, so no pose to go back to.
+	send(0, 1.0);
+	const double earlyX = HostReceivedPositionX.load(), earlyVelocity = HostReceivedVelocityX.load();
+	const uint32_t earlyRestored = PoseHookStatus().restoredPoseUpdates;
+
+	RefreshPoseHookOrder();
+	const protocol::HookStatus placed = PoseHookStatus();
+	ForeignCalls.store(0);
+	const uint32_t publishedBefore = provider->PublishedForTest();
+	send(0, 2.0);
+	const double ownX = HostReceivedPositionX.load(), ownVelocity = HostReceivedVelocityX.load();
+	const bool stillHidden = !HostReceivedConnected.load();
+	const protocol::DevicePoseSample raw = provider->LastPublishedForTest();
+	const bool rawOnce = provider->PublishedForTest() == publishedBefore + 1 && raw.position[0] == 2.0 &&
+		raw.velocity[0] == 0.25;
+	const int foreignRan = ForeignCalls.load();
+	const uint32_t restoredOnce = PoseHookStatus().restoredPoseUpdates;
+
+	send(1, 3.0);
+	const double otherX = HostReceivedPositionX.load(), otherVelocity = HostReceivedVelocityX.load();
+	const uint32_t restoredAfterOther = PoseHookStatus().restoredPoseUpdates;
+
+	// The filter off again for device 0: the other driver's smoothing is back.
+	const bool unfiltered = provider->TrySetRuntimeState(protocol::SetRuntimeState());
+	send(0, 4.0);
+	const double offX = HostReceivedPositionX.load(), offVelocity = HostReceivedVelocityX.load();
+	const uint32_t restoredAfterOff = PoseHookStatus().restoredPoseUpdates;
+
+	ForeignHides.store(false);
+	const bool unpatched = WriteCode(target, ownPatch, sizeof ownPatch);
+	const bool released = DisableHooks();
+	const bool slotBack = *HostPoseSlot() == target;
+
+	char detail[420];
+	std::snprintf(detail, sizeof detail,
+		"filtered %d patched %d; before the check host %.2f velocity %.3f restored %u; observer %x; filtered "
+		"device host %.2f velocity %.3f hidden %d, raw once %d, other driver ran %d, restored %u; other device "
+		"host %.2f velocity %.3f restored %u; filter off %d host %.2f velocity %.3f restored %u; unwound %d %d %d",
+		filtered, patched, earlyX, earlyVelocity, earlyRestored, placed.observerMask, ownX, ownVelocity,
+		stillHidden, rawOnce, foreignRan, restoredOnce, otherX, otherVelocity, restoredAfterOther, unfiltered,
+		offX, offVelocity, restoredAfterOff, unpatched, released, slotBack);
+	check(name, filtered && patched && earlyX == 1.5 && earlyVelocity == 0.0 && earlyRestored == 0 &&
+		placed.observerMask == protocol::PoseHook006 && placed.observerFailedMask == 0 &&
+		ownX == 2.0 && ownVelocity == 0.125 && stillHidden && rawOnce && foreignRan == 1 && restoredOnce == 1 &&
+		otherX == 3.5 && otherVelocity == 0.0 && restoredAfterOther == 1 &&
+		unfiltered && offX == 4.5 && offVelocity == 0.0 && restoredAfterOff == 1 &&
+		unpatched && released && slotBack, detail);
+}
+
 // The order check switches the observer off while a pose is between it and the
 // pose hook: the hook ahead removed itself by restoring what it found, so the
 // pose hook records again. The observer had already recorded that pose raw;
@@ -1065,6 +1164,7 @@ void RunHookInjectorScenarios(Check check)
 	HookChainForeignScenario(check);
 	ForeignModuleNameScenario(check);
 	ForeignHookObservedScenario(check);
+	ForeignMotionRestoredScenario(check);
 	ObserverOvertakenScenario(check);
 	ObserverSwitchedOffMidCallScenario(check);
 }

@@ -191,6 +191,11 @@ namespace ui
 						unsigned int c = 0;
 						lineEnd = s + std::max(1, ImTextCharFromUtf8(&c, s, end));
 					}
+					// ImGui lets a line end after any quotation mark. One that
+					// opens a quoted name goes to the next line with the name.
+					if (!cjk && lineEnd < end && lineEnd - s > 2 && lineEnd[-1] == '"' && lineEnd[-2] == ' ' &&
+						*lineEnd != ' ')
+						--lineEnd;
 				}
 				const char *trimmed = lineEnd;
 				while (trimmed > s && (trimmed[-1] == ' ' || trimmed[-1] == '\t'))
@@ -467,6 +472,12 @@ namespace ui
 			case Icon::More: return { D(6, 12, 1.7f), D(12, 12, 1.7f), D(18, 12, 1.7f) };
 			case Icon::Replay: return { P("M4.5 12a7.5 7.5 0 1 0 2.2-5.3"), P("M4.5 4.5v4.2h4.2") };
 			case Icon::DownloadCircle: return { O(12, 12, 9), P("M12 7.2v8.6M8.2 12.4l3.8 3.8 3.8-3.8") };
+			case Icon::FilterOneEuro: return { P("M3.84 17.4a8.16 8.16 0 1 1 16.32 0"), P("M12 17.4l4.32-5.04"), D(12, 17.4f, 1.2f) };
+			case Icon::FilterClassic: return { P("M1.8 12.6l1.92-5.4 1.92 10.2 1.92-7.8 1.8 4.56"),
+				P("M9.36 14.16c2.76-2.64 5.04-2.64 6.96-1.8s3.96.72 5.88-.84") };
+			// The dashes are the jump the filter takes away.
+			case Icon::FilterJumps: return { P("M1.8 17.4h6.6"), P("M8.4 17.4c2.64 0 3.6-10.8 7.2-10.8h6.6"),
+				P("M8.4 17.4v-1.92M8.4 12.84v-1.92M8.4 8.28v-1.68") };
 			default: return {};
 			}
 		}

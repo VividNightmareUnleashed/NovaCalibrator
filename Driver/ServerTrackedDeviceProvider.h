@@ -3,6 +3,7 @@
 #include "AlignmentField.h"
 #include "InterfaceHookInjector.h"
 #include "RuntimeSnapshot.h"
+#include "PoseFilterSlot.h"
 #include "IPCServer.h"
 #include "../common/PoseRingWriter.h"
 
@@ -49,9 +50,16 @@ public:
 		protocol::RejectReason *reason = nullptr);
 	// `host` is how the device's own driver reached the hook; a pose without
 	// one is never re-sent (ResendQuietPoses). `publish` false leaves the pose
-	// out of the pose ring: an observation hook already recorded it raw.
+	// out of the pose ring: an observation hook already recorded it raw. `own`
+	// is then that raw pose, as the device's own driver sent it, while `pose`
+	// is what another module's code ahead of the pose hook made of it; a device
+	// that is post-processed here gets its own motion back from it
+	// (PoseFilterSlot.h, TakeOwnMotion).
 	void HandleDevicePoseUpdated(uint32_t openVRID, vr::DriverPose_t &pose,
-		const PoseHostCall &host = {}, bool publish = true);
+		const PoseHostCall &host = {}, bool publish = true, const vr::DriverPose_t *own = nullptr);
+	// Poses that got their own motion back since this provider was made
+	// (protocol::HookStatus::restoredPoseUpdates).
+	uint32_t OwnMotionRestored() const { return ownMotionRestored.load(std::memory_order_relaxed); }
 	// Records a raw pose for the pose ring and nothing else: the observation
 	// hook's part, ahead of another module's code (InterfaceHookInjector.cpp).
 	void PublishRawPose(uint32_t openVRID, const vr::DriverPose_t &pose);
@@ -110,6 +118,15 @@ private:
 	// matching pose mutex.
 	alignfield::EvalState fieldState[vr::k_unMaxTrackedDeviceCount];
 	alignfield::EvalState baseState[vr::k_unMaxTrackedDeviceCount];
+
+	// Post-processing of each device's forwarded poses (PoseFilterSlot.h). The
+	// IPC thread writes the settings and the pose callbacks read them; each
+	// device's filter state is under the matching pose mutex.
+	questcal::driverfilter::AtomicSettings poseFilters[vr::k_unMaxTrackedDeviceCount];
+	questcal::posefilter::State poseFilterStates[vr::k_unMaxTrackedDeviceCount];
+	// Poses of post-processed devices whose motion another module's code had
+	// changed, and that got their own driver's motion back.
+	std::atomic<uint32_t> ownMotionRestored{ 0 };
 	protocol::FrameCorrection lastLoggedFrame[vr::k_unMaxTrackedDeviceCount];
 
 	// A device's pose right after its frame correction changed, recorded by

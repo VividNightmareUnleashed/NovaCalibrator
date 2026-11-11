@@ -14,6 +14,7 @@ param(
     # Optional modules. An unattended install gets only the ones named here;
     # an interactive one asks, offering what the previous install had.
     [switch]$Lighthouse,
+    [switch]$PostProcessing,
     # The Motion Recorder records how the player's body moves, so an
     # interactive install asks again each time and never offers a previous
     # choice: without this switch or a Y in time, it is not installed.
@@ -57,6 +58,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
         '-UserLocalAppData', "`"$env:LOCALAPPDATA`""
     )
     if ($Lighthouse) { $relaunchArgs += '-Lighthouse' }
+    if ($PostProcessing) { $relaunchArgs += '-PostProcessing' }
     if ($MotionRecorder) { $relaunchArgs += '-MotionRecorder' }
     Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $relaunchArgs
     exit 0
@@ -75,20 +77,35 @@ if ($steamProcesses) {
 # clears the registry, so an upgrade can offer the previous choice.
 $modulesKey = 'HKLM:\Software\NovaCalibrator\Modules'
 $installLighthouse = [bool]$Lighthouse
-if (-not $Unattended -and -not $Lighthouse) {
+$installPostProcessing = [bool]$PostProcessing
+if (-not $Unattended) {
     # A first install over QuestCalibrator offers what that install had.
     $previousModules = Get-ItemProperty $modulesKey -ErrorAction SilentlyContinue
     if (-not $previousModules) { $previousModules = Get-ItemProperty 'HKLM:\Software\QuestCalibrator\Modules' -ErrorAction SilentlyContinue }
-    $hadLighthouse = $previousModules.Lighthouse -eq 1
-    Write-Host ""
-    Write-Host "Optional module: Lighthouse" -ForegroundColor Cyan
-    Write-Host "  The Lighthouse module adds a page that shows each base station and the"
-    Write-Host "  Lighthouse devices that can see it. Later versions add more base station"
-    Write-Host "  tools. Calibration does not need this module."
-    $default = if ($hadLighthouse) { 'Y' } else { 'N' }
-    $answer = Read-Host "Install the Lighthouse module? [Y/N] (default $default)"
-    if (-not $answer) { $answer = $default }
-    $installLighthouse = $answer -match '^[Yy]'
+    if (-not $Lighthouse) {
+        $hadLighthouse = $previousModules.Lighthouse -eq 1
+        Write-Host ""
+        Write-Host "Optional module: Lighthouse" -ForegroundColor Cyan
+        Write-Host "  The Lighthouse module adds a page that shows each base station and the"
+        Write-Host "  Lighthouse devices that can see it. Later versions add more base station"
+        Write-Host "  tools. Calibration does not need this module."
+        $default = if ($hadLighthouse) { 'Y' } else { 'N' }
+        $answer = Read-Host "Install the Lighthouse module? [Y/N] (default $default)"
+        if (-not $answer) { $answer = $default }
+        $installLighthouse = $answer -match '^[Yy]'
+    }
+    if (-not $PostProcessing) {
+        $hadPostProcessing = $previousModules.PostProcessing -eq 1
+        Write-Host ""
+        Write-Host "Optional module: Post Processing" -ForegroundColor Cyan
+        Write-Host "  The Post Processing module adds a page with filters for your trackers."
+        Write-Host "  The filters decrease shake and soften jumps. Calibration does not need"
+        Write-Host "  this module."
+        $default = if ($hadPostProcessing) { 'Y' } else { 'N' }
+        $answer = Read-Host "Install the Post Processing module? [Y/N] (default $default)"
+        if (-not $answer) { $answer = $default }
+        $installPostProcessing = $answer -match '^[Yy]'
+    }
 }
 
 # A question whose answer is N unless the player presses Y within $Seconds.
@@ -442,6 +459,7 @@ Set-ItemProperty -Path 'HKLM:\Software\NovaCalibrator\Driver' -Name '(default)' 
 # The overlay reads this at startup (UserInterface.cpp) to enable each module.
 New-Item -Path $modulesKey -Force | Out-Null
 Set-ItemProperty -Path $modulesKey -Name 'Lighthouse' -Value ([int]$installLighthouse) -Type DWord
+Set-ItemProperty -Path $modulesKey -Name 'PostProcessing' -Value ([int]$installPostProcessing) -Type DWord
 Set-ItemProperty -Path $modulesKey -Name 'MotionRecorder' -Value ([int]$installMotionRecorder) -Type DWord
 
 $installedKb  = [int](((Get-ChildItem $installDir -Recurse -File | Measure-Object -Property Length -Sum).Sum) / 1KB)
@@ -471,6 +489,7 @@ $shortcut.Save()
 Write-Host ""
 Write-Host "Nova Calibrator $version is installed." -ForegroundColor Green
 Write-Host ("Lighthouse module: " + $(if ($installLighthouse) { 'installed.' } else { 'not installed. To add it, start the installer again.' }))
+Write-Host ("Post Processing module: " + $(if ($installPostProcessing) { 'installed.' } else { 'not installed. To add it, start the installer again.' }))
 Write-Host ("Motion Recorder module: " + $(if ($installMotionRecorder) { 'installed.' } else { 'not installed. To add it, start the installer again.' }))
 Write-Host "The installer added a Nova Calibrator shortcut to the Start menu."
 Write-Host "To use Nova Calibrator, start SteamVR."

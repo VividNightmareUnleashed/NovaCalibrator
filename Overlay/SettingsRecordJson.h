@@ -2,6 +2,7 @@
 #include "ProfileRecordJson.h"
 #include "ChaperoneMath.h"
 #include "LanguageCodes.h"
+#include "PostProcessing.h"
 #include <map>
 #include <utility>
 namespace questcal {
@@ -100,6 +101,7 @@ struct SettingsRecord
 	int motionRecorderCap = MotionRecorderCapDefault;
 	std::string language;
 	std::map<std::string, std::string> deviceNames;
+	postprocess::Settings postProcessing;
 	ChaperoneRecord chaperone;
 };
 
@@ -236,6 +238,74 @@ inline void WriteChaperone(const SettingsRecord &settings, picojson::object &obj
 	obj["chaperone"].set<picojson::object>(std::move(chaperone));
 }
 
+// The Post Processing page's settings, under "post_processing". A field of
+// the wrong type refuses the record, as everywhere in it (HasTypedValue). A
+// strength this build does not know is dropped, not refused: it keeps its
+// default and the rest of the record still loads, as for an unknown language.
+// A device entry the page cannot use is skipped, and the device lists are
+// bounded on read as on write.
+inline void ParsePostProcessing(SettingsRecord &settings, const picojson::object &obj)
+{
+	if (!HasTypedValue<picojson::object>(obj, "post_processing"))
+		return;
+	const auto &stored = obj.at("post_processing").get<picojson::object>();
+	postprocess::Settings parsed;
+	if (HasTypedValue<bool>(stored, "enabled"))
+		parsed.enabled = stored.at("enabled").get<bool>();
+	if (HasTypedValue<double>(stored, "one_euro"))
+	{
+		const double strength = GetDouble(stored.at("one_euro"));
+		if (strength >= 0.0 && strength < postprocess::StrengthCount && strength == std::floor(strength))
+			parsed.oneEuro = static_cast<postprocess::Strength>(static_cast<int>(strength));
+	}
+	if (HasTypedValue<bool>(stored, "soften_jumps"))
+		parsed.softenJumps = stored.at("soften_jumps").get<bool>();
+	if (HasTypedValue<picojson::object>(stored, "filtered"))
+		for (const auto &entry : stored.at("filtered").get<picojson::object>())
+			if (entry.second.is<bool>())
+				postprocess::SetFiltered(parsed, entry.first, entry.second.get<bool>());
+	if (HasTypedValue<picojson::object>(stored, "classic"))
+		for (const auto &entry : stored.at("classic").get<picojson::object>())
+		{
+			if (!entry.second.is<double>())
+				continue;
+			const double percent = GetDouble(entry.second);
+			if (percent >= 0.0 && percent <= 100.0)
+				postprocess::SetClassicPercent(parsed, entry.first, static_cast<int>(std::lround(percent)));
+		}
+	settings.postProcessing = std::move(parsed);
+}
+
+inline void WritePostProcessing(const SettingsRecord &settings, picojson::object &obj)
+{
+	const postprocess::Settings &source = settings.postProcessing;
+	if (source == postprocess::Settings())
+		return;
+	picojson::object stored;
+	double strength = static_cast<double>(static_cast<int>(source.oneEuro));
+	stored["enabled"].set<bool>(source.enabled);
+	stored["one_euro"].set<double>(strength);
+	stored["soften_jumps"].set<bool>(source.softenJumps);
+	if (!source.filtered.empty())
+	{
+		picojson::object filtered;
+		for (const auto &entry : source.filtered)
+			filtered[entry.first].set<bool>(entry.second);
+		stored["filtered"].set<picojson::object>(std::move(filtered));
+	}
+	if (!source.classic.empty())
+	{
+		picojson::object classic;
+		for (const auto &entry : source.classic)
+		{
+			double percent = static_cast<double>(entry.second);
+			classic[entry.first].set<double>(percent);
+		}
+		stored["classic"].set<picojson::object>(std::move(classic));
+	}
+	obj["post_processing"].set<picojson::object>(std::move(stored));
+}
+
 inline void WriteSettings(const SettingsRecord &record,
 	uint32_t persistenceRevisionValue, std::ostream &out)
 {
@@ -260,6 +330,7 @@ inline void WriteSettings(const SettingsRecord &record,
 			names[entry.first].set<std::string>(entry.second);
 		settings["device_names"].set<picojson::object>(std::move(names));
 	}
+	WritePostProcessing(record, settings);
 	WriteChaperone(record, settings);
 
 	picojson::value value;
@@ -336,6 +407,9 @@ inline PersistedRevision ParseSettingsUnchecked(SettingsRecord &settings, std::i
 		settings.calibrationSpeed =
 			static_cast<PersistedCalibrationSpeed>(static_cast<int>(speed));
 	}
+	// Absent means the defaults, as it does for a record from before the page.
+	settings.postProcessing = postprocess::Settings();
+	ParsePostProcessing(settings, obj);
 	// Once Settings exists it is authoritative for chaperone state.  Absence
 	// means deliberately unarmed, not "fall back to an old embedded snapshot".
 	settings.chaperone = ChaperoneRecord();

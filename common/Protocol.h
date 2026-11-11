@@ -20,8 +20,10 @@ namespace protocol
 	// the version probe (VersionProbe.h), so the two ends of a partial update
 	// report a version mismatch instead of a frame of the wrong size, says why a
 	// request was refused, and reports which devices reach the pose hook. v12
-	// reports another module's code running ahead of the hooks.
-	const uint32_t Version = 12;
+	// reports another module's code running ahead of the hooks. v13 carries the
+	// pose filters, and counts the poses whose motion that code had changed and
+	// that got their own back.
+	const uint32_t Version = 13;
 	const uint32_t PoseHook005 = 1u << 0;
 	const uint32_t PoseHook006 = 1u << 1;
 	// IVRDriverContext::GetGenericInterface, in HookStatus's hook masks only.
@@ -184,6 +186,28 @@ namespace protocol
 		}
 	};
 
+	// How the driver post-processes the forwarded poses of the devices in
+	// SetRuntimeState::filterMask (Driver/PoseFilter.h says what each value
+	// does). Defaults are the filter the overlay calls "Medium", switched off.
+	struct PoseFilter
+	{
+		uint32_t smooth = 0;               // canonical wire flag: validation requires 0 or 1
+		uint32_t releaseCorrections = 0;   // canonical wire flag: validation requires 0 or 1
+		double minCutoffHz = 1.0;
+		double speedGain = 160.0;          // Hz for each m/s
+		double turnMinCutoffHz = 1.0;
+		double turnGain = 100.0;           // Hz for each rad/s
+		double releaseSeconds = 0.1;
+
+		bool operator==(const PoseFilter &other) const noexcept
+		{
+			return smooth == other.smooth && releaseCorrections == other.releaseCorrections &&
+				minCutoffHz == other.minCutoffHz && speedGain == other.speedGain &&
+				turnMinCutoffHz == other.turnMinCutoffHz && turnGain == other.turnGain &&
+				releaseSeconds == other.releaseSeconds;
+		}
+	};
+
 	struct SetRuntimeState
 	{
 		uint64_t enabledMask = 0;
@@ -199,6 +223,15 @@ namespace protocol
 		uint64_t frameProfileKey = 0;
 		uint64_t frameSerialKeys[vr::k_unMaxTrackedDeviceCount] = {};
 		uint64_t expectedSessionId = 0;
+		// Post-processing of the forwarded poses. It does not depend on the
+		// calibration: a device's bit in filterMask turns `filter` on for it
+		// whether or not its slot is enabled, and the raw pose the overlay's
+		// solver consumes is published before any of it. predictionCut is the
+		// part taken off a device's reported velocities, 0 (nothing) to 1 (all):
+		// it lowers the runtime's motion prediction for that device.
+		uint64_t filterMask = 0;
+		PoseFilter filter;
+		double predictionCut[vr::k_unMaxTrackedDeviceCount] = {};
 	};
 
 	// Raw driver-space pose as captured by the pose hook inside vrserver, stamped
@@ -252,10 +285,14 @@ namespace protocol
 		// sent on its own).
 		uint32_t observedPoseUpdates = 0;
 		uint32_t unobservedPoseUpdates = 0;
+		// Poses of post-processed devices (SetRuntimeState's filters) whose
+		// motion that code had changed, and that got their own driver's motion
+		// back from the observation hook's raw pose.
+		uint32_t restoredPoseUpdates = 0;
 		// File name of the module the first code ahead belongs to, UTF-8 and
 		// NUL-terminated; empty when it belongs to none. The overlay accepts it
 		// only up to the first NUL inside the array.
-		char foreignModule[44] = {};
+		char foreignModule[40] = {};
 	};
 
 	// Fixed-size wire messages; the whole struct crosses the pipe via sizeof.
@@ -296,10 +333,11 @@ namespace protocol
 	static_assert(sizeof(FieldAnchor) == 80, "FieldAnchor wire layout changed");
 	static_assert(sizeof(SetAlignmentField) == 664, "SetAlignmentField wire layout changed");
 	static_assert(sizeof(FrameCorrection) == 56, "FrameCorrection wire layout changed");
-	static_assert(sizeof(SetRuntimeState) == 4880, "SetRuntimeState wire layout changed");
+	static_assert(sizeof(PoseFilter) == 48, "PoseFilter wire layout changed");
+	static_assert(sizeof(SetRuntimeState) == 5448, "SetRuntimeState wire layout changed");
 	static_assert(sizeof(HookStatus) == 88, "HookStatus wire layout changed");
-	static_assert(sizeof(Request) == 4976, "Request wire layout changed");
-	static_assert(sizeof(Response) == 4992, "Response wire layout changed");
+	static_assert(sizeof(Request) == 5544, "Request wire layout changed");
+	static_assert(sizeof(Response) == 5560, "Response wire layout changed");
 	// The fields each message starts with.
 	static_assert(offsetof(Request, protocol) == 0 && offsetof(Request, type) == 4,
 		"Request header layout changed");

@@ -71,6 +71,7 @@ static SettingsRecord CaptureSettingsRecord(const CalibrationContext &ctx)
 	record.motionRecorderCap = ctx.motionRecorderCap;
 	record.language = ctx.language;
 	record.deviceNames = ctx.deviceNames;
+	record.postProcessing = ctx.postProcessing;
 	record.chaperone = CaptureChaperoneRecord(ctx.chaperone);
 	return record;
 }
@@ -144,6 +145,7 @@ static void ApplySettingsRecord(CalibrationContext &ctx, SettingsRecord record)
 	ctx.motionRecorderCap = record.motionRecorderCap;
 	ctx.language = record.language;
 	ctx.deviceNames = record.deviceNames;
+	ctx.postProcessing = std::move(record.postProcessing);
 	ApplyChaperoneRecord(ctx, std::move(record.chaperone));
 }
 

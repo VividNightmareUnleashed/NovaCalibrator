@@ -39,7 +39,9 @@ protocol::HookStatus PoseHookStatus();
 // Checks, by following only jumps from each hooked vtable slot, whether another
 // module's code runs ahead of a hook; ahead of a pose hook, places an
 // observation hook in the host's vtable that records the raw poses for the
-// pose ring instead. Run before each handshake's PoseHookStatus.
+// pose ring instead, and from which the pose hook gives a post-processed
+// device its own driver's motion back. Run before each handshake's
+// PoseHookStatus.
 void RefreshPoseHookOrder();
 // Disables every hook and returns true once no pose callback can still reach
 // the driver. The detours themselves stay in place, pinned with this module,

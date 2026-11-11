@@ -51,7 +51,14 @@ OPTION 1: Install with the script (recommended)
     station tools. To add or remove the module later, do this procedure
     again.
 
-9.  When the installer shows "Install the Motion Recorder module? [Y/N]",
+9.  When the installer shows "Install the Post Processing module? [Y/N]",
+    type Y or N.
+
+    NOTE: The Post Processing module adds a page with filters for your
+    trackers. The filters decrease shake and soften jumps. To add or remove
+    the module later, do this procedure again.
+
+10. When the installer shows "Install the Motion Recorder module? [Y/N]",
     press Y only if you need this module.
 
     NOTE: If you do not press Y in 10 seconds, the answer is N. If you press
@@ -63,13 +70,13 @@ OPTION 1: Install with the script (recommended)
     an earlier installation. To add or remove the module later, do this
     procedure again.
 
-10. If the installer shows "Uninstall it and continue? [Y/N]", type Y.
+11. If the installer shows "Uninstall it and continue? [Y/N]", type Y.
 
     NOTE: The installer shows this question if OpenVR-SpaceCalibrator is
     installed. If two calibrators operate together, they apply the
     calibration two times.
 
-11. Start SteamVR.
+12. Start SteamVR.
 
 Nova Calibrator starts with SteamVR and shows in the SteamVR dashboard.
 
@@ -161,7 +168,14 @@ cannot start the app.
 
             reg add HKLM\Software\NovaCalibrator\Modules /v Lighthouse /t REG_DWORD /d 1 /f
 
-11. Optional: To add the Motion Recorder module, do these steps:
+11. Optional: To add the Post Processing module, do these steps:
+
+    a.  Open a Command Prompt as administrator.
+    b.  Type this command:
+
+            reg add HKLM\Software\NovaCalibrator\Modules /v PostProcessing /t REG_DWORD /d 1 /f
+
+12. Optional: To add the Motion Recorder module, do these steps:
 
     a.  Open a Command Prompt as administrator.
     b.  Type this command:
@@ -173,7 +187,7 @@ cannot start the app.
     shows how your body moves. Do not add it if you are not sure that you
     need it.
 
-12. Start SteamVR.
+13. Start SteamVR.
 
 To remove a manual installation:
 
@@ -190,8 +204,7 @@ NovaCalibrator.exe.
 
 5.  Delete the <SteamVR>\drivers\01novacalibrator folder.
 6.  Delete the app folder.
-7.  If you added the Lighthouse module or the Motion Recorder module, do
-    these steps:
+7.  If you added a module, do these steps:
 
     a.  Open a Command Prompt as administrator.
     b.  Type this command:

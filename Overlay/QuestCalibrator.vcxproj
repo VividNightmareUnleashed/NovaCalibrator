@@ -153,6 +153,8 @@
     <ClInclude Include="RecordingPlayback.h" />
     <ClInclude Include="RecordingTriggers.h" />
     <ClInclude Include="SceneView.h" />
+    <ClInclude Include="PostProcessing.h" />
+    <ClInclude Include="UiPostProcessingArt.h" />
     <ClInclude Include="TrackingStreamDigest.h" />
     <ClInclude Include="LighthouseFrameWatch.h" />
     <ClInclude Include="TrackerFrameCorrections.h" />
@@ -474,6 +476,7 @@
     <ClCompile Include="UiDevices.cpp" />
     <ClCompile Include="UiLayout.cpp" />
     <ClCompile Include="UiLighthouse.cpp" />
+    <ClCompile Include="UiPostProcessing.cpp" />
     <ClCompile Include="UiGuide.cpp" />
     <ClCompile Include="UiSettings.cpp" />
     <ClCompile Include="UiPreview.cpp" />

@@ -14,7 +14,7 @@ overlay only turns on what was chosen.
 | Module | Status | What it controls |
 | --- | --- | --- |
 | Lighthouse | optional | Base station tools. So far one: the Lighthouse tab, each base station and which lighthouse devices see it (`docs/lighthouse-visibility.md`). More are planned. |
-| Smoothing | not built | Its tab only, greyed out with "Work in progress". No installer offers it yet. |
+| Post Processing | optional | The Post Processing tab and the pose filters it sets in the driver: "One Euro", "Soften jumps" and "Classic" (`Overlay/PostProcessing.h`, `Driver/PoseFilter.h`). Without the module the driver is asked for no filter. |
 | Motion Recorder | optional | For development and playtests. Its page records the driver's pose samples to one file (`docs/recording-format.md`) while the player has a recording on, as clips around tracking problems ("Automatic") or all of them ("Full"), and plays that file back. A recording shows how the player's body moves. |
 
 What a module does not control stays core. Reading SteamVR's lighthouse
@@ -45,16 +45,16 @@ Module features build on the core data; core never depends on a module.
 
 1. `Install.ps1` asks about each module before it changes anything. On an
    upgrade the default is the previous install's choice, otherwise no.
-   `-Lighthouse` installs the module without asking; an `-Unattended`
-   install gets only the modules named on its command line. The Motion
-   Recorder is asked about differently, because of what it records: the
-   answer is no unless the player presses Y within 10 seconds, on an upgrade
-   too, and no without a console to ask on. `-MotionRecorder` installs it
-   without asking.
+   `-Lighthouse` and `-PostProcessing` install their module without
+   asking; an `-Unattended` install gets only the modules named on its
+   command line. The Motion Recorder is asked about differently, because of
+   what it records: the answer is no unless the player presses Y within 10
+   seconds, on an upgrade too, and no without a console to ask on.
+   `-MotionRecorder` installs it without asking.
 2. It records each choice as a DWORD, 1 or 0, under
-   `HKLM\Software\NovaCalibrator\Modules` (values `Lighthouse` and
-   `MotionRecorder`). Running the installer again is how a player adds or
-   removes a module.
+   `HKLM\Software\NovaCalibrator\Modules` (values `Lighthouse`,
+   `PostProcessing` and `MotionRecorder`). Running the installer again is
+   how a player adds or removes a module.
 3. At startup the overlay reads that key once (`ReadInstalledModules`,
    `Overlay/Modules.cpp`) into `CalCtx.modules`. A missing key or value
    means not installed. Everything a module gates asks `CalCtx.modules`.
@@ -72,9 +72,9 @@ A manual install has no installer to ask; the install readme gives the
   progress".
 - A diagnostics export has a `[modules]` section with each module's
   status (`installed`, `not installed`, `not built`).
-- The preview never reads the registry: the Lighthouse module is on, as the
-  design shows the sidebar, and the Motion Recorder module is on only in the
-  `-uipreview-recorder` screens.
+- The preview never reads the registry: the Lighthouse and Post Processing
+  modules are on, as the design draws the sidebar, and the Motion Recorder
+  module is on only in the `-uipreview-recorder` screens.
 
 ## The Motion Recorder
 

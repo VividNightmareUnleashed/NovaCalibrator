@@ -179,5 +179,49 @@ inline bool ValidateAndSanitize(const protocol::SetRuntimeState &input,
 	return true;
 }
 
+// The pose filters travel in SetRuntimeState and are checked here, apart from
+// the calibration: ValidateAndSanitize above neither reads nor writes them.
+// The driver applies a state only when both accept it.
+struct PoseFilterState
+{
+	protocol::PoseFilter filter;
+	uint64_t filterMask = 0;
+	double predictionCut[vr::k_unMaxTrackedDeviceCount] = {};
+};
+
+inline bool IsWithin(double value, double low, double high)
+{
+	return std::isfinite(value) && value >= low && value <= high;
+}
+
+// A refused state leaves `output` as it was.
+inline bool ValidatePoseFilters(const protocol::SetRuntimeState &input, PoseFilterState &output)
+{
+	const protocol::PoseFilter &filter = input.filter;
+	if (filter.smooth > 1 || filter.releaseCorrections > 1 ||
+		!IsWithin(filter.minCutoffHz, protocol::limits::MinFilterCutoffHz, protocol::limits::MaxFilterCutoffHz) ||
+		!IsWithin(filter.turnMinCutoffHz, protocol::limits::MinFilterCutoffHz, protocol::limits::MaxFilterCutoffHz) ||
+		!IsWithin(filter.speedGain, 0.0, protocol::limits::MaxFilterGain) ||
+		!IsWithin(filter.turnGain, 0.0, protocol::limits::MaxFilterGain) ||
+		!IsWithin(filter.releaseSeconds, protocol::limits::MinFilterReleaseSeconds,
+			protocol::limits::MaxFilterReleaseSeconds))
+		return false;
+	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+		if (!IsWithin(input.predictionCut[id], 0.0, 1.0))
+			return false;
+
+	output.filter.smooth = filter.smooth;
+	output.filter.releaseCorrections = filter.releaseCorrections;
+	output.filter.minCutoffHz = filter.minCutoffHz;
+	output.filter.speedGain = filter.speedGain;
+	output.filter.turnMinCutoffHz = filter.turnMinCutoffHz;
+	output.filter.turnGain = filter.turnGain;
+	output.filter.releaseSeconds = filter.releaseSeconds;
+	output.filterMask = input.filterMask;
+	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+		output.predictionCut[id] = input.predictionCut[id];
+	return true;
+}
+
 } // namespace driverinput
 } // namespace questcal

@@ -1564,6 +1564,22 @@ static LaunchOptions ParseCommandLine(LPWSTR lpCmdLine)
 			: cmd == L"-uipreview-setup-trackers" ? PreviewScenario::SetupTrackers
 			: cmd == L"-uipreview-setup-updates" ? PreviewScenario::SetupUpdates : PreviewScenario::SetupCalibrate;
 	}
+	else if (cmd == L"-uipreview-postprocessing" || cmd == L"-uipreview-postprocessing-off" ||
+		cmd == L"-uipreview-postprocessing-classic" || cmd == L"-uipreview-postprocessing-jumps" ||
+		cmd == L"-uipreview-postprocessing-devices" || cmd == L"-uipreview-postprocessing-paused" ||
+		cmd == L"-uipreview-postprocessing-addon")
+	{
+		// The Post Processing page, one state each.
+		options.preview = true;
+		options.previewMany = true;
+		options.previewScenario = cmd == L"-uipreview-postprocessing" ? PreviewScenario::PostProcessing
+			: cmd == L"-uipreview-postprocessing-off" ? PreviewScenario::PostProcessingOff
+			: cmd == L"-uipreview-postprocessing-classic" ? PreviewScenario::PostProcessingClassic
+			: cmd == L"-uipreview-postprocessing-jumps" ? PreviewScenario::PostProcessingJumps
+			: cmd == L"-uipreview-postprocessing-devices" ? PreviewScenario::PostProcessingDevices
+			: cmd == L"-uipreview-postprocessing-paused" ? PreviewScenario::PostProcessingPaused
+			: PreviewScenario::PostProcessingAddOn;
+	}
 	else if (cmd == L"-openvrpath")
 		options.command = Command::OpenVrPath;
 	else if (cmd == L"-installmanifest")

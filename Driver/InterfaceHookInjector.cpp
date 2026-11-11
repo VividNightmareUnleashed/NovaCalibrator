@@ -55,6 +55,10 @@ thread_local uint32_t ObservingDevice = vr::k_unTrackedDeviceIndexInvalid;
 // The device whose pose an observation hook on this thread recorded raw on its
 // way to the pose hook, which must then not record it again.
 thread_local uint32_t ObservedDevice = vr::k_unTrackedDeviceIndexInvalid;
+// That pose, as the device's own driver sent it: its caller's object, which
+// outlives the observation hook's call. Set and put back with ObservedDevice,
+// and read only while ObservedDevice names the device.
+thread_local const vr::DriverPose_t *ObservedPose = nullptr;
 std::mutex HookSetupMutex;
 bool MinHookInitialized = false;   // protected by HookSetupMutex
 bool HooksInstalled = false;       // protected by HookSetupMutex
@@ -93,12 +97,18 @@ PoseUpdateHook TrackedDevicePoseUpdatedHook006("IVRServerDriverHost006::TrackedD
 // way (OpenVR-SmoothTracking does, with MinHook) patches the function's entry
 // over this hook's patch, so its code runs first and the pose hook receives
 // what it made of each pose: smoothed, with its velocities zeroed. The
-// calibration is still applied there, after it, as it always was, so what the
-// player sees with that driver does not change; but the solver, drift and jump
-// detection need the pose as the device's own driver sent it. So once
-// RefreshPoseHookOrder finds foreign code ahead, an observation hook takes the
-// host's vtable slot, which device drivers call through, and records each pose
-// raw before forwarding it to whatever the slot held.
+// calibration is still applied there, after it, as it always was; but the
+// solver, drift and jump detection need the pose as the device's own driver
+// sent it. So once RefreshPoseHookOrder finds foreign code ahead, an
+// observation hook takes the host's vtable slot, which device drivers call
+// through, and records each pose raw before forwarding it to whatever the slot
+// held.
+//
+// The pose hook is then also told which pose that was (ObservedPose). A device
+// this driver post-processes gets its own driver's motion back from it, so the
+// other driver's post-processing has no effect on that device; every other
+// device still gets what the other driver made of its pose. The other driver's
+// code runs all the same, and whatever else it changed in the pose stays.
 struct ObserverHook
 {
 	// The host vtable slot the pose hook was installed from. Set once, under
@@ -173,8 +183,12 @@ void ForwardPoseUpdate(PoseUpdateHook &hook, const ObserverHook &observer, void 
 	// that an observer is active now: the order check may switch one off or on
 	// between the two, and each pose must reach the ring once.
 	bool publish = true;
+	const vr::DriverPose_t *own = nullptr;
 	if (ObservedDevice == unWhichDevice)
+	{
 		publish = false;
+		own = ObservedPose;
+	}
 	else if (observer.active.load(std::memory_order_acquire))
 		UnobservedPoseUpdates.fetch_add(1, std::memory_order_relaxed);
 
@@ -207,7 +221,7 @@ void ForwardPoseUpdate(PoseUpdateHook &hook, const ObserverHook &observer, void 
 				inFlight.count->fetch_add(1, std::memory_order_relaxed);
 			}
 			driver->HandleDevicePoseUpdated(unWhichDevice, pose, PoseHostCall{ _this, original },
-				publish);
+				publish, own);
 		}
 	}
 #ifdef QUESTCAL_HOOK_INJECTOR_TEST_SEAM
@@ -256,15 +270,20 @@ void ObservePoseUpdate(ObserverHook &observer, void *_this,
 	{
 		uint32_t outerObserving;
 		uint32_t outerObserved;
+		const vr::DriverPose_t *outerPose;
 		~Observing()
 		{
 			ObservingDevice = outerObserving;
 			ObservedDevice = outerObserved;
+			ObservedPose = outerPose;
 		}
-	} observing{ ObservingDevice, ObservedDevice };
+	} observing{ ObservingDevice, ObservedDevice, ObservedPose };
 	ObservingDevice = unWhichDevice;
 	if (recorded)
+	{
 		ObservedDevice = unWhichDevice;
+		ObservedPose = &newPose;
+	}
 #ifdef QUESTCAL_HOOK_INJECTOR_TEST_SEAM
 	if (InsideObserverForTest)
 		InsideObserverForTest();
@@ -539,6 +558,12 @@ protocol::HookStatus PoseHookStatus()
 	status.reentrantPoseUpdates = ReentrantPoseUpdates.load(std::memory_order_relaxed);
 	status.observedPoseUpdates = ObservedPoseUpdates.load(std::memory_order_relaxed);
 	status.unobservedPoseUpdates = UnobservedPoseUpdates.load(std::memory_order_relaxed);
+	{
+		// Counted like a pose callback, so teardown waits for this read too.
+		CallbackGuard callback(ActiveCallbacks);
+		if (const ServerTrackedDeviceProvider *driver = Driver.load(std::memory_order_seq_cst))
+			status.restoredPoseUpdates = driver->OwnMotionRestored();
+	}
 	for (const PoseHookBinding &binding : PoseHookBindings)
 		if (binding.observer->active.load(std::memory_order_acquire))
 			status.observerMask |= binding.bit;

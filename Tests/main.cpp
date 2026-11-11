@@ -95,6 +95,8 @@ void RunCalibrationSpaceScenarios(void (*check)(const char *, bool, const char *
 void RunPoseMathScenarios(void (*check)(const char *, bool, const char *));
 void RunQualityBandsScenarios(void (*check)(const char *, bool, const char *));
 void RunDevicePictureScenarios(void (*check)(const char *, bool, const char *));
+void RunPoseFilterScenarios(void (*check)(const char *, bool, const char *));
+void RunPostProcessingScenarios(void (*check)(const char *, bool, const char *));
 void RunStreamEventScenarios(void (*check)(const char *, bool, const char *));
 void RunIPCServerTransportScenarios(void (*check)(const char *, bool, const char *));
 void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *));
@@ -8126,6 +8128,8 @@ DOCTEST_TEST_CASE("tracker frame corrections") { Group([] { RunTrackerFrameCorre
 DOCTEST_TEST_CASE("persistence") { Group([] { RunPersistenceScenarios(); }); }
 DOCTEST_TEST_CASE("device pictures") { Group([] { RunDevicePictureScenarios(Check); }); }
 DOCTEST_TEST_CASE("pose recording") { Group([] { RunPoseRecordingScenarios(Check); }); }
+DOCTEST_TEST_CASE("pose filter") { Group([] { RunPoseFilterScenarios(Check); }); }
+DOCTEST_TEST_CASE("post processing") { Group([] { RunPostProcessingScenarios(Check); }); }
 
 int main(int argc, char **argv)
 {

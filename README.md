@@ -33,9 +33,10 @@ since been largely rewritten, so calibrating is more accurate and harder to get 
 
 Nova Calibrator then opens in the SteamVR dashboard every time SteamVR starts. If
 QuestCalibrator is installed, the installer replaces it and keeps your calibration
-and settings. It also asks whether you want the optional **Lighthouse** module, a
-page that shows your base stations and which of them each device can see. Run the
-installer again to add or remove it.
+and settings. It also asks whether you want the optional modules: **Lighthouse**, a
+page that shows your base stations and which of them each device can see, and
+**Post Processing**, a page of filters for your trackers. Run the installer again
+to add or remove one.
 
 The installer also offers the **Motion Recorder** module, which is for development
 and playtests: it can record how your headset, controllers and trackers move, and
@@ -118,6 +119,25 @@ stations, which ones each device can see, and which drops out most often. It's t
 quickest way to find a badly placed station.
 
 ![The Lighthouse page](docs/images/nova-lighthouse.png)
+
+## Post processing
+
+With the Post Processing module installed, the **Post Processing** page holds three
+filters, all off until you switch the page on:
+
+- **One Euro** steadies trackers that shake while you stand still and adds almost no
+  delay when you move.
+- **Soften jumps** lets a tracker glide to its corrected position in a tenth of a
+  second instead of jumping there.
+- **Classic** lowers SteamVR's motion prediction for the devices you choose, as
+  OpenVR-SmoothTracking does. Only you see the difference.
+
+The first two never touch the headset or the headset tracker, and none of them
+changes what calibration measures.
+
+While the page is on, other post-processing add-ons such as OpenVR-SmoothTracking
+have no effect on the devices Nova Calibrator filters, so a device never gets two
+filters at once. Devices you leave unfiltered keep the other add-on's smoothing.
 
 ## Other things it does
 

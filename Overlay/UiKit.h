@@ -197,6 +197,8 @@ namespace ui
 		Trash, Download, Doc, Pencil, Info, Warn, Refresh, Power, Pause, Play,
 		Book, Globe, Bell, Clock, ShieldCheck, Headset, Tracker, Controller, More,
 		Replay, DownloadCircle,
+		// The Post Processing page's filters: a gauge, a line that settles, a step.
+		FilterOneEuro, FilterClassic, FilterJumps,
 		Count
 	};
 	// size is the drawn width of the 24-unit grid; stroke is in grid units.

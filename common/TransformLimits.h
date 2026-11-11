@@ -27,5 +27,12 @@ namespace limits
 	constexpr double MaxAbsAnchorPositionMeters = 10000.0;
 	constexpr double MaxAbsAnchorDeltaMeters = 100.0;
 	constexpr double MinQuaternionComponentNorm = 1e-6;
+	// The pose filters. Driver/PoseFilter.h holds the same numbers for its own
+	// check, and Driver/PoseFilterSlot.h fails the build when the two differ.
+	constexpr double MinFilterCutoffHz = 0.05;
+	constexpr double MaxFilterCutoffHz = 100.0;
+	constexpr double MaxFilterGain = 10000.0;
+	constexpr double MinFilterReleaseSeconds = 0.005;
+	constexpr double MaxFilterReleaseSeconds = 1.0;
 }
 }

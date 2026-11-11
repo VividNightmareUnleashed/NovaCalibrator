@@ -121,6 +121,8 @@
     <ClCompile Include="PoseMathTests.cpp" />
     <ClCompile Include="QualityBandsTests.cpp" />
     <ClCompile Include="DevicePictureTests.cpp" />
+    <ClCompile Include="PoseFilterTests.cpp" />
+    <ClCompile Include="PostProcessingTests.cpp" />
     <ClCompile Include="StreamEventsTests.cpp" />
     <ClCompile Include="OverlayStubs.cpp" />
     <ClCompile Include="IPCServerTransportTests.cpp" />
@@ -177,6 +179,9 @@
     <ClInclude Include="..\Overlay\ImGuiVRInput.h" />
     <ClInclude Include="..\lib\openvr\compat\ivrserverdriverhost_005.h" />
     <ClInclude Include="..\Driver\PoseScale.h" />
+    <ClInclude Include="..\Driver\PoseFilter.h" />
+    <ClInclude Include="..\Driver\PoseFilterSlot.h" />
+    <ClInclude Include="..\Overlay\PostProcessing.h" />
     <ClInclude Include="..\Driver\PoseTransform.h" />
     <ClInclude Include="..\Driver\ProtocolValidation.h" />
     <ClInclude Include="..\Driver\IPCProtocolGate.h" />

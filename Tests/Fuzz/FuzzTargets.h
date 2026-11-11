@@ -37,6 +37,7 @@
 
 #include "../../Driver/AlignmentField.h"
 #include "../../Driver/IPCProtocolGate.h"
+#include "../../Driver/PoseFilterSlot.h"
 #include "../../Driver/PoseTransform.h"
 #include "../../Driver/ProtocolValidation.h"
 #include "../../Overlay/LighthouseLog.h"
@@ -531,6 +532,26 @@ inline std::string CheckDriverRequest(const uint8_t *data, size_t size)
 			return "";
 		return CheckTransform(sanitized);
 	}
+	// The pose filters are checked apart from the rest of the state.
+	questcal::driverinput::PoseFilterState filters;
+	std::memset(static_cast<void *>(&filters), 0x5A, sizeof filters);
+	const questcal::driverinput::PoseFilterState filtersBefore = filters;
+	if (!questcal::driverinput::ValidatePoseFilters(request.setRuntimeState, filters))
+	{
+		if (std::memcmp(&filtersBefore, &filters, sizeof filters) != 0)
+			return "refused pose filters wrote part of their output";
+	}
+	else
+	{
+		questcal::driverfilter::AtomicSettings slot;
+		for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+		{
+			slot.Store(filters.filter, ((filters.filterMask >> id) & 1) != 0, filters.predictionCut[id]);
+			if (!questcal::posefilter::Usable(slot.Load()))
+				return "accepted pose filters give a device settings its filter cannot use";
+		}
+	}
+
 	protocol::SetRuntimeState sanitized;
 	std::memset(&sanitized, 0xA5, sizeof sanitized);
 	const protocol::SetRuntimeState before = sanitized;
@@ -745,7 +766,10 @@ inline std::vector<std::string> SettingsSeeds()
 {
     return {"{}", "{\"ui_advanced\":false,\"calibration_speed\":99}",
         "{\"chaperone\":{}}", "{\"persistence_revision\":4294967295,\"language\":\"it\"}",
-        "{\"device_names\":{\"one\":\"waist\"}}", "{\"ui_advanced\":[]}"
+        "{\"device_names\":{\"one\":\"waist\"}}", "{\"ui_advanced\":[]}",
+        "{\"post_processing\":{\"enabled\":true,\"one_euro\":3,\"soften_jumps\":false,"
+            "\"filtered\":{\"LHR-1\":false},\"classic\":{\"LHR-1\":47}}}",
+        "{\"post_processing\":{\"one_euro\":9,\"filtered\":[],\"classic\":{\"\":50,\"x\":1e9}}}"
     };
 }
 

@@ -34,7 +34,10 @@ $Screens = @('-uipreview', '-uipreview-many', '-uipreview-empty', '-uipreview-fr
     '-uipreview-editor', '-uipreview-credits', '-uipreview-recorder', '-uipreview-recorder-live', '-uipreview-recorder-live-full',
     '-uipreview-recorder-empty', '-uipreview-recorder-warning', '-uipreview-recorder-delete',
     '-uipreview-setup-welcome', '-uipreview-setup-headset',
-    '-uipreview-setup-trackers', '-uipreview-setup-updates', '-uipreview-setup-calibrate')
+    '-uipreview-setup-trackers', '-uipreview-setup-updates', '-uipreview-setup-calibrate',
+    '-uipreview-postprocessing', '-uipreview-postprocessing-off', '-uipreview-postprocessing-classic',
+    '-uipreview-postprocessing-jumps', '-uipreview-postprocessing-devices', '-uipreview-postprocessing-paused',
+    '-uipreview-postprocessing-addon')
 $Languages = @('en', 'ja', 'it')
 
 New-Item -ItemType Directory -Force -Path $Out | Out-Null

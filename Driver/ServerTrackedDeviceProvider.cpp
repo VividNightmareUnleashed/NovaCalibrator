@@ -379,6 +379,15 @@ bool ServerTrackedDeviceProvider::TrySetRuntimeState(const protocol::SetRuntimeS
 			*reason = protocol::RejectReason::InvalidValues;
 		return false;
 	}
+	questcal::driverinput::PoseFilterState filters;
+	if (!questcal::driverinput::ValidatePoseFilters(newState, filters))
+	{
+		LOG("SetRuntimeState: rejected invalid pose filters (mask=%llx)",
+			static_cast<unsigned long long>(newState.filterMask));
+		if (reason)
+			*reason = protocol::RejectReason::InvalidValues;
+		return false;
+	}
 	if (reason)
 		*reason = protocol::RejectReason::None;
 
@@ -397,6 +406,11 @@ bool ServerTrackedDeviceProvider::TrySetRuntimeState(const protocol::SetRuntimeS
 
 	alignmentField.Store(sanitized.field);
 	runtimeSequence.fetch_add(1, std::memory_order_release);
+
+	// The pose filters are not part of that transaction: PoseFilterSlot.h says
+	// why a pose may read them mid-change.
+	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
+		poseFilters[id].Store(filters.filter, ((filters.filterMask >> id) & 1) != 0, filters.predictionCut[id]);
 	return true;
 }
 
@@ -447,7 +461,7 @@ void ServerTrackedDeviceProvider::PublishRawPose(uint32_t openVRID, const vr::Dr
 }
 
 void ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr::DriverPose_t &pose,
-	const PoseHostCall &host, bool publish)
+	const PoseHostCall &host, bool publish, const vr::DriverPose_t *own)
 {
 	if (openVRID >= vr::k_unMaxTrackedDeviceCount)
 		return;
@@ -464,6 +478,15 @@ void ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr:
 
 	if (publish)
 		PublishSample(openVRID, pose, now.QuadPart);
+
+	// Another module's code changed this pose on its way here, and `own` is
+	// the pose before it. A device this driver post-processes gets its own
+	// driver's motion back, so that code's post-processing has no effect on it;
+	// any other device keeps what that code made of its pose. The settings are
+	// loaded once: a pose gets its motion back exactly when a filter then acts.
+	const questcal::posefilter::Settings filter = poseFilters[openVRID].Load();
+	if (own && questcal::driverfilter::Acts(filter) && questcal::driverfilter::TakeOwnMotion(pose, *own))
+		ownMotionRestored.fetch_add(1, std::memory_order_relaxed);
 
 	const vr::DriverPose_t raw = pose;
 	DeviceTransform tf;
@@ -486,6 +509,10 @@ void ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr:
 	if (poseTimeForTest >= 0.0)
 		nowSeconds = poseTimeForTest;
 #endif
+
+	// Post-processing works on the pose as the device's own driver made it,
+	// before the calibration moves it. The pose ring already has it raw.
+	questcal::driverfilter::Apply(filter, poseFilterStates[openVRID], nowSeconds, pose);
 
 	questcal::driverpose::ApplyRuntimePose(pose, tf.calibration, tf.frame,
         field, nowSeconds, baseState[openVRID], fieldState[openVRID]);

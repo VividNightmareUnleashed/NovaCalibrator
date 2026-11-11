@@ -24,7 +24,9 @@ struct Modules
 	// base station changes out of the drift evidence, is core and runs
 	// either way (docs/modules.md says which side a new feature goes on).
 	ModuleStatus lighthouse = ModuleStatus::NotInstalled;
-	ModuleStatus smoothing = ModuleStatus::NotBuilt;
+	// The Post Processing page and the pose filters it sets in the driver
+	// (PostProcessing.h). Without the module the driver is asked for none.
+	ModuleStatus postProcessing = ModuleStatus::NotInstalled;
 	// Records every raw pose sample to a file and plays the file back, for
 	// development and playtests (MotionRecorder.h). A recording shows how the
 	// player's body moves, so nothing of it runs unless this is installed.

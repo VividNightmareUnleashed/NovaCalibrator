@@ -121,6 +121,7 @@ static void BuildSidebar(bool runningInOverlay)
 
 	// The pages. A module the installer left out greys its page out.
 	const bool lighthouse = questcal::Modules::On(CalCtx.modules.lighthouse);
+	const bool postProcessing = questcal::Modules::On(CalCtx.modules.postProcessing);
 	const bool recorder = questcal::Modules::On(CalCtx.modules.motionRecorder);
 	float y = o.y + 92.0f;
 	if (ui::NavRow("##navcalibration", NavSlot(o, y), ui::Icon::Reticle, "Calibration", g_page == Page::Calibration, false))
@@ -130,7 +131,10 @@ static void BuildSidebar(bool runningInOverlay)
 		nullptr, "The Lighthouse module is not installed. Select it when you install Nova Calibrator."))
 		g_page = Page::Lighthouse;
 	y += 52.0f;
-	ui::NavRow("##navsmoothing", NavSlot(o, y), ui::Icon::Smoothing, "Smoothing", false, true, "Soon", "Work in progress");
+	if (ui::NavRow("##navpostprocessing", NavSlot(o, y), ui::Icon::Smoothing, "Post Processing",
+		g_page == Page::PostProcessing, !postProcessing, nullptr,
+		"The Post Processing module is not installed. Select it when you install Nova Calibrator."))
+		g_page = Page::PostProcessing;
 	y += 52.0f;
 	if (ui::NavRow("##navrecorder", NavSlot(o, y), ui::Icon::Motion, "Motion Recorder", g_page == Page::MotionRecorder, !recorder,
 		nullptr, "The Motion Recorder module is not installed. Select it when you install Nova Calibrator."))
@@ -173,6 +177,7 @@ static const char *PageTitle(Page page)
 	switch (page)
 	{
 	case Page::Lighthouse: return "Lighthouse";
+	case Page::PostProcessing: return "Post Processing";
 	case Page::MotionRecorder: return "Motion Recorder";
 	case Page::Settings: return "Settings";
 	default: return "Calibration";
@@ -213,6 +218,9 @@ static void BuildPage(const VRState &state)
 		break;
 	case Page::Lighthouse:
 		height = BuildLighthousePage(state, pageOrigin, width);
+		break;
+	case Page::PostProcessing:
+		height = BuildPostProcessingPage(state, pageOrigin, width);
 		break;
 	case Page::MotionRecorder:
 		height = BuildMotionRecorderPage(state, pageOrigin, width);
@@ -281,6 +289,8 @@ void BuildMainWindow(bool runningInOverlay)
 
 	// A page whose module went away falls back to calibration.
 	if (g_page == Page::Lighthouse && !questcal::Modules::On(CalCtx.modules.lighthouse))
+		g_page = Page::Calibration;
+	if (g_page == Page::PostProcessing && !questcal::Modules::On(CalCtx.modules.postProcessing))
 		g_page = Page::Calibration;
 	if (g_page == Page::MotionRecorder && !questcal::Modules::On(CalCtx.modules.motionRecorder))
 		g_page = Page::Calibration;

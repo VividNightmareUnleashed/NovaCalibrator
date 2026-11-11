@@ -33,12 +33,10 @@ en: Calibration
 ja: キャリブレーション
 en: Lighthouse
 ja: Lighthouse
-en: Smoothing
-ja: スムージング
+en: Post Processing
+ja: ポストプロセス
 en: The Lighthouse module is not installed. Select it when you install Nova Calibrator.
 ja: Lighthouse モジュールはインストールされていません。インストール時に選択してください。
-en: Work in progress
-ja: 開発中
 en: Arrow keys to move · Enter to select
 ja: 矢印キーで移動・Enter で決定
 en: Close the SteamVR dashboard to use the mouse
@@ -61,8 +59,6 @@ en: More actions
 ja: その他の操作
 en: Select a tracker
 ja: トラッカーを選択
-en: Soon
-ja: 近日公開
 en: Version %s
 ja: バージョン {0}
 
@@ -1399,3 +1395,62 @@ en: Continuous calibration aligned the trackers again.
 ja: 連続キャリブレーションがトラッカーの位置を合わせ直しました。
 en: No tracking problem occurred. Nova Calibrator saved no clip.
 ja: トラッキングの問題は起きませんでした。クリップは保存されていません。
+
+# ---- Post Processing ----
+# A run between two asterisks is drawn stronger; keep both asterisks.
+en: The Post Processing module is not installed. Select it when you install Nova Calibrator.
+ja: ポストプロセスモジュールはインストールされていません。インストール時に選択してください。
+en: One Euro
+ja: One Euro
+en: (Recommended)
+ja: (おすすめ)
+en: Classic
+ja: クラシック
+en: Soften jumps
+ja: ジャンプをやわらげる
+en: Light
+ja: 弱
+en: Medium
+ja: 中
+en: Strong
+ja: 強
+en: On
+ja: オン
+en: Paused
+ja: 一時停止中
+en: (default)
+ja: (デフォルト)
+en: Local
+ja: ローカル
+en: Devices
+ja: デバイス
+en: Change
+ja: 変更
+en: No devices
+ja: デバイスなし
+en: %d devices
+ja: デバイス {0} 台
+en: HMD
+ja: HMD
+en: This filter decreases the shake of your trackers when you stand still. It adds almost no delay when you move.
+ja: このフィルターは、じっと立っているときのトラッカーの揺れを減らします。動いたときの遅延はほとんど増えません。
+en: SteamVR corrects the position of a tracker many times each second. You see a large correction as a jump.
+ja: SteamVR はトラッカーの位置を毎秒何度も補正します。大きな補正はジャンプとして見えます。
+en: With this filter, the tracker moves to its new position in a tenth of a second. The filter adds no delay, but it can make mistakes and cause problems of its own.
+ja: このフィルターを使うと、トラッカーは 0.1 秒かけて新しい位置へ移動します。遅延は増えませんが、フィルターが誤って判断し、別の問題を起こす場合があります。
+en: This filter makes tracking very fluid, but it adds more delay. It can cause motion sickness if you use it on the HMD.
+ja: このフィルターはトラッキングをとてもなめらかにしますが、遅延が増えます。HMD に使うと VR 酔いの原因になる場合があります。
+en: This filter decreases SteamVR's *local* motion prediction. Other players do not see any difference.
+ja: このフィルターは、SteamVR の*ローカル*の動き予測を弱めます。他のプレイヤーから見た動きは変わりません。
+en: "OpenVR-SmoothTracking" operates in the same way.
+ja: 「OpenVR-SmoothTracking」も同じ仕組みで動作します。
+en: *Paused.* "OpenVR-SmoothTracking" is running.
+ja: *一時停止中。*「OpenVR-SmoothTracking」が動作しています。
+en: While this switch is on, other post-processing add-ons have no effect on the devices that Nova Calibrator filters.
+ja: このスイッチがオンの間、Nova Calibrator がフィルターをかけるデバイスには、ほかのポストプロセス用アドオンは効果がありません。
+en: While this switch is on, other post-processing add-ons, such as "OpenVR-SmoothTracking", have no effect on the devices that Nova Calibrator filters.
+ja: このスイッチがオンの間、Nova Calibrator がフィルターをかけるデバイスには、「OpenVR-SmoothTracking」などのほかのポストプロセス用アドオンは効果がありません。
+en: Devices to filter
+ja: フィルターをかけるデバイス
+en: This filter never changes the headset or the headset tracker.
+ja: このフィルターがヘッドセットとヘッドセットトラッカーを変更することはありません。
