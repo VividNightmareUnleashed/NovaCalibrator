@@ -71,6 +71,30 @@ HANDLE OpenForAppend(const std::wstring &path, DWORD disposition)
 		FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
 }
 
+// Puts the file `from` in the place of `to`. Windows refuses that while any
+// program has `to` open, and a virus scanner or an indexer opens a file the
+// moment it was written and closed, which is the moment this is called. So a
+// refusal of that kind is not a failure yet: the step is tried again, at
+// pauses that grow to 50 ms, until `waitMs` have gone by. Returns Windows'
+// error of the last try, ERROR_SUCCESS when the file took its place; `retries`
+// counts the tries another program's hold refused.
+DWORD TakePlaceOf(const std::wstring &from, const std::wstring &to, unsigned waitMs, std::atomic<uint64_t> &retries)
+{
+	const ULONGLONG started = GetTickCount64();
+	for (DWORD pause = 1;; pause = (std::min<DWORD>)(pause * 2, 50))
+	{
+		if (MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING))
+			return ERROR_SUCCESS;
+		const DWORD error = GetLastError();
+		const bool held = error == ERROR_ACCESS_DENIED || error == ERROR_SHARING_VIOLATION ||
+			error == ERROR_LOCK_VIOLATION;
+		if (!held || GetTickCount64() - started >= waitMs)
+			return error != ERROR_SUCCESS ? error : ERROR_GEN_FAILURE;
+		retries.fetch_add(1, std::memory_order_release);
+		Sleep(pause);
+	}
+}
+
 recording::Sample ToSample(const protocol::DevicePoseSample &pose)
 {
 	recording::Sample sample;
@@ -276,6 +300,9 @@ struct PoseRecorder::Session
 	std::atomic<uint64_t> trimmedSamples{ 0 };
 	std::atomic<double> droppedSeconds{ 0.0 };
 	std::atomic<bool> trimming{ false };
+	// Tries to put a file in another's place that another program's hold on
+	// the file refused (TakePlaceOf), in this stretch.
+	std::atomic<uint64_t> replaceRetries{ 0 };
 
 	// Written by the thread, then `done` is set; read only after it.
 	bool paused = false;
@@ -672,6 +699,7 @@ PoseRecorder::Progress PoseRecorder::GetProgress() const
 	progress.trims = session.trims.load(std::memory_order_acquire);
 	progress.trimmedSamples = session.trimmedSamples.load(std::memory_order_acquire);
 	progress.trimming = progress.recording && session.trimming.load(std::memory_order_acquire);
+	progress.replaceRetries = session.replaceRetries.load(std::memory_order_acquire);
 	const double dropped = session.droppedSeconds.load(std::memory_order_acquire);
 	if (!progress.recording)
 		progress.seconds = session.seconds;
@@ -703,6 +731,7 @@ void PoseRecorder::Harvest(Finished &finished)
 	finished.clips = session.clips.load(std::memory_order_acquire);
 	finished.compact = session.compact;
 	finished.trims = session.trims.load(std::memory_order_acquire);
+	finished.replaceRetries = session.replaceRetries.load(std::memory_order_acquire);
 	finished.closedCleanly = session.closedCleanly;
 	finished.error = session.error;
 	paused_ = Paused();
@@ -782,8 +811,10 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 			return false;
 		CloseHandle(session.file);
 		session.file = INVALID_HANDLE_VALUE;
-		if (!MoveFileExW(session.newPath.c_str(), session.finalPath.c_str(), MOVEFILE_REPLACE_EXISTING))
-			return fail("the previous recording could not be replaced (error " + std::to_string(GetLastError()) + ")");
+		const DWORD moveError = TakePlaceOf(session.newPath, session.finalPath, session.limits.replaceWaitMs,
+			session.replaceRetries);
+		if (moveError != ERROR_SUCCESS)
+			return fail("the previous recording could not be replaced (error " + std::to_string(moveError) + ")");
 		session.replaced = true;
 		session.file = OpenForAppend(session.finalPath, OPEN_EXISTING);
 		if (session.file == INVALID_HANDLE_VALUE)
@@ -929,8 +960,9 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 				std::to_string(GetLastError()) + ")");
 		CloseHandle(session.file);
 		session.file = INVALID_HANDLE_VALUE;
-		const bool moved = MoveFileExW(keepPath.c_str(), session.finalPath.c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
-		const DWORD moveError = GetLastError();
+		const DWORD moveError = TakePlaceOf(keepPath, session.finalPath, session.limits.replaceWaitMs,
+			session.replaceRetries);
+		const bool moved = moveError == ERROR_SUCCESS;
 		session.file = OpenForAppend(session.finalPath, OPEN_EXISTING);
 		if (session.file == INVALID_HANDLE_VALUE)
 		{

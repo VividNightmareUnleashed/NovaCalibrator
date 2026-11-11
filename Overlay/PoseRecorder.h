@@ -49,6 +49,12 @@ struct PoseRecordingLimits
 	uint64_t trimHeadroomBytes = 0;
 	uint64_t trimSpacingBytes = 0;
 	size_t trimSliceBytes = 4u << 20;
+	// A file that takes another's place (a new recording the old one's, the
+	// newer part the whole file's at the cap) is refused while another program
+	// has the old file open, and a virus scanner opens a file that was just
+	// written. The step is tried again for this long before it has failed.
+	// The hub holds what arrives meanwhile: half a minute of nine devices.
+	unsigned replaceWaitMs = 2000;
 	// A recording does not start or go on, and one in progress ends, while the
 	// drive has less than this free.
 	uint64_t minFreeDiskBytes = DefaultMinFreeDiskBytes;
@@ -129,6 +135,9 @@ public:
 		uint64_t trims = 0;
 		uint64_t trimmedSamples = 0;
 		bool trimming = false;
+		// How often in this stretch a file could not take another's place at
+		// once, because another program had it open, and was tried again.
+		uint64_t replaceRetries = 0;
 	};
 
 	// How a stretch of recording ended, once its file is closed.
@@ -153,6 +162,8 @@ public:
 		bool compact = false;
 		// How often this stretch dropped the file's oldest part at the cap.
 		uint64_t trims = 0;
+		// How often it had to try again to put a file in another's place.
+		uint64_t replaceRetries = 0;
 		// The file ends with its pause or end record. False after a failed write.
 		bool closedCleanly = false;
 		std::string error;   // for the log; empty when nothing failed

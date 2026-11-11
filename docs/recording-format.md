@@ -695,6 +695,12 @@ copy starts a sixteenth of the cap before the cap. When the disk is too slow
 for the copy to be done before the cap is reached, the recorder finishes it
 first, and the samples it could not fetch meanwhile are a gap record.
 
+Windows refuses the swap while any other program has the old file open, and a
+virus scanner opens a file the moment it was written. The recorder therefore
+tries the swap again for up to two seconds before it calls it failed, here and
+where a new recording replaces an old one. A program that reads a recording
+while it is recorded should not keep the file open for longer than that.
+
 When the drop cannot be done (the new file cannot be written or cannot take
 the old one's place), the recording ends when the file reaches the cap, with
 end reason 1, and the data it holds stays.

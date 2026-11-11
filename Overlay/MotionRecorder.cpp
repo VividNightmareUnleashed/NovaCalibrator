@@ -188,6 +188,8 @@ void Report(CalibrationContext &ctx, const PoseRecorder::Finished &finished, boo
 		(finished.saved ? "" : ", no sample arrived and no file was kept") +
 		(finished.saved && !finished.closedCleanly ? ", no closing record" : "") +
 		(finished.trims > 0 ? ", oldest part dropped " + std::to_string(finished.trims) + " time(s)" : "") +
+		(finished.replaceRetries > 0 ? ", waited " + std::to_string(finished.replaceRetries) +
+			" time(s) for another program to let go of the file" : "") +
 		(finished.error.empty() ? "" : " [" + finished.error + "]"));
 	FileThere = Exists(finished.path);
 	PlayerScan = -1e9;

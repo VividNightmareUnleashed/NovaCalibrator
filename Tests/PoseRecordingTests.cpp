@@ -2248,6 +2248,174 @@ void RecorderStopsWhileDropping(Check check)
 	check("pose recorder: a stop while the oldest part is dropped leaves one whole file", holds, detail);
 }
 
+// Another program's hold on the recording: an open handle that, like a script
+// that reads the live file, does not let the file be replaced.
+HANDLE HoldFile(const std::wstring &path)
+{
+	return CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL, nullptr);
+}
+
+// Windows refuses to put a file in the place of one that any program has open,
+// and a virus scanner opens a file the moment it was written and closed: the
+// moment the recorder replaces it. The recorder waits for the other program
+// (PoseRecordingLimits::replaceWaitMs) and only then calls the step failed.
+void RecorderWaitsForHeldFile(Check check)
+{
+	char detail[320];
+	const auto sendTo = [](Feed &feed, size_t count)
+	{
+		for (size_t i = 0; i < count; ++i)
+			feed.Send(i % 2 ? 3 : 0);
+	};
+
+	// The newer part cannot take the file's place while the file is held. When
+	// the other program lets go, the oldest part is dropped as at any cap.
+	{
+		TempFolder folder;
+		Feed feed;
+		PoseRecorder recorder;
+		PoseRecordingLimits limits = KeepLimits(16 * 1024, 2048, 1024);
+		// Long enough that only the release below ends the wait.
+		limits.replaceWaitMs = 60000;
+		bool reached = recorder.Start(feed.hub, folder.Dir(), "test", { Headset(), Tracker() }, limits) ==
+			PoseRecorder::StartResult::Started;
+		sendTo(feed, 10);
+		reached = reached && WaitFor([&] { return Written(recorder) == feed.sent.size(); });
+		const HANDLE held = HoldFile(folder.File());
+		bool waited = false;
+		while (reached && held != INVALID_HANDLE_VALUE && !waited && feed.sent.size() < 600)
+		{
+			sendTo(feed, 10);
+			reached = WaitFor([&]
+			{
+				return recorder.GetProgress().replaceRetries > 0 || Written(recorder) == feed.sent.size();
+			});
+			waited = recorder.GetProgress().replaceRetries > 0;
+		}
+		const uint64_t droppedWhileHeld = recorder.GetProgress().trims;
+		if (held != INVALID_HANDLE_VALUE)
+			CloseHandle(held);
+		const bool dropped = waited && WaitFor([&] { return recorder.GetProgress().trims >= 1; });
+		sendTo(feed, 10);
+		reached = reached && WaitFor([&] { return Written(recorder) == feed.sent.size(); });
+		recorder.RequestPause();
+		PoseRecorder::Finished finished;
+		const bool closed = Finish(recorder, finished);
+
+		const std::string bytes = FileContents(folder.File());
+		const ReadBack back = ReadBytes(bytes);
+		const std::string kinds = KindsOf(back.records);
+		size_t inFile = 0;
+		const bool holds = reached && waited && droppedWhileHeld == 0 && dropped && closed &&
+			back.end == Reader::Next::EndOfFile && bytes.size() <= limits.maxFileBytes &&
+			NewestOf(back, feed.sent, inFile) && inFile > 0 && inFile < feed.sent.size() && finished.samples == inFile &&
+			finished.trims >= 1 && finished.replaceRetries >= 1 && finished.error.empty() && !kinds.empty() &&
+			kinds.back() == 'P' && finished.paused && finished.closedCleanly && folder.Files() == 1 &&
+			recorder.CanResume(folder.Dir());
+		snprintf(detail, sizeof detail, "reached %d, held %d, waited %d, dropped while held %llu, dropped after %d, closed %d, "
+			"%zu of %zu samples, dropped %llu time(s), tried again %llu time(s), %zu file(s) [%s]", reached,
+			held != INVALID_HANDLE_VALUE, waited, static_cast<unsigned long long>(droppedWhileHeld), dropped, closed, inFile,
+			feed.sent.size(), static_cast<unsigned long long>(finished.trims),
+			static_cast<unsigned long long>(finished.replaceRetries), folder.Files(), finished.error.c_str());
+		check("pose recorder: the oldest part is dropped once another program lets go of the file", holds, detail);
+	}
+
+	// The other program never lets go. The wait ends, the copy is thrown away,
+	// and the file that was written all along is the recording: whole, with the
+	// oldest samples, ended by the cap.
+	{
+		TempFolder folder;
+		Feed feed;
+		PoseRecorder recorder;
+		PoseRecordingLimits limits = KeepLimits(16 * 1024, 2048, 1024);
+		limits.replaceWaitMs = 20;
+		bool reached = recorder.Start(feed.hub, folder.Dir(), "test", { Headset(), Tracker() }, limits) ==
+			PoseRecorder::StartResult::Started;
+		sendTo(feed, 10);
+		reached = reached && WaitFor([&] { return Written(recorder) == feed.sent.size(); });
+		const HANDLE held = HoldFile(folder.File());
+		bool ended = false;
+		while (reached && held != INVALID_HANDLE_VALUE && !ended && feed.sent.size() < 600)
+		{
+			sendTo(feed, 10);
+			reached = WaitFor([&]
+			{
+				return !recorder.GetProgress().recording || Written(recorder) == feed.sent.size();
+			});
+			ended = !recorder.GetProgress().recording;
+		}
+		PoseRecorder::Finished finished;
+		const bool closed = ended && Finish(recorder, finished);
+		if (held != INVALID_HANDLE_VALUE)
+			CloseHandle(held);
+
+		const std::string bytes = FileContents(folder.File());
+		const ReadBack back = ReadBytes(bytes);
+		const std::string kinds = KindsOf(back.records);
+		size_t inFile = 0;
+		for (const Record &record : back.records)
+			inFile += record.kind == KindSample ? 1 : 0;
+		const bool oldest = inFile >= 20 && inFile < feed.sent.size() &&
+			SamplesAre(back, std::vector<Sample>(feed.sent.begin(), feed.sent.begin() + static_cast<std::ptrdiff_t>(inFile)));
+		const bool holds = reached && ended && closed && back.end == Reader::Next::EndOfFile &&
+			bytes.size() <= limits.maxFileBytes && oldest && finished.samples == inFile && finished.trims == 0 &&
+			finished.replaceRetries >= 1 && finished.error.find("could not take its place") != std::string::npos &&
+			!finished.paused && finished.reason == EndReason::SizeLimit && !kinds.empty() && kinds.back() == 'E' &&
+			finished.closedCleanly && finished.bytes == bytes.size() && folder.Files() == 1;
+		snprintf(detail, sizeof detail, "reached %d, held %d, ended %d, closed %d, %zu of %zu samples in %zu bytes, "
+			"dropped %llu time(s), tried again %llu time(s), reason %d, %zu file(s) [%s]", reached,
+			held != INVALID_HANDLE_VALUE, ended, closed, inFile, feed.sent.size(), bytes.size(),
+			static_cast<unsigned long long>(finished.trims), static_cast<unsigned long long>(finished.replaceRetries),
+			static_cast<int>(finished.reason), folder.Files(), finished.error.c_str());
+		check("pose recorder: a file another program keeps open ends the wait, and the cap ends a whole recording",
+			holds, detail);
+	}
+
+	// The same step at a new recording's first sample: the old recording is
+	// held, and stays as it is until the new one can take its place.
+	{
+		TempFolder folder;
+		Feed feed;
+		{
+			PoseRecorder yesterday;
+			yesterday.Start(feed.hub, folder.Dir(), "yesterday", { Headset() }, TestLimits());
+			feed.Send(0);
+			WaitForSamples(yesterday, 1);
+			yesterday.StopAndWait(EndReason::AppExit, 20000);
+		}
+		const std::string old = FileContents(folder.File());
+		PoseRecorder recorder;
+		PoseRecordingLimits limits = TestLimits();
+		limits.replaceWaitMs = 60000;
+		const HANDLE held = HoldFile(folder.File());
+		const bool started = recorder.Start(feed.hub, folder.Dir(), "today", { Headset() }, limits) ==
+			PoseRecorder::StartResult::Started;
+		const size_t before = feed.sent.size();
+		feed.Send(0);
+		feed.Send(0);
+		const bool waited = started && held != INVALID_HANDLE_VALUE &&
+			WaitFor([&] { return recorder.GetProgress().replaceRetries > 0; });
+		const bool keptMeanwhile = FileContents(folder.File()) == old;
+		if (held != INVALID_HANDLE_VALUE)
+			CloseHandle(held);
+		const bool reached = WaitForSamples(recorder, 2);
+		recorder.RequestPause();
+		PoseRecorder::Finished finished;
+		const bool closed = Finish(recorder, finished);
+		const ReadBack back = ReadFile(folder.File());
+		const std::vector<Sample> today(feed.sent.begin() + static_cast<std::ptrdiff_t>(before), feed.sent.end());
+		snprintf(detail, sizeof detail, "started %d, waited %d, old kept meanwhile %d, reached %d, closed %d, writer %s, "
+			"records %s, tried again %llu time(s), %zu file(s) [%s]", started, waited, keptMeanwhile, reached, closed,
+			back.header.writer.c_str(), KindsOf(back.records).c_str(),
+			static_cast<unsigned long long>(finished.replaceRetries), folder.Files(), finished.error.c_str());
+		check("pose recorder: a new recording waits for another program to let go of the old one",
+			started && waited && keptMeanwhile && reached && closed && finished.saved && finished.error.empty() &&
+				finished.replaceRetries >= 1 && back.header.writer == "today" && KindsOf(back.records) == "SSP" &&
+				SamplesAre(back, today) && folder.Files() == 1, detail);
+	}
+}
+
 // The first sample record behind each place a reader forgets its devices (the
 // header, a resume, a sync) is a whole one, never a block.
 bool StretchesStartWhole(const ReadBack &back)
@@ -2911,6 +3079,7 @@ void RunPoseRecordingScenarios(Check check)
 	RecorderKeepsNewest(check);
 	RecorderKeepsNewestClips(check);
 	RecorderStopsWhileDropping(check);
+	RecorderWaitsForHeldFile(check);
 	RecorderCompact(check);
 	RecorderCompactClips(check);
 	RecorderCompactKeepsNewest(check);
