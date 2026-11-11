@@ -16,30 +16,41 @@
 
 This reader is written from docs/recording-format.md and shares no code with
 the C++ reader (Overlay/PoseRecordingFormat.h), so the listings agreeing is a check of
-both. The layout is little-endian with no padding, every double as its 64
-bits. The file is read front to back, one record at a time, so its size does
-not matter. A recording is untrusted input: what does not fit the layout stops
-the read with a message, and a file that ends inside a record is reported as
-cut short. Only the standard library is used.
+both. It reads both format versions: 1 (raw) and 2 (compact, whose samples
+are mostly a few bits each in blocks). The layout is little-endian with no
+padding, every double as its 64 bits. The file is read front to back, one
+record at a time, so its size does not matter. A recording is untrusted input:
+what does not fit the layout stops the read with a message, and a file that
+ends inside a record is reported as cut short. Only the standard library is
+used.
 """
 
 import argparse
 import datetime
+import math
 import os
 import struct
 import sys
+import zlib
 
 MAGIC = b"NOVAPOSE"
 FORMAT_VERSION = 1
 MODE_RAW = 1
+FORMAT_VERSION_COMPACT = 2
+MODE_COMPACT = 2
 MAX_HEADER_DEVICES = 64
 
 KIND_SAMPLE, KIND_GAP, KIND_BOUNDARY, KIND_DEVICE, KIND_END, KIND_PAUSE, KIND_RESUME = 1, 2, 3, 4, 5, 6, 7
 KIND_ALIGNMENT = 8
 KIND_MODEL = 9
 KIND_MARK = 10
+# Version 2 only. In a version 1 file they are kinds it does not know.
+KIND_SAMPLES = 11
+KIND_SYNC = 12
 
-HEADER = struct.Struct("<8sIIqqqI")
+HEADER_START = struct.Struct("<8sII")
+HEADER_SCALES = struct.Struct("<II")
+HEADER_REST = struct.Struct("<qqqI")
 PREFIX = struct.Struct("<BH")
 # Clock count, id, tracking result, pose valid, connected, pose time offset,
 # world-from-driver rotation (w x y z) and translation, rotation (w x y z),
@@ -122,6 +133,312 @@ def parse_device(data):
     return Device(device_id, device_class, role, *strings)
 
 
+# ---------------------------------------------------------------------------
+# Compact samples (format version 2): docs/recording-format.md, "Compact
+# samples". A sample here is the tuple SAMPLE unpacks: capture count, device
+# id, tracking result, pose valid, connected, then the 21 doubles.
+
+POSITION_SCALE = 1000000            # steps in one meter
+ROTATION_SCALE = 2000000            # steps in 1, for each of a rotation's four numbers
+MIN_VELOCITY_SCALE, MAX_VELOCITY_SCALE = 1000, 10000000
+MIN_CLOCK_RATE, MAX_CLOCK_RATE = 1000000, 1000000000
+POSITION_LIMIT = 1 << 40
+ROTATION_LIMIT = 1 << 22
+VELOCITY_LIMIT = 1 << 30
+OFFSET_LIMIT = 1 << 40
+COUNT_LIMIT = 1 << 58
+PERIOD_LIMIT = 1 << 30
+MAX_DEVICES = 64
+MAX_PARAMETER = 40
+MAX_CODE_LENGTH = 61
+MAX_CONTEXT_STEP = 1 << 40
+FIRST_CONTEXT_SUM = 128
+FIRST_SINGLE_SUM = 8 << 16
+FIRST_CAPTURE_SUM = 8 << 10
+# The thirteen pose numbers: rotation (4), position (3), velocity (3), angular velocity (3).
+POSE_LIMITS = (ROTATION_LIMIT,) * 4 + (POSITION_LIMIT,) * 3 + (VELOCITY_LIMIT,) * 6
+DOUBLE = struct.Struct("<d")
+DOUBLE_BITS = struct.Struct("<Q")
+
+
+def steps_of(value, scale, limit):
+    """`value` in steps of 1 / `scale`: the nearest whole number, a half
+    upward. None when it is not a number or is over `limit` steps from zero."""
+    product = value * scale
+    if not abs(product) <= limit:
+        return None
+    whole = math.floor(product)
+    return whole + 1 if product >= whole + 0.5 else whole
+
+
+def single_bits(value):
+    """The 32 bits of `value` as a single-precision number, or None when it is
+    not exactly one. By its bits, as the C++ reader does it."""
+    wide = DOUBLE_BITS.unpack(DOUBLE.pack(value))[0]
+    sign = 0x80000000 if wide >> 63 else 0
+    exponent = (wide >> 52) & 0x7FF
+    fraction = wide & ((1 << 52) - 1)
+    if exponent == 0x7FF:
+        return None
+    if exponent == 0:
+        return sign if fraction == 0 else None
+    power = exponent - 1023
+    if power > 127:
+        return None
+    if power >= -126:
+        return None if fraction & ((1 << 29) - 1) else sign | ((power + 127) << 23) | (fraction >> 29)
+    if power < -149:
+        return None
+    shift = -97 - power
+    significand = fraction | (1 << 52)
+    return None if significand & ((1 << shift) - 1) else sign | (significand >> shift)
+
+
+def single_value(bits):
+    """The double a single-precision number's 32 bits stand for, or None for
+    bits that are not a finite number."""
+    sign = (bits >> 31) << 63
+    exponent = (bits >> 23) & 0xFF
+    fraction = bits & 0x7FFFFF
+    if exponent == 0xFF:
+        return None
+    wide = sign
+    if exponent:
+        wide |= ((exponent + 896) << 52) | (fraction << 29)
+    elif fraction:
+        top = fraction.bit_length() - 1
+        wide |= ((top - 149 + 1023) << 52) | ((fraction << (52 - top)) & ((1 << 52) - 1))
+    return DOUBLE.unpack(DOUBLE_BITS.pack(wide))[0]
+
+
+class Bits:
+    """A block's bits, the first in the lowest bit of a byte."""
+
+    def __init__(self, data, start):
+        self.data = data
+        self.at = start * 8
+        self.end = len(data) * 8
+
+    def take(self, count):
+        if count == 0:
+            return 0
+        at = self.at
+        if count > self.end - at:
+            raise NotARecording("a block ends inside a sample")
+        self.at = at + count
+        return (int.from_bytes(self.data[at >> 3:(at + count + 7) >> 3], "little") >> (at & 7)) & ((1 << count) - 1)
+
+    def zeros(self, limit):
+        """The zero bits in front of the next one bit, which is taken too."""
+        at = self.at
+        ahead = int.from_bytes(self.data[at >> 3:(at >> 3) + 9], "little") >> (at & 7)
+        count = (ahead & -ahead).bit_length() - 1
+        if ahead == 0 or count > limit:
+            raise NotARecording("a block ends inside a sample, or holds a number that is too long")
+        self.at = at + count + 1
+        return count
+
+    def at_end(self):
+        left = self.end - self.at
+        return left < 8 and self.take(left) == 0
+
+
+class CompactDevice:
+    """What a reader keeps of one device between two syncs."""
+    __slots__ = ("id", "previous", "usable", "single", "period", "steps", "time", "singles")
+
+
+class Compact:
+    """What a compact file's blocks are read against. A sync, a resume and the
+    header empty it; a sample stored whole starts its device."""
+
+    def __init__(self, rate, velocity_scale, angular_scale):
+        self.rate = rate
+        self.velocity_scale = velocity_scale
+        self.angular_scale = angular_scale
+        self.scales = (ROTATION_SCALE,) * 4 + (POSITION_SCALE,) * 3 + (velocity_scale,) * 3 + (angular_scale,) * 3
+        self.reset()
+
+    def reset(self):
+        self.devices = []
+        self.last = 0
+        self.capture = [FIRST_CAPTURE_SUM]
+
+    def usable(self, values):
+        if not -COUNT_LIMIT <= values[0] <= COUNT_LIMIT or steps_of(values[5], self.rate, OFFSET_LIMIT) is None:
+            return False
+        return all(steps_of(values[13 + i], self.scales[i], POSE_LIMITS[i]) is not None for i in range(13))
+
+    def whole(self, values):
+        """A sample stored whole: its device starts here."""
+        self.last = values[0]
+        device = next((known for known in self.devices if known.id == values[1]), None)
+        if device is None:
+            if len(self.devices) >= MAX_DEVICES:
+                return
+            device = CompactDevice()
+            device.id = values[1]
+            self.devices.append(device)
+        device.previous = values
+        device.usable = self.usable(values)
+        device.single = all(single_bits(value) is not None for value in values[13:26])
+        device.period = 0
+        device.steps = [[FIRST_CONTEXT_SUM] * 14, [FIRST_CONTEXT_SUM] * 14]
+        device.time = [FIRST_CONTEXT_SUM] * 2
+        device.singles = [FIRST_SINGLE_SUM] * 14
+
+    def block(self, payload):
+        """A block's payload as its samples."""
+        if len(payload) < 2 or payload[0] | (payload[1] << 8) == 0:
+            raise NotARecording("a block holds no sample")
+        bits = Bits(payload, 2)
+        samples = []
+        for _ in range(payload[0] | (payload[1] << 8)):
+            known = len(self.devices)
+            # 1. The device, by its place among those that have a whole sample.
+            place = bits.take((known - 1).bit_length()) if known else 0
+            if place >= known or not self.devices[place].usable:
+                raise NotARecording("a block has a sample of a device with no usable sample before it")
+            samples.append(self.sample(bits, self.devices[place]))
+        if not bits.at_end():
+            raise NotARecording("a block has bits left over")
+        return samples
+
+    @staticmethod
+    def step(bits, contexts, index, guess):
+        """A whole number as its distance from `guess`."""
+        total = contexts[index]
+        parameter = min(max(total.bit_length() - 5, 0), MAX_PARAMETER)
+        zeros = bits.zeros(MAX_CODE_LENGTH - parameter)
+        number = ((((1 << zeros) | bits.take(zeros)) - 1) << parameter) | bits.take(parameter)
+        contexts[index] = total + min(number, MAX_CONTEXT_STEP) - (total >> 3)
+        return guess + ((number >> 1) if not number & 1 else -((number + 1) >> 1))
+
+    def single(self, bits, contexts, index, before):
+        """A single-precision number as the distance of its 32 bits from the
+        bits of the value before it (from 0 when that is not one)."""
+        number = self.step(bits, contexts, index, single_bits(before) or 0)
+        value = single_value(number) if 0 <= number <= 0xFFFFFFFF else None
+        if value is None:
+            raise NotARecording("a block holds a single-precision number that is none")
+        return value
+
+    @staticmethod
+    def double(bits):
+        return DOUBLE.unpack(bits.take(64).to_bytes(8, "little"))[0]
+
+    def sample(self, bits, device):
+        previous = device.previous
+        rate = self.rate
+        step = self.step
+        if not -COUNT_LIMIT <= self.last <= COUNT_LIMIT:
+            raise NotARecording("a block follows a sample whose count is out of range")
+
+        # The numbers are the document's; 1, the device, is the caller's.
+        # 2. The capture count, from the count of the sample before it in the file.
+        count = step(bits, self.capture, 0, self.last)
+        if not -COUNT_LIMIT <= count <= COUNT_LIMIT:
+            raise NotARecording("a block holds a capture count that is out of range")
+        self.last = count
+
+        # 3. What is unusual about it. One bit says that nothing is.
+        status = moved = repeat = 0
+        single = device.single
+        if not bits.take(1):
+            status = bits.take(1)
+            moved = bits.take(1)
+            single = bool(bits.take(1))
+            repeat = bits.take(1)
+        result, valid, connected = previous[2], previous[3], previous[4]
+        if status:
+            valid = bits.take(1)
+            connected = bits.take(1)
+            result = bits.take(32)
+        transform = tuple(self.double(bits) for _ in range(7)) if moved else previous[6:13]
+
+        # 4. The pose time offset.
+        was_offset = steps_of(previous[5], rate, OFFSET_LIMIT)
+        was_pose_time = previous[0] + was_offset
+        elapsed = 0
+        onward = 0
+        if single:
+            offset = self.double(bits) if bits.take(1) else self.single(bits, device.singles, 0, previous[5])
+        else:
+            periods = 0
+            while periods < 4 and bits.take(1):
+                periods += 1
+            onward = 1 if periods else 0
+            if periods == 4:
+                counts = was_offset
+                elapsed = count + counts - was_pose_time
+            else:
+                elapsed = step(bits, device.time, onward, periods * device.period)
+                counts = was_pose_time + elapsed - count
+                if not -OFFSET_LIMIT <= counts <= OFFSET_LIMIT:
+                    raise NotARecording("a block holds a pose time that is out of range")
+                if periods >= 1 and device.period == 0:
+                    if 0 < elapsed <= PERIOD_LIMIT:
+                        device.period = elapsed
+                elif periods == 1:
+                    miss = elapsed - device.period
+                    change = min(abs(miss) >> 2, 8)
+                    device.period = max(1, device.period + (change if miss >= 0 else -change))
+            offset = counts / rate
+
+        # 5. The thirteen pose numbers.
+        was = previous[13:26]
+        if repeat:
+            now = was
+        elif single:
+            now = tuple(self.single(bits, device.singles, 1 + i, was[i]) for i in range(13))
+        else:
+            scales = self.scales
+            start = [steps_of(was[i], scales[i], POSE_LIMITS[i]) for i in range(13)]
+            contexts = device.steps[onward]
+            to = [0] * 13
+
+            def number(context, guess, limit):
+                value = step(bits, contexts, context, guess)
+                if not -limit <= value <= limit:
+                    raise NotARecording("a block holds a pose number that is out of range")
+                return value
+
+            # The two velocities, each number from the one before it.
+            for i in range(6):
+                to[7 + i] = number(i, start[7 + i], VELOCITY_LIMIT)
+            micros = elapsed * 1000000 // rate if 0 < elapsed <= rate // 4 else 0
+            # Position: the previous one moved on by the mean of the two velocities.
+            velocity_scale = self.velocity_scale
+            for i in range(3):
+                to[4 + i] = number(6 + i, start[4 + i] + ((start[7 + i] + to[7 + i]) * micros + velocity_scale)
+                                   // (2 * velocity_scale), POSITION_LIMIT)
+            # Rotation: the previous one turned on by the new angular velocity
+            # in the device's own frame; its largest number last, from the
+            # other three.
+            w, x, y, z = start[0:4]
+            a, b, c = to[10:13]
+            turn = (-(x * a + y * b + z * c), w * a + y * c - z * b, w * b + z * a - x * c, w * c + x * b - y * a)
+            largest = 0
+            for i in range(1, 4):
+                if abs(start[i]) > abs(start[largest]):
+                    largest = i
+            rest = w * w + x * x + y * y + z * z
+            for i in range(4):
+                if i != largest:
+                    to[i] = number(9 + i, start[i] + ((turn[i] // self.angular_scale) * micros + 1000000) // 2000000,
+                                   ROTATION_LIMIT)
+                    rest -= to[i] * to[i]
+            root = math.isqrt(rest) if rest > 0 else 0
+            to[largest] = number(13, -root if start[largest] < 0 else root, ROTATION_LIMIT)
+            now = tuple(to[i] / scales[i] for i in range(13))
+
+        values = (count, device.id, result, valid, connected, offset) + tuple(transform) + tuple(now)
+        device.previous = values
+        device.usable = self.usable(values)
+        device.single = single
+        return values
+
+
 class Recording:
     """The file, read front to back. `consumed` counts the bytes of the header
     and of every whole record returned so far."""
@@ -130,18 +447,29 @@ class Recording:
         self.stream = stream
         self.consumed = 0
         self._taken = 0
-        fixed =self._exact(HEADER.size, "the file is shorter than a recording header")
-        (magic, self.version, self.mode, self.clock_rate, self.start_count, self.start_unix_us,
-         device_count) = HEADER.unpack(fixed)
+        short = "the file is shorter than a recording header"
+        magic, self.version, self.mode = HEADER_START.unpack(self._exact(HEADER_START.size, short))
         if magic != MAGIC:
             raise NotARecording("the file does not start with NOVAPOSE")
-        if self.version != FORMAT_VERSION:
-            raise NotARecording(
-                f"the recording has format version {self.version}, and this reader knows version {FORMAT_VERSION}")
-        if self.mode != MODE_RAW:
-            raise NotARecording("the recording is not in raw mode")
+        if self.version not in (FORMAT_VERSION, FORMAT_VERSION_COMPACT):
+            raise NotARecording(f"the recording has format version {self.version}, and this reader knows versions "
+                                f"{FORMAT_VERSION} and {FORMAT_VERSION_COMPACT}")
+        self.compact = self.version == FORMAT_VERSION_COMPACT
+        if self.mode != (MODE_COMPACT if self.compact else MODE_RAW):
+            raise NotARecording("the recording is not in compact mode" if self.compact
+                                else "the recording is not in raw mode")
+        self.velocity_scale = self.angular_scale = 0
+        if self.compact:
+            self.velocity_scale, self.angular_scale = HEADER_SCALES.unpack(self._exact(HEADER_SCALES.size, short))
+        self.clock_rate, self.start_count, self.start_unix_us, device_count = HEADER_REST.unpack(
+            self._exact(HEADER_REST.size, short))
         if self.clock_rate <= 0:
             raise NotARecording("the recording's clock rate is not positive")
+        if self.compact and not (MIN_CLOCK_RATE <= self.clock_rate <= MAX_CLOCK_RATE
+                                 and MIN_VELOCITY_SCALE <= self.velocity_scale <= MAX_VELOCITY_SCALE
+                                 and MIN_VELOCITY_SCALE <= self.angular_scale <= MAX_VELOCITY_SCALE):
+            raise NotARecording("the recording's clock rate or velocity scales are not ones a compact recording has")
+        self.model = Compact(self.clock_rate, self.velocity_scale, self.angular_scale) if self.compact else None
         if device_count > MAX_HEADER_DEVICES:
             raise NotARecording("the header lists more than 64 devices")
         self.writer = self._string("the file is shorter than a recording header").decode("utf-8", errors="replace")
@@ -171,7 +499,9 @@ class Recording:
     def records(self):
         """Yields (kind, payload) for each whole record. Returns "complete" at
         the end of the file, or "cut" when the file ends inside a record.
-        Raises NotARecording for a record that cannot be one."""
+        Raises NotARecording for a record that cannot be one. A compact file's
+        block of samples comes as (KIND_SAMPLES, a list of samples), each the
+        tuple SAMPLE unpacks from a sample stored whole."""
         while True:
             prefix = self.stream.read(PREFIX.size)
             self._taken += len(prefix)
@@ -190,6 +520,18 @@ class Recording:
                 raise NotARecording(f"a record of kind {kind} has {size} bytes, not {FIXED_SIZES[kind]}")
             if kind == KIND_SAMPLE and (payload[16] > 1 or payload[17] > 1):
                 raise NotARecording("a sample has a flag that is neither 0 nor 1")
+            if self.compact and kind == KIND_SAMPLE:
+                # A whole sample is where a block's guesses for its device start.
+                self.model.whole(SAMPLE.unpack(payload))
+            elif self.compact and kind == KIND_SAMPLES:
+                payload = self.model.block(payload)
+            elif self.compact and kind == KIND_SYNC:
+                if size != 0:
+                    raise NotARecording("a sync record has a payload")
+                self.model.reset()
+            elif self.compact and kind == KIND_RESUME:
+                # A stretch reads by itself: its blocks never reach back over this.
+                self.model.reset()
             if kind == KIND_DEVICE:
                 payload = parse_device(payload)
             elif kind == KIND_RESUME:
@@ -252,14 +594,27 @@ def pose_text(values):
                real(values[13]), real(values[14]), real(values[15]), real(values[16])))
 
 
+def each_sample(recording, kind, payload):
+    """The samples a record holds, each as (the tuple SAMPLE unpacks, its 186
+    bytes as a version 1 file holds them)."""
+    if kind == KIND_SAMPLE:
+        yield SAMPLE.unpack(payload), payload
+    elif kind == KIND_SAMPLES and recording.compact:
+        for values in payload:
+            yield values, SAMPLE.pack(*values)
+
+
 def listing(path):
-    lines = ["novapose listing 1"]
+    lines = ["novapose listing 2"]
     with open(path, "rb") as stream:
         try:
             recording = Recording(stream)
         except NotARecording:
             return "\n".join(lines + ["file: not a recording"]) + "\n"
         lines.append(f"format: version {recording.version}, mode {recording.mode}")
+        if recording.compact:
+            lines.append(f"velocity steps: {recording.velocity_scale} in a meter a second, "
+                         f"{recording.angular_scale} in a radian a second")
         lines.append(f"writer: {recording.writer}")
         lines.append(f"clock: {recording.clock_rate} ticks per second, start count {recording.start_count}, "
                      f"start time {recording.start_unix_us} us")
@@ -267,16 +622,22 @@ def listing(path):
         lines += [device.line() for device in recording.devices]
         per_device = {}
         samples = 0
+        in_blocks = 0
+        digest = 0
         state = {}
         for kind, payload in each_record(recording, state):
             after = f" after sample {samples}: "
-            if kind == KIND_SAMPLE:
-                values = SAMPLE.unpack(payload)
-                entry = per_device.setdefault(values[1], [0, 0, values, values])
-                entry[0] += 1
-                entry[1] += values[3]
-                entry[3] = values
-                samples += 1
+            if kind == KIND_SAMPLE or (kind == KIND_SAMPLES and recording.compact):
+                for values, whole in each_sample(recording, kind, payload):
+                    entry = per_device.setdefault(values[1], [0, 0, values, values])
+                    entry[0] += 1
+                    entry[1] += values[3]
+                    entry[3] = values
+                    digest = zlib.crc32(whole, digest)
+                    samples += 1
+                    in_blocks += kind == KIND_SAMPLES
+            elif kind == KIND_SYNC and recording.compact:
+                lines.append(f"sync after sample {samples}")
             elif kind == KIND_GAP:
                 count, lost, hole = GAP.unpack(payload)
                 lines.append(f"gap{after}lost {lost}, hole {hole}, count {count}")
@@ -307,6 +668,9 @@ def listing(path):
             else:
                 lines.append(f"unknown record{after}kind {kind}, {len(payload)} bytes")
         lines.append(f"samples: {samples}")
+        if recording.compact:
+            lines.append(f"samples in blocks: {in_blocks}")
+        lines.append(f"sample digest: {digest:08x}")
         for device_id in sorted(per_device):
             count, valid, first, last = per_device[device_id]
             lines.append(f"samples of device {device_id}: {count}, valid {valid}, first {pose_text(first)}, "
@@ -343,32 +707,36 @@ def scan(path, csv_device=None, csv_out=None):
         devices = {device.id: device for device in recording.devices}
         stats = {}
         totals = {"samples": 0, "gaps": 0, "lost": 0, "boundaries": 0, "pauses": 0, "paused": 0, "unknown": 0,
-                  "alignments": 0, "end": None, "last": None, "open_pause": None, "clips": 0, "marks": []}
+                  "alignments": 0, "end": None, "last": None, "open_pause": None, "clips": 0, "marks": [],
+                  "in_blocks": 0}
         lost_since = 0
         boundary_since = False
         pause_since = False
         state = {}
         for kind, payload in each_record(recording, state):
-            if kind == KIND_SAMPLE:
-                values = SAMPLE.unpack(payload)
-                count, device_id, result, valid, connected = values[:5]
-                entry = stats.get(device_id)
-                if entry is None:
-                    entry = stats[device_id] = DeviceStats(count, totals["paused"])
-                entry.samples += 1
-                entry.valid += valid
-                entry.last = count
-                entry.paused = totals["paused"] - entry.paused_before
-                totals["samples"] += 1
-                totals["last"] = count if totals["last"] is None else max(totals["last"], count)
-                if csv_out is not None and device_id == csv_device:
-                    row = [repr(recording.seconds(count)), str(count), str(result), str(valid), str(connected)]
-                    row += [repr(value) for value in values[5:]]
-                    row += [str(lost_since), "1" if boundary_since else "0", "1" if pause_since else "0"]
-                    csv_out.write(",".join(row) + "\n")
-                    lost_since = 0
-                    boundary_since = False
-                    pause_since = False
+            if kind == KIND_SAMPLE or (kind == KIND_SAMPLES and recording.compact):
+                for values, _ in each_sample(recording, kind, payload):
+                    count, device_id, result, valid, connected = values[:5]
+                    entry = stats.get(device_id)
+                    if entry is None:
+                        entry = stats[device_id] = DeviceStats(count, totals["paused"])
+                    entry.samples += 1
+                    entry.valid += valid
+                    entry.last = count
+                    entry.paused = totals["paused"] - entry.paused_before
+                    totals["samples"] += 1
+                    totals["in_blocks"] += kind == KIND_SAMPLES
+                    totals["last"] = count if totals["last"] is None else max(totals["last"], count)
+                    if csv_out is not None and device_id == csv_device:
+                        row = [repr(recording.seconds(count)), str(count), str(result), str(valid), str(connected)]
+                        row += [repr(value) for value in values[5:]]
+                        row += [str(lost_since), "1" if boundary_since else "0", "1" if pause_since else "0"]
+                        csv_out.write(",".join(row) + "\n")
+                        lost_since = 0
+                        boundary_since = False
+                        pause_since = False
+            elif kind == KIND_SYNC and recording.compact:
+                pass
             elif kind == KIND_GAP:
                 totals["gaps"] += 1
                 totals["lost"] += GAP.unpack(payload)[1]
@@ -417,7 +785,12 @@ def print_summary(path, recording, devices, stats, totals):
     start = datetime.datetime.fromtimestamp(0, datetime.timezone.utc) + datetime.timedelta(
         microseconds=recording.start_unix_us)
     print(os.path.basename(path))
-    print(f"format {recording.version} (raw), written by {recording.writer or '(no name)'}")
+    how = "raw"
+    if recording.compact:
+        # Position to a micrometer and rotation to a microradian; the velocities as the header says.
+        how = (f"compact, velocity steps of {1e6 / recording.velocity_scale:g} um/s and "
+               f"{1e6 / recording.angular_scale:g} urad/s")
+    print(f"format {recording.version} ({how}), written by {recording.writer or '(no name)'}")
     print(f"started {start:%Y-%m-%d %H:%M:%S} UTC, clock {recording.clock_rate} ticks a second")
     end = totals["end"]
     # To the end record or the last sample, whichever is later: the end is
@@ -427,6 +800,9 @@ def print_summary(path, recording, devices, stats, totals):
     paused = totals["paused"] / recording.clock_rate
     print(f"recorded {max(span - paused, 0.0):.3f} s over {span:.3f} s, {totals['samples']} samples, "
           f"{size_text(os.path.getsize(path))}")
+    if recording.compact and totals["samples"]:
+        print(f"samples in blocks: {totals['in_blocks']}, stored whole: {totals['samples'] - totals['in_blocks']}; "
+              f"{os.path.getsize(path) / totals['samples']:.2f} bytes a sample")
     if totals["file"] == "invalid":
         print(f"ended: the file stops being a recording {recording.consumed} bytes in ({totals['error']})")
     elif end:

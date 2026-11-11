@@ -119,6 +119,9 @@ struct Playback::Cursor
 	bool hasPending = false;
 	Record pending;
 	double pendingTime = 0.0;
+	// The samples of the block that was read last, and the next one to give.
+	std::vector<Sample> block;
+	size_t blockAt = 0;
 
 	struct Device
 	{
@@ -342,16 +345,48 @@ void Playback::Read(const std::shared_ptr<Index> &shared, const Source &source, 
 
 		Record record;
 		uint64_t offset = reader.BytesRead();
+		// Whether a reading can start at the record: in a compact file only
+		// where its blocks reach back to nothing.
+		bool fresh = reader.Fresh();
 		Reader::Next state = reader.Read(record);
 		bool tooMany = false;
-		for (; state == Reader::Next::Record && !tooMany; offset = reader.BytesRead(), state = reader.Read(record))
+		const auto sample = [&](const Sample &one)
+		{
+			if (!open)
+			{
+				open = true;
+				Index::Span span;
+				span.firstOffset = nextFirstOffset;
+				span.baseQpc = one.qpc;
+				span.start = total;
+				index.spans.push_back(span);
+				next.start = total;
+				summary.stretches.push_back(next);
+				index.points.push_back({ total, nextFirstOffset });
+				lastPoint = total;
+			}
+			Index::Span &span = index.spans.back();
+			span.seconds = SecondsInto(one.qpc, span.baseQpc, index.frequency, span.seconds);
+			const double at = span.start + span.seconds;
+			if (fresh && at - lastPoint >= PointSpacingSeconds)
+			{
+				index.points.push_back({ at, offset });
+				lastPoint = at;
+			}
+			++summary.samples;
+			if (seen.size() < MaxDevices)
+				seen.insert(one.deviceId);
+		};
+		for (; state == Reader::Next::Record && !tooMany;
+			offset = reader.BytesRead(), fresh = reader.Fresh(), state = reader.Read(record))
 		{
 			if (index.cancel.load(std::memory_order_acquire))
 				return;
 			cleanEnd = false;
 			// More stretches than any recorder writes: what was read so far plays,
 			// and the rest is left out.
-			if (record.kind == KindSample && !open && index.spans.size() >= MaxStretches)
+			const bool holdsSamples = record.kind == KindSample || (record.kind == KindSamples && !record.samples.empty());
+			if (holdsSamples && !open && index.spans.size() >= MaxStretches)
 			{
 				tooMany = true;
 				break;
@@ -359,33 +394,12 @@ void Playback::Read(const std::shared_ptr<Index> &shared, const Source &source, 
 			switch (record.kind)
 			{
 			case KindSample:
-			{
-				if (!open)
-				{
-					open = true;
-					Index::Span span;
-					span.firstOffset = nextFirstOffset;
-					span.baseQpc = record.sample.qpc;
-					span.start = total;
-					index.spans.push_back(span);
-					next.start = total;
-					summary.stretches.push_back(next);
-					index.points.push_back({ total, nextFirstOffset });
-					lastPoint = total;
-				}
-				Index::Span &span = index.spans.back();
-				span.seconds = SecondsInto(record.sample.qpc, span.baseQpc, index.frequency, span.seconds);
-				const double at = span.start + span.seconds;
-				if (at - lastPoint >= PointSpacingSeconds)
-				{
-					index.points.push_back({ at, offset });
-					lastPoint = at;
-				}
-				++summary.samples;
-				if (seen.size() < MaxDevices)
-					seen.insert(record.sample.deviceId);
+				sample(record.sample);
 				break;
-			}
+			case KindSamples:
+				for (const Sample &one : record.samples)
+					sample(one);
+				break;
 			case KindGap:
 				if (record.gap.lost > 0)
 				{
@@ -503,11 +517,20 @@ void Playback::Seek(const Index &index, double time)
 	{
 		cursor.stream = source_ ? source_() : nullptr;
 		if (cursor.stream)
+		{
+			// The header first: it says whether the samples are in blocks, and
+			// what the blocks' numbers are steps of.
 			cursor.reader = std::make_unique<Reader>(*cursor.stream);
+			Header header;
+			if (!cursor.reader->ReadHeader(header))
+				cursor.reader.reset();
+		}
 	}
 	cursor.devices.clear();
 	cursor.alignments.clear();
 	cursor.hasPending = false;
+	cursor.block.clear();
+	cursor.blockAt = 0;
 	cursor.span = 0;
 	cursor.spanSeconds = 0.0;
 	cursor.time = 0.0;
@@ -563,14 +586,29 @@ bool Playback::Frame(double time, std::vector<DevicePose> &devices)
 	{
 		if (!cursor.hasPending)
 		{
-			const uint64_t offset = cursor.reader->BytesRead();
-			if (cursor.reader->Read(cursor.pending) != Reader::Next::Record)
-				break;
-			while (cursor.span + 1 < index.spans.size() && offset >= index.spans[cursor.span + 1].firstOffset)
+			if (cursor.blockAt < cursor.block.size())
 			{
-				++cursor.span;
-				cursor.spanSeconds = 0.0;
-				cursor.CutTrails();
+				// The next sample of the block in hand, as a record of its own.
+				cursor.pending.kind = KindSample;
+				cursor.pending.sample = cursor.block[cursor.blockAt++];
+			}
+			else
+			{
+				const uint64_t offset = cursor.reader->BytesRead();
+				if (cursor.reader->Read(cursor.pending) != Reader::Next::Record)
+					break;
+				while (cursor.span + 1 < index.spans.size() && offset >= index.spans[cursor.span + 1].firstOffset)
+				{
+					++cursor.span;
+					cursor.spanSeconds = 0.0;
+					cursor.CutTrails();
+				}
+				if (cursor.pending.kind == KindSamples && !cursor.pending.samples.empty())
+				{
+					cursor.block.swap(cursor.pending.samples);
+					cursor.blockAt = 0;
+					continue;
+				}
 			}
 			const Index::Span &span = index.spans[cursor.span];
 			if (cursor.pending.kind == KindSample)

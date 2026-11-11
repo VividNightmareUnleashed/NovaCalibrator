@@ -210,8 +210,41 @@ std::string KindsOf(const std::vector<Record> &records)
 		kinds += record.kind == KindSample ? 'S' : record.kind == KindGap ? 'G' : record.kind == KindBoundary ? 'B'
 			: record.kind == KindDevice ? 'D' : record.kind == KindEnd ? 'E' : record.kind == KindPause ? 'P'
 			: record.kind == KindResume ? 'R' : record.kind == KindAlignment ? 'A' : record.kind == KindModel ? 'M'
-			: record.kind == KindMark ? 'K' : '?';
+			: record.kind == KindMark ? 'K' : record.kind == KindSamples && !record.samples.empty() ? 'C'
+			: record.kind == KindSync ? 'Y' : '?';
 	return kinds;
+}
+
+// Every sample a file holds, whole ones and those of a compact file's blocks,
+// in file order.
+std::vector<Sample> SamplesOf(const ReadBack &back)
+{
+	std::vector<Sample> samples;
+	for (const Record &record : back.records)
+	{
+		if (record.kind == KindSample)
+			samples.push_back(record.sample);
+		else if (record.kind == KindSamples)
+			samples.insert(samples.end(), record.samples.begin(), record.samples.end());
+	}
+	return samples;
+}
+
+// "" when a compact file's samples are `expected`, in order, each within the
+// format's steps of it (RecordingProperty.h); otherwise what is wrong.
+std::string StoredAre(const ReadBack &back, const std::vector<Sample> &expected)
+{
+	const std::vector<Sample> stored = SamplesOf(back);
+	if (stored.size() != expected.size())
+		return "the file holds " + std::to_string(stored.size()) + " samples, not " + std::to_string(expected.size());
+	const compact::Parameters parameters{ back.header.qpcFrequency, back.header.velocityScale, back.header.angularScale };
+	for (size_t i = 0; i < stored.size(); ++i)
+	{
+		const std::string why = StoredWithinSteps(expected[i], stored[i], parameters);
+		if (!why.empty())
+			return why + " (sample " + std::to_string(i) + ")";
+	}
+	return "";
 }
 
 // ---------------------------------------------------------------------------
@@ -424,8 +457,9 @@ void Refusals(Check check)
 	std::string magic = good + sample;
 	magic[3] = 'a';
 	cases.push_back({ "another magic", magic, 0 });
-	header("a newer format version", [](Header &h) { h.version = FormatVersion + 1; });
+	header("a newer format version", [](Header &h) { h.version = FormatVersionCompact + 1; });
 	header("another mode", [](Header &h) { h.mode = 0; });
+	header("a raw file that says it is compact", [](Header &h) { h.mode = ModeCompact; });
 	header("a clock rate of zero", [](Header &h) { h.qpcFrequency = 0; });
 	header("a negative clock rate", [](Header &h) { h.qpcFrequency = -10000000; });
 	// More devices than the header holds, which AppendHeader itself never writes.
@@ -546,7 +580,19 @@ void ReferenceRecordings(Check check)
 	};
 	const auto has = [](const std::string &text, const char *line) { return text.find(line) != std::string::npos; };
 	const std::string clean = listingOf(0), holes = listingOf(1), paused = listingOf(2), cut = listingOf(3),
-		newer = listingOf(4), aligned = listingOf(5), clips = listingOf(6);
+		newer = listingOf(4), aligned = listingOf(5), clips = listingOf(6), compact = listingOf(7);
+	// The compact recording: whole samples at its start, behind its sync and
+	// behind its resume, and where a pose fits no block; the rest in blocks.
+	const bool saidCompact = has(compact, "novapose listing 2\nformat: version 2, mode 2\n"
+			"velocity steps: 10000 in a meter a second, 10000 in a radian a second\n") &&
+		has(compact, "gap after sample 218: lost 40, hole 40, ") && has(compact, "\nsync after sample 218\n") &&
+		has(compact, "mark after sample 278: name \"tracking-lost\", device 3, ") &&
+		has(compact, "pause after sample 278: cause 1, ") && has(compact, "resume after sample 278: cause 1, ") &&
+		has(compact, "end after sample 318: reason 4, ") && has(compact, "samples: 318\nsamples in blocks: 305\n") &&
+		has(compact, "samples of device 5: 145, valid 143, ") && has(compact, "\nfile: complete\n") &&
+		!has(clean, "samples in blocks") && has(clean, "samples: 218\nsample digest: ");
+	check("compact recording: a listing says what a correct reader finds in the compact reference recording", saidCompact,
+		saidCompact ? "" : compact.c_str());
 	const bool said = has(clean, "samples: 218\n") && has(clean, "samples of device 0: 18, valid 18, ") &&
 		has(clean, "samples of device 5: 100, valid 98, ") && has(clean, "end after sample 218: reason 4, ") &&
 		has(clean, "\nfile: complete\n") &&
@@ -604,6 +650,518 @@ void ReaderProperties(Check check)
 	snprintf(detail, sizeof detail, "%zu seeds (%d fail), %d mutations (%d fail)%s%s", seeds.size(), seedFailures,
 		mutations, failures, failure.empty() ? "" : ": ", failure.c_str());
 	check("pose recording: the reader keeps its properties on mutated files", seedFailures == 0 && failures == 0, detail);
+}
+
+// ---------------------------------------------------------------------------
+// Compact recordings (format version 2)
+
+// Some seconds of a headset and three trackers much as they really send: the
+// headset's numbers single-precision ones, a tracker's pose time staying for
+// one sample in two, noise on every number, the capture counts uneven.
+std::vector<Sample> MotionStream(double seconds)
+{
+	std::mt19937 rng(20261111u);
+	const auto noise = [&](double size) { return (static_cast<double>(rng() % 20001u) - 10000.0) * 1e-4 * size; };
+	const auto single = [](double value) { return static_cast<double>(static_cast<float>(value)); };
+	std::vector<Sample> stream;
+	int64_t count = reference::StartCount + 1000;
+	const int ticks = static_cast<int>(seconds * 250.0);
+	for (int tick = 0; tick < ticks; ++tick)
+	{
+		const double t = tick * 0.004;
+		// A pose every four milliseconds, captured five to seven later.
+		const int64_t tickCount = reference::StartCount + static_cast<int64_t>(tick) * 40000;
+		for (uint32_t id : { 1u, 2u, 4u })
+		{
+			const int64_t poseTime = tickCount + static_cast<int64_t>(rng() % 201u);
+			const int copies = rng() % 3u != 0 ? 2 : 1;
+			for (int copy = 0; copy < copies; ++copy)
+			{
+				count = (std::max)(count + 100 + static_cast<int64_t>(rng() % 400u),
+					tickCount + 50000 + copy * 9000 + static_cast<int64_t>(id) * 2500 + static_cast<int64_t>(rng() % 2000u));
+				Sample sample;
+				sample.qpc = count;
+				sample.deviceId = id;
+				sample.trackingResult = 200;
+				sample.poseValid = true;
+				sample.connected = true;
+				sample.poseTimeOffset = (static_cast<double>(poseTime - count) + noise(0.4)) / 1e7;
+				const double fromDriver[4] = { 0.5, 0.5, -0.5, 0.5 }, shift[3] = { 0.1, -1.5, 2.25 };
+				std::copy(fromDriver, fromDriver + 4, sample.worldFromDriverRotation);
+				std::copy(shift, shift + 3, sample.worldFromDriverTranslation);
+				const double angle = 0.8 * std::sin(0.5 * t + id);
+				sample.rotation[0] = std::cos(0.5 * angle) + noise(5e-5);
+				sample.rotation[1] = 0.6 * std::sin(0.5 * angle) + noise(5e-5);
+				sample.rotation[2] = 0.8 * std::sin(0.5 * angle) + noise(5e-5);
+				sample.rotation[3] = noise(5e-5);
+				sample.position[0] = 0.3 * id + 0.4 * std::sin(1.3 * t + id) + noise(3e-5);
+				sample.position[1] = 1.0 + 0.2 * std::cos(0.9 * t) + noise(3e-5);
+				sample.position[2] = -0.5 + 0.3 * std::sin(0.7 * t + 1.0) + noise(3e-5);
+				sample.velocity[0] = 0.52 * std::cos(1.3 * t + id) + noise(4e-4);
+				sample.velocity[1] = -0.18 * std::sin(0.9 * t) + noise(4e-4);
+				sample.velocity[2] = 0.21 * std::cos(0.7 * t + 1.0) + noise(4e-4);
+				sample.angularVelocity[0] = 0.24 * std::cos(0.5 * t + id) + noise(5e-3);
+				sample.angularVelocity[1] = 0.32 * std::cos(0.5 * t + id) + noise(5e-3);
+				sample.angularVelocity[2] = noise(5e-3);
+				stream.push_back(sample);
+			}
+		}
+		if (tick % 4 == 0)
+		{
+			count = (std::max)(count + 100 + static_cast<int64_t>(rng() % 400u),
+				tickCount + 75000 + static_cast<int64_t>(rng() % 2000u));
+			Sample sample;
+			sample.qpc = count;
+			sample.deviceId = 0;
+			sample.trackingResult = 200;
+			sample.poseValid = true;
+			sample.connected = true;
+			sample.poseTimeOffset = single(-6e-6 - static_cast<double>(rng() % 30u) * 1e-7);
+			const double turn = 0.3 * std::sin(0.4 * t);
+			sample.rotation[0] = single(std::cos(turn));
+			sample.rotation[1] = single(0.1 * std::sin(turn));
+			sample.rotation[2] = single(std::sin(turn));
+			sample.rotation[3] = single(noise(1e-3));
+			sample.position[0] = single(0.05 * std::sin(0.8 * t) + noise(2e-4));
+			sample.position[1] = single(1.7 + 0.01 * std::sin(2.0 * t));
+			sample.position[2] = single(0.2 + noise(2e-4));
+			for (int i = 0; i < 3; ++i)
+			{
+				sample.velocity[i] = single(noise(6e-3));
+				sample.angularVelocity[i] = single(noise(3e-2));
+			}
+			stream.push_back(sample);
+		}
+	}
+	return stream;
+}
+
+// The same stream with one of every sample a block treats in its own way, or
+// cannot hold at all.
+std::vector<Sample> OddMotionStream(double seconds)
+{
+	std::vector<Sample> stream = MotionStream(seconds);
+	const auto earlier = [&](size_t at)
+	{
+		for (size_t i = at; i-- > 0;)
+			if (stream[i].deviceId == stream[at].deviceId)
+				return i;
+		return at;
+	};
+	const auto next = [&](size_t from, bool headset)
+	{
+		size_t at = from;
+		while ((stream[at].deviceId == 0) != headset)
+			++at;
+		return at;
+	};
+	// Not a number, too far away, a count from nowhere: stored whole.
+	stream[next(100, false)].velocity[1] = std::numeric_limits<double>::quiet_NaN();
+	stream[next(200, false)].position[2] = 5e9;
+	stream[300].qpc = (std::numeric_limits<int64_t>::min)() + 5;
+	stream[next(1200, false)].poseTimeOffset = 1e9;
+	// The sample before it again, number for number.
+	const size_t repeat = next(400, false), before = earlier(repeat);
+	std::copy(stream[before].rotation, stream[before].rotation + 4, stream[repeat].rotation);
+	std::copy(stream[before].position, stream[before].position + 3, stream[repeat].position);
+	std::copy(stream[before].velocity, stream[before].velocity + 3, stream[repeat].velocity);
+	std::copy(stream[before].angularVelocity, stream[before].angularVelocity + 3, stream[repeat].angularVelocity);
+	// Tracking lost and back, a driver frame that moves, a device of another id.
+	for (size_t i = 500; i < 520; ++i)
+		if (stream[i].deviceId == 2)
+		{
+			stream[i].trackingResult = 101;
+			stream[i].poseValid = false;
+		}
+	for (size_t i = 600; i < stream.size(); ++i)
+		if (stream[i].deviceId == 2)
+			stream[i].worldFromDriverTranslation[1] = -1.25;
+	stream[next(900, false)].deviceId = 0xFFFFFFFEu;
+	// A headset pose time offset that no single holds, and a negative zero.
+	stream[next(700, true)].poseTimeOffset = -6.1234567e-6;
+	stream[next(1300, true)].position[0] = -0.0;
+	// A tracker sample of single-precision numbers, the other way round of a
+	// turn, and a rotation that is none.
+	Sample &still = stream[next(800, false)];
+	const double upright[4] = { 1.0, 0.0, 0.0, 0.0 };
+	std::copy(upright, upright + 4, still.rotation);
+	for (int i = 0; i < 3; ++i)
+		still.position[i] = still.velocity[i] = still.angularVelocity[i] = 0.0;
+	for (double &number : stream[next(1000, false)].rotation)
+		number = -number;
+	for (double &number : stream[next(1100, false)].rotation)
+		number = 0.0;
+	return stream;
+}
+
+// A stream as a recorder would write it: the samples, with a gap, a mark, and
+// a pause and resume that states the devices again, then an end.
+std::string RecordsOf(const std::vector<Sample> &stream)
+{
+	std::string records;
+	for (size_t i = 0; i < stream.size(); ++i)
+	{
+		if (i == stream.size() / 3)
+			AppendGap(records, { stream[i].qpc, 12, 12 });
+		if (i == stream.size() / 2)
+			AppendMark(records, { stream[i].qpc, reference::TimeAt(stream[i].qpc), 2, markname::TrackingLost });
+		if (i == stream.size() * 2 / 3)
+		{
+			AppendPause(records, { 1, stream[i].qpc - 20, reference::TimeAt(stream[i].qpc - 20) });
+			AppendResume(records, { 1, stream[i].qpc - 10, reference::TimeAt(stream[i].qpc - 10), std::string() });
+			for (const DeviceInfo &device : reference::Devices())
+				AppendDevice(records, device);
+		}
+		AppendSample(records, stream[i]);
+	}
+	AppendEnd(records, { static_cast<uint8_t>(EndReason::AppExit), stream.back().qpc + 1000,
+		reference::TimeAt(stream.back().qpc + 1000), stream.size() });
+	return records;
+}
+
+std::string RawFileOf(const std::string &records)
+{
+	std::string file;
+	AppendHeader(file, reference::FileHeader());
+	return file + records;
+}
+
+std::string CompactFileOf(const std::string &records, uint32_t velocityScale)
+{
+	Header header = reference::FileHeader();
+	header.version = FormatVersionCompact;
+	header.mode = ModeCompact;
+	header.velocityScale = header.angularScale = velocityScale;
+	std::string file;
+	AppendHeader(file, header);
+	CompactWriter writer({ header.qpcFrequency, velocityScale, velocityScale });
+	AppendCompact(file, writer, records);
+	writer.Flush(file);
+	return file;
+}
+
+// Every record that is no sample, with how many samples are in front of it.
+std::string OtherRecordsOf(const ReadBack &back)
+{
+	std::string others;
+	size_t samples = 0;
+	for (const Record &record : back.records)
+	{
+		if (record.kind == KindSample)
+			++samples;
+		else if (record.kind == KindSamples)
+			samples += record.samples.size();
+		else if (record.kind != KindSync)
+		{
+			others += std::to_string(samples) + ":";
+			AppendRecord(others, record);
+		}
+	}
+	return others;
+}
+
+void CompactRoundTrip(Check check)
+{
+	const std::vector<Sample> stream = OddMotionStream(6.0);
+	const std::string records = RecordsOf(stream);
+	const ReadBack raw = ReadBytes(RawFileOf(records));
+	std::string wrong, sizes;
+	bool others = true, repeats = true;
+	for (uint32_t scale : { 10000u, 100000u })
+	{
+		const std::string file = CompactFileOf(records, scale);
+		const ReadBack back = ReadBytes(file);
+		std::string why = !back.headerRead || back.end != Reader::Next::EndOfFile ? "the file is not read to its end: " + back.error
+			: back.header.version != FormatVersionCompact || back.header.velocityScale != scale ? "the header is another"
+			: StoredAre(back, stream);
+		size_t inBlocks = 0, changed = 0;
+		const std::vector<Sample> stored = SamplesOf(back);
+		for (const Record &record : back.records)
+			inBlocks += record.kind == KindSamples ? record.samples.size() : 0;
+		for (size_t i = 0; i < stored.size() && i < stream.size(); ++i)
+			changed += SampleBytes(stored[i]) != SampleBytes(stream[i]) ? 1 : 0;
+		// The test is of blocks: nearly every sample is in one, and the trackers'
+		// are stored in steps.
+		if (why.empty() && (inBlocks * 10 < stream.size() * 9 || changed * 2 < stream.size()))
+			why = "too few samples are in blocks or in steps for this to be a test of them";
+		if (why.empty() && file.size() * 4 > raw.bytes)
+			why = "the compact file is more than a quarter of the raw one";
+		if (!why.empty() && wrong.empty())
+			wrong = "at " + std::to_string(scale) + " steps: " + why;
+		others = others && OtherRecordsOf(back) == OtherRecordsOf(raw);
+		// The sample that repeated the one before it still does, number for number.
+		for (size_t i = 400; i < 410 && i < stored.size(); ++i)
+			if (stream[i].deviceId != 0)
+			{
+				size_t before = i;
+				while (before-- > 0 && stored[before].deviceId != stored[i].deviceId) { }
+				double now[compact::PoseNumbers], was[compact::PoseNumbers];
+				compact::PoseOf(stored[i], now);
+				compact::PoseOf(stored[before], was);
+				repeats = repeats && std::memcmp(now, was, sizeof now) == 0;
+				break;
+			}
+		char text[96];
+		snprintf(text, sizeof text, "%s%u steps: %.2f bytes a sample, %zu in blocks", sizes.empty() ? "" : "; ", scale,
+			static_cast<double>(file.size()) / static_cast<double>(stream.size()), inBlocks);
+		sizes += text;
+	}
+	const std::string detail = std::to_string(stream.size()) + " samples, raw " + std::to_string(raw.bytes) + " bytes; " +
+		sizes + (wrong.empty() ? "" : "; " + wrong);
+	check("compact recording: every sample reads back within its steps, and bit for bit when it is of single-precision "
+		"numbers or fits no block", wrong.empty() && repeats, detail.c_str());
+	check("compact recording: the records that are no samples stay as they are, in their places", others,
+		others ? "a gap, a mark, a pause, a resume, three devices, an end" : "they differ from the raw file's");
+
+	// The reference recording against the raw records it was made from.
+	const std::string reference = StoredAre(ReadBytes(reference::CompactRecording(true)),
+		SamplesOf(ReadBytes(reference::CompactRecording(false))));
+	check("compact recording: the reference recording holds its raw twin's samples within its steps", reference.empty(),
+		reference.c_str());
+}
+
+// Reading can start where a compact file's blocks reach back to nothing:
+// behind the header, a sync and a resume. From each such place the rest of
+// the file reads as it does from the start; from any other, a block is
+// refused, not misread.
+void CompactStartsAnywhere(Check check)
+{
+	const std::string file = CompactFileOf(RecordsOf(OddMotionStream(6.0)), 10000);
+	std::vector<uint64_t> places, blockPlaces;
+	std::vector<size_t> samplesBefore;
+	std::vector<Sample> all;
+	size_t syncs = 0;
+	Reader::Next end = Reader::Next::Invalid;
+	{
+		std::istringstream in(file, std::ios::in | std::ios::binary);
+		Reader reader(in);
+		Header header;
+		Record record;
+		reader.ReadHeader(header);
+		for (;;)
+		{
+			const uint64_t offset = reader.BytesRead();
+			const bool fresh = reader.Fresh();
+			end = reader.Read(record);
+			if (end != Reader::Next::Record)
+				break;
+			if (fresh)
+			{
+				places.push_back(offset);
+				samplesBefore.push_back(all.size());
+			}
+			syncs += record.kind == KindSync ? 1 : 0;
+			if (record.kind == KindSample)
+				all.push_back(record.sample);
+			else if (record.kind == KindSamples)
+			{
+				blockPlaces.push_back(offset);
+				all.insert(all.end(), record.samples.begin(), record.samples.end());
+			}
+		}
+	}
+	const auto readFrom = [&](uint64_t offset, std::vector<Sample> &samples)
+	{
+		std::istringstream in(file, std::ios::in | std::ios::binary);
+		Reader reader(in);
+		Header header;
+		Record record;
+		reader.ReadHeader(header);
+		reader.SeekToRecord(offset);
+		Reader::Next state = reader.Read(record);
+		for (; state == Reader::Next::Record; state = reader.Read(record))
+		{
+			if (record.kind == KindSample)
+				samples.push_back(record.sample);
+			else if (record.kind == KindSamples)
+				samples.insert(samples.end(), record.samples.begin(), record.samples.end());
+		}
+		return state;
+	};
+	size_t wrong = 0;
+	for (size_t i = 0; i < places.size(); ++i)
+	{
+		std::vector<Sample> rest;
+		bool same = readFrom(places[i], rest) == Reader::Next::EndOfFile && rest.size() == all.size() - samplesBefore[i];
+		for (size_t k = 0; same && k < rest.size(); ++k)
+			same = SampleBytes(rest[k]) == SampleBytes(all[samplesBefore[i] + k]);
+		wrong += same ? 0 : 1;
+	}
+	// A block in the middle of a stretch has nothing to be read against.
+	size_t misread = 0;
+	for (size_t i = 0; i < blockPlaces.size(); i += 7)
+	{
+		std::vector<Sample> rest;
+		misread += readFrom(blockPlaces[i], rest) == Reader::Next::Invalid && rest.empty() ? 0 : 1;
+	}
+	// The header says how the records are read: no going anywhere without it.
+	std::istringstream unread(file, std::ios::in | std::ios::binary);
+	Reader headless(unread);
+	const bool needsHeader = !places.empty() && !headless.SeekToRecord(places.back()) && !headless.Error().empty();
+	char detail[240];
+	snprintf(detail, sizeof detail, "%zu samples, %zu syncs, %zu places to start (%zu read wrongly), %zu blocks (%zu of those "
+		"tried were not refused), end %d, a reader without the header refuses to go there %d", all.size(), syncs,
+		places.size(), wrong, blockPlaces.size(), misread, static_cast<int>(end), needsHeader);
+	// Six seconds: a sync every two, and the resume.
+	check("compact recording: a reading can start behind the header, a sync and a resume, and nowhere inside a stretch",
+		end == Reader::Next::EndOfFile && syncs >= 2 && places.size() > syncs + 1 && wrong == 0 &&
+			!blockPlaces.empty() && misread == 0 && needsHeader, detail);
+}
+
+void CompactCutAnywhere(Check check)
+{
+	const std::string file = reference::CompactRecording(true);
+	// Where each record ends, by its size alone.
+	std::vector<size_t> edges;
+	{
+		std::istringstream in(file, std::ios::in | std::ios::binary);
+		Reader reader(in);
+		Header header;
+		reader.ReadHeader(header);
+		edges.push_back(static_cast<size_t>(reader.BytesRead()));
+	}
+	const size_t headerBytes = edges[0];
+	while (edges.back() + RecordPrefixBytes <= file.size())
+		edges.push_back(edges.back() + RecordPrefixBytes + (static_cast<uint8_t>(file[edges.back() + 1]) |
+			(static_cast<size_t>(static_cast<uint8_t>(file[edges.back() + 2])) << 8)));
+	size_t wrong = 0, firstWrong = 0, blocksCut = 0;
+	for (size_t cut = 0; cut <= file.size(); ++cut)
+	{
+		const ReadBack back = ReadBytes(file.substr(0, cut));
+		bool right;
+		if (cut < headerBytes)
+			right = !back.headerRead && !back.error.empty();
+		else
+		{
+			size_t whole = 0;
+			bool onEdge = false;
+			for (size_t i = 0; i < edges.size(); ++i)
+			{
+				if (i > 0 && edges[i] <= cut)
+					++whole;
+				onEdge = onEdge || edges[i] == cut;
+			}
+			right = back.headerRead && back.records.size() == whole && back.error.empty() &&
+				back.end == (onEdge ? Reader::Next::EndOfFile : Reader::Next::Truncated) && back.bytes == edges[whole];
+			blocksCut += !onEdge && static_cast<uint8_t>(file[edges[whole]]) == KindSamples ? 1 : 0;
+		}
+		if (!right && wrong++ == 0)
+			firstWrong = cut;
+	}
+	char detail[160];
+	snprintf(detail, sizeof detail, "%zu cuts of a %zu-byte file with %zu records, %zu of them inside a block, %zu read "
+		"wrongly (first at byte %zu)", file.size() + 1, file.size(), edges.size() - 1, blocksCut, wrong, firstWrong);
+	check("compact recording: a file cut at any byte reads up to its last whole record",
+		wrong == 0 && edges.back() == file.size() && blocksCut > 100, detail);
+}
+
+void CompactRefusals(Check check)
+{
+	Header header = reference::FileHeader();
+	header.version = FormatVersionCompact;
+	header.mode = ModeCompact;
+	header.velocityScale = header.angularScale = reference::CompactVelocityScale;
+	std::string good;
+	AppendHeader(good, header);
+	// Three whole samples of three devices, and blocks that fit behind them.
+	const std::vector<Sample> whole = BlockWholeSamples();
+	std::string start = good;
+	for (const Sample &sample : whole)
+		AppendSample(start, sample);
+	const std::vector<std::string> blocks = BlockSeeds();
+	const std::string &one = blocks.back();
+	const auto block = [](const std::string &payload)
+	{
+		std::string record;
+		PutRecordPrefix(record, KindSamples, payload.size());
+		return record + payload;
+	};
+
+	struct Case
+	{
+		const char *name;
+		std::string bytes;
+		size_t wholeRecords;   // returned before the refusal; none for a header
+		bool inHeader;
+	};
+	std::vector<Case> cases;
+	const auto head = [&](const char *name, const std::function<void(Header &)> &change)
+	{
+		Header changed = header;
+		change(changed);
+		std::string bytes;
+		AppendHeader(bytes, changed);
+		cases.push_back({ name, bytes, 0, true });
+	};
+	head("a compact file that says it is raw", [](Header &h) { h.mode = ModeRaw; });
+	head("a velocity scale of zero", [](Header &h) { h.velocityScale = 0; });
+	head("a velocity scale under the least", [](Header &h) { h.velocityScale = compact::MinVelocityScale - 1; });
+	head("an angular scale over the most", [](Header &h) { h.angularScale = compact::MaxVelocityScale + 1; });
+	head("a clock too slow for a pose time", [](Header &h) { h.qpcFrequency = compact::MinClockRate - 1; });
+	head("a clock too fast", [](Header &h) { h.qpcFrequency = compact::MaxClockRate + 1; });
+
+	std::string resume, sync, payload;
+	AppendResume(resume, { 1, 5000002000, 0, std::string() });
+	AppendSync(sync);
+	cases.push_back({ "a block with no whole sample in front of it", good + block(one), 0, false });
+	cases.push_back({ "a block behind a resume", start + resume + block(one), 4, false });
+	cases.push_back({ "a block behind a sync", start + sync + block(one), 4, false });
+	payload = one;
+	payload[0] = 0;
+	cases.push_back({ "a block that says it holds no sample", start + block(payload), 3, false });
+	payload[0] = 2;
+	cases.push_back({ "a block that says it holds two samples and holds one", start + block(payload), 3, false });
+	cases.push_back({ "a block of one byte", start + block(one.substr(0, 1)), 3, false });
+	cases.push_back({ "a block cut one byte short", start + block(one.substr(0, one.size() - 1)), 3, false });
+	cases.push_back({ "a block with a byte left over", start + block(one + std::string(1, '\0')), 3, false });
+	cases.push_back({ "a block of ones", start + block(std::string("\x01\x00", 2) + std::string(40, '\xFF')), 3, false });
+	cases.push_back({ "a block of zeros", start + block(std::string("\x01\x00", 2) + std::string(40, '\0')), 3, false });
+	std::string synced;
+	PutRecordPrefix(synced, KindSync, 1);
+	cases.push_back({ "a sync with a payload", start + synced + "x", 3, false });
+	// The block's device has a sample that is not a number as its last.
+	std::string unusable = good;
+	for (Sample sample : whole)
+	{
+		if (sample.deviceId == 3)
+			sample.velocity[0] = std::numeric_limits<double>::quiet_NaN();
+		AppendSample(unusable, sample);
+	}
+	cases.push_back({ "a block for a device whose last sample is not a number", unusable + block(one), 3, false });
+
+	std::string accepted;
+	for (const Case &c : cases)
+	{
+		const ReadBack back = ReadBytes(c.bytes);
+		const bool refused = c.inHeader ? !back.headerRead && back.records.empty() && !back.error.empty()
+			: back.headerRead && back.end == Reader::Next::Invalid && back.records.size() == c.wholeRecords &&
+				!back.error.empty();
+		if (!refused)
+			accepted += std::string(accepted.empty() ? "" : ", ") + c.name;
+	}
+	// What is taken: the blocks themselves, and in a raw file the two kinds as
+	// kinds it does not know.
+	const ReadBack fits = ReadBytes(start + block(blocks.front()) + sync + start.substr(good.size()) + block(one));
+	const bool taken = fits.end == Reader::Next::EndOfFile && KindsOf(fits.records) == "SSSCYSSSC" &&
+		fits.records[3].samples.size() > 1 && fits.records[8].samples.size() == 1;
+	std::string old;
+	AppendHeader(old, reference::FileHeader());
+	AppendSample(old, whole[0]);
+	old += block(one) + synced + "x";
+	AppendSample(old, whole[1]);
+	const ReadBack skipped = ReadBytes(old);
+	std::string again;
+	AppendHeader(again, skipped.header);
+	for (const Record &record : skipped.records)
+		AppendRecord(again, record);
+	const bool unknown = skipped.end == Reader::Next::EndOfFile && skipped.records.size() == 4 &&
+		skipped.records[1].kind == KindSamples && skipped.records[1].samples.empty() && skipped.records[1].unknown == one &&
+		skipped.records[2].kind == KindSync && skipped.records[2].unknown == "x" && again == old;
+	const std::string detail = std::to_string(cases.size()) + " malformed files" +
+		(accepted.empty() ? "" : ", not refused: " + accepted) + (taken ? "" : "; good blocks are not taken (" +
+			KindsOf(fits.records) + " " + fits.error + ")") + (unknown ? "" : "; a raw file's kinds 11 and 12 are not skipped");
+	check("compact recording: a block that does not fit what is in front of it is refused, and a raw file skips the two "
+		"new kinds", accepted.empty() && taken && unknown, detail.c_str());
 }
 
 // ---------------------------------------------------------------------------
@@ -1690,6 +2248,239 @@ void RecorderStopsWhileDropping(Check check)
 	check("pose recorder: a stop while the oldest part is dropped leaves one whole file", holds, detail);
 }
 
+// The first sample record behind each place a reader forgets its devices (the
+// header, a resume, a sync) is a whole one, never a block.
+bool StretchesStartWhole(const ReadBack &back)
+{
+	bool fresh = true, whole = true;
+	for (const Record &record : back.records)
+	{
+		if (record.kind == KindResume || record.kind == KindSync)
+			fresh = true;
+		else if (record.kind == KindSample)
+			fresh = false;
+		else if (record.kind == KindSamples)
+			whole = whole && !fresh;
+	}
+	return whole;
+}
+
+// A compact recording: the same stream, gaps and boundaries, each sample
+// within the format's steps. It goes on as it began, whatever is asked for at
+// the resume, and so does a raw one.
+void RecorderCompact(Check check)
+{
+	using Start = PoseRecorder::StartResult;
+	char detail[320];
+	{
+		TempFolder folder;
+		Feed feed;
+		PoseRecorder recorder;
+		PoseRecordingLimits limits = TestLimits();
+		limits.compact = true;
+		bool reached = recorder.Start(feed.hub, folder.Dir(), "test", { Headset(), Tracker() }, limits) == Start::Started;
+		const auto send = [&](size_t count)
+		{
+			for (size_t i = 0; i < count; ++i)
+				feed.Send(i % 2 ? 3 : 0);
+			return WaitForSamples(recorder, feed.sent.size());
+		};
+		reached = reached && send(40);
+		feed.hub.AppendGapForTest(5);
+		reached = reached && send(40);
+		feed.hub.AppendSessionBoundaryForTest();
+		reached = reached && send(40);
+		recorder.RequestPause();
+		PoseRecorder::Finished first;
+		reached = reached && Finish(recorder, first);
+		const std::string afterPause = FileContents(folder.File());
+		// Raw is asked for now: the file is a compact one and stays one.
+		const auto resumed = recorder.Start(feed.hub, folder.Dir(), "test", { Headset(), Tracker() }, TestLimits());
+		reached = reached && send(40);
+		recorder.RequestPause();
+		PoseRecorder::Finished second;
+		reached = reached && Finish(recorder, second);
+
+		const std::string bytes = FileContents(folder.File());
+		const ReadBack back = ReadBytes(bytes);
+		const std::string kinds = KindsOf(back.records);
+		const std::string stored = StoredAre(back, feed.sent);
+		size_t inBlocks = 0, gaps = 0, boundaries = 0, resumes = 0;
+		for (const Record &record : back.records)
+		{
+			inBlocks += record.kind == KindSamples ? record.samples.size() : 0;
+			gaps += record.kind == KindGap ? 1 : 0;
+			boundaries += record.kind == KindBoundary ? 1 : 0;
+			resumes += record.kind == KindResume ? 1 : 0;
+		}
+		LARGE_INTEGER frequency{};
+		QueryPerformanceFrequency(&frequency);
+		const bool holds = reached && resumed == Start::Resumed && back.headerRead && back.end == Reader::Next::EndOfFile &&
+			back.header.version == FormatVersionCompact && back.header.mode == ModeCompact &&
+			back.header.velocityScale == limits.velocityScale && back.header.angularScale == limits.angularScale &&
+			back.header.qpcFrequency == frequency.QuadPart && stored.empty() && inBlocks >= 150 && gaps == 2 &&
+			boundaries == 1 && resumes == 1 && StretchesStartWhole(back) && kinds.compare(0, 2, "SS") == 0 &&
+			kinds.back() == 'P' && bytes.compare(0, afterPause.size(), afterPause) == 0 && first.compact && second.compact &&
+			second.samples == feed.sent.size() && second.bytes == bytes.size() && second.closedCleanly &&
+			bytes.size() * 3 < feed.sent.size() * (RecordPrefixBytes + SamplePayloadBytes);
+		snprintf(detail, sizeof detail, "reached %d, resume %d, version %u, %zu of %zu samples in blocks, %zu bytes, "
+			"records %.24s..., end %d %s %s", reached, static_cast<int>(resumed), back.header.version, inBlocks,
+			feed.sent.size(), bytes.size(), kinds.c_str(), static_cast<int>(back.end), back.error.c_str(), stored.c_str());
+		check("pose recorder: a compact recording holds the hub's stream within its steps and goes on compact", holds,
+			detail);
+	}
+	{
+		// The other way round: a raw recording goes on raw when compact is asked for.
+		TempFolder folder;
+		Feed feed;
+		PoseRecorder recorder;
+		bool reached = recorder.Start(feed.hub, folder.Dir(), "test", { Headset(), Tracker() }, TestLimits()) == Start::Started;
+		feed.Send(0);
+		feed.Send(3);
+		reached = reached && WaitForSamples(recorder, 2);
+		recorder.RequestPause();
+		PoseRecorder::Finished first;
+		reached = reached && Finish(recorder, first);
+		PoseRecordingLimits limits = TestLimits();
+		limits.compact = true;
+		const auto resumed = recorder.Start(feed.hub, folder.Dir(), "test", { Headset(), Tracker() }, limits);
+		for (int i = 0; i < 20; ++i)
+			feed.Send(i % 2 ? 3 : 0);
+		reached = reached && WaitForSamples(recorder, feed.sent.size());
+		recorder.RequestPause();
+		PoseRecorder::Finished second;
+		reached = reached && Finish(recorder, second);
+		const ReadBack back = ReadFile(folder.File());
+		// A velocity scale no compact file has: the new recording is a raw one.
+		Feed other;
+		TempFolder elsewhere;
+		PoseRecorder plain;
+		limits.velocityScale = 7;
+		bool wrote = plain.Start(other.hub, elsewhere.Dir(), "test", { Headset() }, limits) == Start::Started;
+		other.Send(0);
+		wrote = wrote && WaitForSamples(plain, 1);
+		plain.RequestPause();
+		PoseRecorder::Finished third;
+		wrote = wrote && Finish(plain, third);
+		const ReadBack fallback = ReadFile(elsewhere.File());
+		snprintf(detail, sizeof detail, "reached %d, resume %d, version %u, records %.24s...; with a scale of 7: wrote %d, "
+			"version %u", reached, static_cast<int>(resumed), back.header.version, KindsOf(back.records).c_str(), wrote,
+			fallback.header.version);
+		check("pose recorder: a raw recording goes on raw, and a compact one that cannot be made is a raw one",
+			reached && resumed == Start::Resumed && back.end == Reader::Next::EndOfFile &&
+				back.header.version == FormatVersion && SamplesAre(back, feed.sent) && !first.compact && !second.compact &&
+				wrote && fallback.header.version == FormatVersion && SamplesAre(fallback, other.sent) && !third.compact,
+			detail);
+	}
+}
+
+// "Automatic" in a compact file: what waited in memory is made into blocks
+// when the clip is written, behind the clip's resume record, so every clip
+// starts with whole samples and reads by itself.
+void RecorderCompactClips(Check check)
+{
+	TempFolder folder;
+	Feed feed;
+	PoseRecorder recorder;
+	PoseRecordingLimits limits = ClipLimits(60.0, 60.0);
+	limits.compact = true;
+	bool reached = recorder.Start(feed.hub, folder.Dir(), "clips", { Headset(), Tracker() }, limits) ==
+		PoseRecorder::StartResult::Started;
+	// Thirty poses wait; a base station moves; ten more follow.
+	for (int i = 0; i < 30; ++i)
+		feed.Send(i % 2 ? 3 : 0);
+	reached = reached && WaitForKept(recorder, 30);
+	recorder.Mark(markname::BaseStationMoved);
+	reached = reached && WaitForSamples(recorder, 30);
+	for (int i = 0; i < 10; ++i)
+		feed.Send(i % 2 ? 3 : 0);
+	reached = reached && WaitForSamples(recorder, 40);
+	recorder.RequestPause();
+	PoseRecorder::Finished first;
+	reached = reached && Finish(recorder, first);
+	// The recording goes on: twenty wait, and the player saves them.
+	const auto resumed = recorder.Start(feed.hub, folder.Dir(), "clips", { Headset(), Tracker() }, limits);
+	for (int i = 0; i < 20; ++i)
+		feed.Send(i % 2 ? 3 : 0);
+	reached = reached && WaitForKept(recorder, 20);
+	recorder.Mark(markname::Player, NoDevice, false);
+	reached = reached && WaitFor([&] { return recorder.GetProgress().clips == 2; });
+	recorder.RequestPause();
+	PoseRecorder::Finished second;
+	reached = reached && Finish(recorder, second);
+
+	const std::string bytes = FileContents(folder.File());
+	const ReadBack back = ReadBytes(bytes);
+	const std::string kinds = KindsOf(back.records);
+	const std::string stored = StoredAre(back, feed.sent);
+	size_t inBlocks = 0, resumes = 0;
+	for (const Record &record : back.records)
+	{
+		inBlocks += record.kind == KindSamples ? record.samples.size() : 0;
+		resumes += record.kind == KindResume ? 1 : 0;
+	}
+	const bool holds = reached && resumed == PoseRecorder::StartResult::Resumed && back.end == Reader::Next::EndOfFile &&
+		back.header.version == FormatVersionCompact && stored.empty() && resumes == 2 && StretchesStartWhole(back) &&
+		kinds.compare(0, 6, "PRDDSS") == 0 && inBlocks == feed.sent.size() - 4 && second.clips == 2 && second.compact &&
+		second.samples == feed.sent.size() && second.bytes == bytes.size();
+	char detail[320];
+	snprintf(detail, sizeof detail, "reached %d, resume %d, version %u, records %s, %zu of %zu samples in blocks, clips %llu, "
+		"end %d %s %s", reached, static_cast<int>(resumed), back.header.version, kinds.c_str(), inBlocks, feed.sent.size(),
+		static_cast<unsigned long long>(second.clips), static_cast<int>(back.end), back.error.c_str(), stored.c_str());
+	check("pose recorder: a compact clip starts with whole samples and holds what waited in memory within its steps",
+		holds, detail);
+}
+
+// The size cap in a compact file: the part that stays starts behind a sync, so
+// the file that is left is a whole compact recording of the newest samples.
+void RecorderCompactKeepsNewest(Check check)
+{
+	TempFolder folder;
+	Feed feed;
+	PoseRecorder recorder;
+	// A place to cut every 2 KB, each of which costs a sync and two whole
+	// samples: the file is still mostly blocks.
+	PoseRecordingLimits limits = KeepLimits(16 * 1024, 2048, 2048);
+	limits.compact = true;
+	bool reached = recorder.Start(feed.hub, folder.Dir(), "test", { Headset(), Tracker() }, limits) ==
+		PoseRecorder::StartResult::Started;
+	uint64_t largest = 0;
+	for (int batch = 0; batch < 80 && reached; ++batch)
+	{
+		for (int i = 0; i < 50; ++i)
+			feed.Send(i % 2 ? 3 : 0);
+		reached = WaitFor([&] { return Written(recorder) == feed.sent.size(); });
+		largest = (std::max)(largest, recorder.GetProgress().bytes);
+	}
+	const PoseRecorder::Progress progress = recorder.GetProgress();
+	recorder.RequestPause();
+	PoseRecorder::Finished finished;
+	const bool closed = Finish(recorder, finished);
+
+	const std::string bytes = FileContents(folder.File());
+	const ReadBack back = ReadBytes(bytes);
+	const std::string kinds = KindsOf(back.records);
+	const std::vector<Sample> stored = SamplesOf(back);
+	std::string newest = stored.size() > feed.sent.size() ? "the file holds more samples than were sent" : "";
+	if (newest.empty())
+		newest = StoredAre(back, std::vector<Sample>(feed.sent.end() - static_cast<std::ptrdiff_t>(stored.size()),
+			feed.sent.end()));
+	const bool holds = reached && closed && back.headerRead && back.end == Reader::Next::EndOfFile &&
+		back.header.version == FormatVersionCompact && bytes.size() <= limits.maxFileBytes &&
+		largest <= limits.maxFileBytes && newest.empty() && stored.size() >= 20 && stored.size() < feed.sent.size() &&
+		StretchesStartWhole(back) && finished.samples == stored.size() && finished.trims >= 1 &&
+		progress.trimmedSamples + stored.size() == feed.sent.size() && finished.closedCleanly &&
+		finished.bytes == bytes.size() && folder.Files() == 1 && recorder.CanResume(folder.Dir());
+	char detail[320];
+	snprintf(detail, sizeof detail, "reached %d, closed %d, %zu of %zu samples in %zu bytes under a cap of %llu (largest "
+		"%llu), dropped %llu time(s), records %.16s..., end %d %s %s", reached, closed, stored.size(), feed.sent.size(),
+		bytes.size(), static_cast<unsigned long long>(limits.maxFileBytes), static_cast<unsigned long long>(largest),
+		static_cast<unsigned long long>(finished.trims), kinds.c_str(), static_cast<int>(back.end), back.error.c_str(),
+		newest.c_str());
+	check("pose recorder: a compact recording that drops its oldest part is a whole compact recording of the newest "
+		"samples", holds, detail);
+}
+
 // What turns into a mark: a count of Nova Calibrator's that went up, and a
 // device that had tracking for a while and lost it.
 void TriggerWatchScenarios(Check check)
@@ -1980,6 +2771,56 @@ void PlaybackScenarios(Check check)
 		"names with a path, a drive, a server or two dots are refused");
 }
 
+// A compact recording plays as its raw twin does: the same timeline, and each
+// device at the same place within the format's steps, also after a jump to a
+// moment whose samples are in the middle of a stretch.
+void PlaybackCompact(Check check)
+{
+	const std::string records = RecordsOf(MotionStream(6.0));
+	const std::string rawBytes = RawFileOf(records), compactBytes = CompactFileOf(records, 10000);
+	Playback raw, compacted;
+	raw.Open(SourceOf(rawBytes), rawBytes.size(), true);
+	compacted.Open(SourceOf(compactBytes), compactBytes.size(), true);
+	const Playback::Summary a = raw.GetSummary(), b = compacted.GetSummary();
+	bool timeline = a.state == Playback::State::Ready && b.state == Playback::State::Ready && a.samples == b.samples &&
+		a.samples > 5000 && a.seconds == b.seconds && a.seconds > 5.5 && a.stretches.size() == 2 &&
+		b.stretches.size() == 2 && a.lost == b.lost && a.losses.size() == b.losses.size() && a.marks.size() == 1 &&
+		b.marks.size() == 1 && a.devices == b.devices && !a.cutShort && !b.cutShort && b.error.empty();
+	for (size_t i = 0; timeline && i < a.stretches.size(); ++i)
+		timeline = a.stretches[i].start == b.stretches[i].start && a.stretches[i].seconds == b.stretches[i].seconds;
+	// Forward, far back, far ahead, and a little back: each a new place to
+	// start reading for the compact file.
+	double furthest = 0.0;
+	size_t compared = 0;
+	bool same = true;
+	std::vector<Playback::DevicePose> one, two;
+	for (double moment : { 0.3, 1.1, 5.2, 0.7, 4.9, 2.6, 2.55, 5.9, 3.3 })
+	{
+		// A long jump is given a few frames to arrive, as the page gives it.
+		for (int frame = 0; frame < 3; ++frame)
+			same = raw.Frame(moment, one) && compacted.Frame(moment, two) && same;
+		same = same && one.size() == two.size() && one.size() == 4;
+		// By id: the order is that of each reading's first samples.
+		for (uint32_t id : { 0u, 1u, 2u, 4u })
+		{
+			const Playback::DevicePose *left = PoseOf(one, id), *right = PoseOf(two, id);
+			same = same && left && right && left->tracked && right->tracked && !left->trail.empty() && !right->trail.empty();
+			if (!same)
+				break;
+			for (int axis = 0; axis < 3; ++axis)
+				furthest = (std::max)(furthest, std::abs(left->position[axis] - right->position[axis]));
+			++compared;
+		}
+	}
+	char detail[256];
+	snprintf(detail, sizeof detail, "raw: %llu samples, %.6f s; compact: %llu samples, %.6f s, state %d %s; %zu poses compared, "
+		"furthest apart %.3g m, same devices and paths %d", static_cast<unsigned long long>(a.samples), a.seconds,
+		static_cast<unsigned long long>(b.samples), b.seconds, static_cast<int>(b.state), b.error.c_str(), compared,
+		furthest, same);
+	check("playback: a compact recording plays as the raw one does, also after a jump", timeline && same && compared == 36 &&
+		furthest < 2e-6, detail);
+}
+
 // Every sentence the module shows (Overlay/MotionRecorderText.h) has its
 // translation in lang/ja.txt and lang/it.txt, the built messages by their
 // patterns.
@@ -2028,6 +2869,10 @@ void RunPoseRecordingScenarios(Check check)
 	Refusals(check);
 	ReferenceRecordings(check);
 	ReaderProperties(check);
+	CompactRoundTrip(check);
+	CompactStartsAnywhere(check);
+	CompactCutAnywhere(check);
+	CompactRefusals(check);
 	RecorderKeepsTheStream(check);
 	RecorderPauseAndResume(check);
 	RecorderOneRecording(check);
@@ -2043,8 +2888,12 @@ void RunPoseRecordingScenarios(Check check)
 	RecorderKeepsNewest(check);
 	RecorderKeepsNewestClips(check);
 	RecorderStopsWhileDropping(check);
+	RecorderCompact(check);
+	RecorderCompactClips(check);
+	RecorderCompactKeepsNewest(check);
 	TriggerWatchScenarios(check);
 	PlaybackScenarios(check);
 	PlaybackMarks(check);
+	PlaybackCompact(check);
 	TextIsTranslated(check);
 }

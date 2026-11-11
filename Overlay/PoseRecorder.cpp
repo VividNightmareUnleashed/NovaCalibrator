@@ -99,6 +99,21 @@ recording::Sample ToSample(const protocol::DevicePoseSample &pose)
 	return sample;
 }
 
+// A header for a file of this kind, without its start and its devices.
+recording::Header HeaderFor(bool compact, const recording::compact::Parameters &parameters)
+{
+	recording::Header header;
+	header.qpcFrequency = parameters.clockRate;
+	if (compact)
+	{
+		header.version = recording::FormatVersionCompact;
+		header.mode = recording::ModeCompact;
+		header.velocityScale = parameters.velocityScale;
+		header.angularScale = parameters.angularScale;
+	}
+	return header;
+}
+
 struct PendingMark
 {
 	recording::Mark record;
@@ -217,6 +232,9 @@ struct PoseRecorder::Session
 	std::shared_ptr<CutPoints> cuts;
 	int64_t qpcFrequency = 1;
 	int64_t startQpc = 0;
+	// The file is a compact one, with these scales (format version 2).
+	bool compact = false;
+	recording::compact::Parameters parameters;
 	// The recording's counts and length before this stretch.
 	uint64_t earlierSamples = 0;
 	double earlierSeconds = 0.0;
@@ -398,6 +416,12 @@ PoseRecorder::StartResult PoseRecorder::Start(PoseStreamHub &hub, const std::wst
 		LARGE_INTEGER frequency{};
 		QueryPerformanceFrequency(&frequency);
 		session.qpcFrequency = frequency.QuadPart;
+		// A recording that goes on is stored as its file began. A new one is
+		// compact when that was asked for and this clock is one a compact file
+		// can have.
+		session.parameters = { session.qpcFrequency, resume ? paused_.velocityScale : limits.velocityScale,
+			resume ? paused_.angularScale : limits.angularScale };
+		session.compact = resume ? paused_.compact : limits.compact && recording::compact::Valid(session.parameters);
 		session.earlierSamples = paused_.samples;
 		session.earlierSeconds = paused_.seconds;
 		session.samples.store(paused_.samples, std::memory_order_release);
@@ -461,8 +485,7 @@ PoseRecorder::StartResult PoseRecorder::Start(PoseStreamHub &hub, const std::wst
 				UnixMicrosecondsNow(), std::string() });
 		else
 		{
-			recording::Header header;
-			header.qpcFrequency = session.qpcFrequency;
+			recording::Header header = HeaderFor(session.compact, session.parameters);
 			header.startQpc = session.startQpc;
 			header.startUnixMicroseconds = UnixMicrosecondsNow();
 			header.writer = writer;
@@ -678,13 +701,14 @@ void PoseRecorder::Harvest(Finished &finished)
 	finished.seconds = session.seconds;
 	finished.clipMode = session.limits.clips;
 	finished.clips = session.clips.load(std::memory_order_acquire);
+	finished.compact = session.compact;
 	finished.trims = session.trims.load(std::memory_order_acquire);
 	finished.closedCleanly = session.closedCleanly;
 	finished.error = session.error;
 	paused_ = Paused();
 	if (finished.paused && finished.saved && finished.closedCleanly)
 		paused_ = { true, finished.path, finished.bytes, finished.samples, finished.lost, finished.seconds,
-			finished.clips };
+			finished.clips, session.compact, session.parameters.velocityScale, session.parameters.angularScale };
 	session_.reset();
 }
 
@@ -714,6 +738,13 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 	int64_t clipStartQpc = 0, clipEndQpc = 0;
 	// The counts this stretch's closed clips lasted.
 	int64_t clipTicks = 0;
+	// A compact file's samples go through this: most into a block that stays
+	// open until the pass ends or another record comes. It starts as a reader
+	// does behind the header or the resume record this stretch began with.
+	const bool compact = session.compact;
+	recording::CompactWriter encoder(session.parameters);
+	// What one more sample can add to the file at most.
+	const size_t sampleBytes = compact ? recording::compact::MaxSampleBytes + 16 : SampleRecordBytes;
 
 	const auto fail = [&](const std::string &why)
 	{
@@ -839,8 +870,7 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 		// A header that begins at the cut, then what the file had said by then of
 		// each device, its model and the calibration.
 		std::string prefix;
-		recording::Header header;
-		header.qpcFrequency = session.qpcFrequency;
+		recording::Header header = HeaderFor(session.compact, session.parameters);
 		header.startQpc = point.qpc;
 		header.startUnixMicroseconds = point.unixMicroseconds;
 		header.writer = session.writer;
@@ -970,7 +1000,8 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 	const size_t closingBytes = ClosingRecordBytes * (clips ? 2 : 1);
 	const auto underCap = [&](size_t recordBytes)
 	{
-		return session.bytes.load(std::memory_order_relaxed) + out.size() + recordBytes + closingBytes <= cap;
+		return session.bytes.load(std::memory_order_relaxed) + out.size() + encoder.Pending() + recordBytes +
+			closingBytes <= cap;
 	};
 	const auto fits = [&](size_t recordBytes)
 	{
@@ -1064,7 +1095,17 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 				KeptPiece piece;
 				piece.qpc = now;
 				std::string &to = keeping ? piece.bytes : out;
-				const auto room = [&](size_t recordBytes) { return keeping || fits(recordBytes); };
+				// The room a record needs, and the open block closed in front of
+				// it: a record that is no sample never goes inside one.
+				const auto room = [&](size_t recordBytes)
+				{
+					if (keeping)
+						return true;
+					if (!fits(recordBytes))
+						return false;
+					encoder.Flush(out);
+					return true;
+				};
 				const auto describe = [&](const recording::DeviceInfo &device)
 				{
 					if (!room(DeviceRecordBytes))
@@ -1143,7 +1184,7 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 						if (ended)
 							break;
 					}
-					if (!room(SampleRecordBytes))
+					if (!keeping && !fits(sampleBytes))
 					{
 						full();
 						break;
@@ -1153,11 +1194,19 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 						ended = true;
 						break;
 					}
-					recording::AppendSample(to, ToSample(pose));
+					// What waits in memory for a clip waits as it came: a clip's
+					// blocks are made when the clip is written.
 					if (keeping)
+					{
+						recording::AppendSample(to, ToSample(pose));
 						++piece.samples;
+					}
 					else
 					{
+						if (compact)
+							encoder.Append(out, ToSample(pose));
+						else
+							recording::AppendSample(out, ToSample(pose));
 						++samples;
 						if (out.size() >= WriteChunkBytes && !write())
 							ended = true;
@@ -1197,6 +1246,7 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 							full();
 						else
 						{
+							encoder.Flush(out);
 							recording::AppendMark(out, mark.record);
 							clipEndQpc = (std::max)(clipEndQpc, until);
 						}
@@ -1224,7 +1274,18 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 						alignment.qpc = from;
 						recording::AppendAlignment(opening, alignment);
 					}
-					if (!fits(opening.size() + keptBytes + MarkRecordBytes))
+					// A compact file gets what was kept as blocks, which start anew
+					// behind the resume record as a reader does there. Their size is
+					// known only once they are made.
+					std::string blocks;
+					if (compact)
+					{
+						encoder.Restart();
+						for (const KeptPiece &old : kept)
+							recording::AppendCompact(blocks, encoder, old.bytes);
+						encoder.Flush(blocks);
+					}
+					if (!fits(opening.size() + (compact ? blocks.size() : keptBytes) + MarkRecordBytes))
 					{
 						full();
 						break;
@@ -1235,9 +1296,11 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 						break;
 					}
 					out += opening;
+					out += blocks;
 					for (const KeptPiece &old : kept)
 					{
-						out += old.bytes;
+						if (!compact)
+							out += old.bytes;
 						samples += old.samples;
 						session.lost.fetch_add(old.lost, std::memory_order_release);
 						known.Fold(old);
@@ -1259,6 +1322,10 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 					clipEndQpc = until;
 					session.clipOpenSince.store(from, std::memory_order_release);
 				}
+				// The pass's block closes with the pass, so that the file ends on
+				// a record's edge whenever nothing is being written.
+				if (!ended)
+					encoder.Flush(out);
 				if (!ended && !out.empty() && !write())
 					ended = true;
 
@@ -1283,10 +1350,20 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 				// A place the file can later be cut at: what was written ends on
 				// a record's edge here, and `known` is what a file that starts
 				// here must state (between clips the next clip states the rest).
-				if (keepNewest && session.replaced && !ended && out.empty())
+				if (keepNewest && session.replaced && !ended && out.empty() &&
+					session.bytes.load(std::memory_order_relaxed) >= (cuts.empty() ? 0 : cuts.back().offset) + trimSpacing)
 				{
+					// A compact file that starts here must start with whole samples:
+					// a sync record goes in front of the place. Between clips the
+					// next clip's resume record does the same.
+					if (compact && !armed)
+					{
+						encoder.Sync(out);
+						if (!out.empty() && !write())
+							ended = true;
+					}
 					const uint64_t bytes = session.bytes.load(std::memory_order_relaxed);
-					if (bytes >= (cuts.empty() ? 0 : cuts.back().offset) + trimSpacing)
+					if (!ended)
 					{
 						CutPoint point;
 						point.offset = bytes;
@@ -1366,6 +1443,8 @@ void PoseRecorder::Run(const std::shared_ptr<Session> &shared)
 				closeQpc = QpcNow();
 				closeUnixMicroseconds = UnixMicrosecondsNow();
 			}
+			// What a limit left in an open block still belongs to the file.
+			encoder.Flush(out);
 			// Between clips the file already ends with a pause record (the last
 			// clip's, or the one this stretch went on from): the player's stop
 			// has nothing to add to it.

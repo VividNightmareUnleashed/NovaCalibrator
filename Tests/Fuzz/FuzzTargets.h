@@ -28,8 +28,12 @@
 //   CheckRecording      a pose recording (PoseRecordingFormat.h,
 //                       RecordingPlayback.h; the property is in
 //                       Tests/RecordingProperty.h): what the reader returns is
-//                       the front of the file byte for byte, and a playback of
-//                       it holds together
+//                       the front of the file byte for byte, a playback of it
+//                       holds together, and its samples written as a compact
+//                       file come back within the format's steps
+//   CheckRecordingBlock a compact recording's block of samples alone (format
+//                       version 2's bits): refused, or read as samples that
+//                       are written and read back bit for bit
 
 #include "../../Driver/AlignmentField.h"
 #include "../../Driver/IPCProtocolGate.h"
@@ -757,6 +761,17 @@ inline std::vector<std::string> RecordingSeeds()
 	return questcal::recording::PropertySeeds();
 }
 
+// A compact recording's block of samples alone: the bits of format version 2.
+inline std::string CheckRecordingBlock(const uint8_t *data, size_t size)
+{
+	return questcal::recording::CheckRecordingBlock(data, size);
+}
+
+inline std::vector<std::string> RecordingBlockSeeds()
+{
+	return questcal::recording::BlockSeeds();
+}
+
 struct Target
 {
 	const char *name;
@@ -775,6 +790,7 @@ inline const std::vector<Target> &Targets()
 		{ "request", CheckDriverRequest, RequestSeeds },
 		{ "frame-recovery", CheckFrameRecovery, FrameRecoverySeeds },
 		{ "recording", CheckRecording, RecordingSeeds },
+		{ "recording-block", CheckRecordingBlock, RecordingBlockSeeds },
 	};
 	return targets;
 }

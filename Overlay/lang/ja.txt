@@ -1277,8 +1277,8 @@ en: A new recording replaces the previous recording. To keep the previous record
 ja: 新しい記録は前の記録を置き換えます。前の記録を残すには、先にファイルをコピーしてください。
 en: Maximum recording size
 ja: 記録の最大サイズ
-en: One hour of recording can use 3 GB. When the file has this size, Nova Calibrator deletes the oldest part of the recording.
-ja: 記録は 1 時間で約 3 GB になることがあります。ファイルがこのサイズになると、記録の古い部分から削除します。
+en: One hour of recording can use 0.3 GB. When the file has this size, Nova Calibrator deletes the oldest part of the recording.
+ja: 記録は 1 時間で約 0.3 GB になることがあります。ファイルがこのサイズになると、記録の古い部分から削除します。
 en: Open recording folder
 ja: 記録フォルダーを開く
 en: Delete recording

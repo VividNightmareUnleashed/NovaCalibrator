@@ -51,6 +51,34 @@ inline std::string PoseText(const Sample &sample)
 		" " + Real(sample.rotation[2]) + " " + Real(sample.rotation[3]);
 }
 
+// CRC-32 (the one of zlib and PNG) over every sample, each as the 186 bytes a
+// version 1 file holds it in: one number that two readers agree on only when
+// they agree on every bit of every sample.
+struct SampleDigest
+{
+	uint32_t crc = 0xFFFFFFFFu;
+	std::string bytes;
+
+	void Add(const Sample &sample)
+	{
+		bytes.clear();
+		AppendSample(bytes, sample);
+		for (size_t i = RecordPrefixBytes; i < bytes.size(); ++i)
+		{
+			crc ^= static_cast<unsigned char>(bytes[i]);
+			for (int bit = 0; bit < 8; ++bit)
+				crc = (crc >> 1) ^ ((crc & 1u) != 0 ? 0xEDB88320u : 0u);
+		}
+	}
+
+	std::string Text() const
+	{
+		char text[16];
+		snprintf(text, sizeof text, "%08x", static_cast<unsigned>(crc ^ 0xFFFFFFFFu));
+		return text;
+	}
+};
+
 } // namespace detail
 
 // The listing of the recording `in` holds. A file that is not a recording, or
@@ -59,12 +87,16 @@ inline std::string PoseText(const Sample &sample)
 inline std::string Listing(std::istream &in)
 {
 	using namespace detail;
-	std::string out = "novapose listing 1\n";
+	std::string out = "novapose listing 2\n";
 	Reader reader(in);
 	Header header;
 	if (!reader.ReadHeader(header))
 		return out + "file: not a recording\n";
+	const bool compact = header.version == FormatVersionCompact;
 	out += "format: version " + Unsigned(header.version) + ", mode " + Unsigned(header.mode) + "\n";
+	if (compact)
+		out += "velocity steps: " + Unsigned(header.velocityScale) + " in a meter a second, " +
+			Unsigned(header.angularScale) + " in a radian a second\n";
 	out += "writer: " + header.writer + "\n";
 	out += "clock: " + Number(header.qpcFrequency) + " ticks per second, start count " + Number(header.startQpc) +
 		", start time " + Number(header.startUnixMicroseconds) + " us\n";
@@ -78,24 +110,47 @@ inline std::string Listing(std::istream &in)
 		Sample first, last;
 	};
 	std::map<uint32_t, PerDevice> devices;
-	unsigned long long samples = 0;
+	unsigned long long samples = 0, inBlocks = 0;
+	SampleDigest digest;
+	const auto one = [&](const Sample &sample)
+	{
+		PerDevice &device = devices[sample.deviceId];
+		if (device.samples++ == 0)
+			device.first = sample;
+		device.valid += sample.poseValid ? 1 : 0;
+		device.last = sample;
+		digest.Add(sample);
+		++samples;
+	};
 	Record record;
 	Reader::Next next = reader.Read(record);
 	for (; next == Reader::Next::Record; next = reader.Read(record))
 	{
 		const std::string after = " after sample " + Unsigned(samples) + ": ";
+		const auto unknown = [&]
+		{
+			out += "unknown record" + after + "kind " + Unsigned(record.kind) + ", " + Unsigned(record.unknown.size()) +
+				" bytes\n";
+		};
 		switch (record.kind)
 		{
 		case KindSample:
-		{
-			PerDevice &device = devices[record.sample.deviceId];
-			if (device.samples++ == 0)
-				device.first = record.sample;
-			device.valid += record.sample.poseValid ? 1 : 0;
-			device.last = record.sample;
-			++samples;
+			one(record.sample);
 			break;
-		}
+		case KindSamples:
+			// A block of a compact file; in a raw file a kind it does not know.
+			if (record.samples.empty())
+				unknown();
+			for (const Sample &sample : record.samples)
+				one(sample);
+			inBlocks += record.samples.size();
+			break;
+		case KindSync:
+			if (compact)
+				out += "sync after sample " + Unsigned(samples) + "\n";
+			else
+				unknown();
+			break;
 		case KindGap:
 			out += "gap" + after + "lost " + Unsigned(record.gap.lost) + ", hole " + Unsigned(record.gap.holeSize) +
 				", count " + Number(record.gap.qpc) + "\n";
@@ -136,12 +191,14 @@ inline std::string Listing(std::istream &in)
 				", count " + Number(record.mark.qpc) + ", time " + Number(record.mark.unixMicroseconds) + " us\n";
 			break;
 		default:
-			out += "unknown record" + after + "kind " + Unsigned(record.kind) + ", " +
-				Unsigned(record.unknown.size()) + " bytes\n";
+			unknown();
 			break;
 		}
 	}
 	out += "samples: " + Unsigned(samples) + "\n";
+	if (compact)
+		out += "samples in blocks: " + Unsigned(inBlocks) + "\n";
+	out += "sample digest: " + digest.Text() + "\n";
 	for (const auto &entry : devices)
 		out += "samples of device " + Unsigned(entry.first) + ": " + Unsigned(entry.second.samples) + ", valid " +
 			Unsigned(entry.second.valid) + ", first " + PoseText(entry.second.first) + ", last " +

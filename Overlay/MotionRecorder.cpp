@@ -459,6 +459,8 @@ bool Start()
 		// At the cap the oldest part goes and the recording goes on.
 		limits.keepNewest = true;
 		limits.clips = ModeChoice() == Mode::Automatic;
+		// A new recording is compact unless the settings record asks for raw.
+		limits.compact = !ctx.motionRecorderRaw;
 		Recorder.SetAlignment(AlignmentNow(ctx));
 		result = Recorder.Start(*Hub, folder, std::string("Nova Calibrator ") + QUESTCAL_VERSION_STRING, LiveDevices,
 			limits, &detail);
@@ -474,7 +476,7 @@ bool Start()
 				(result == PoseRecorder::StartResult::Resumed ? "resumed: " : "started: ") +
 				PathForLog(Utf8FromWide(PoseRecorder::FilePath(folder))) + ", " + std::to_string(LiveDevices.size()) +
 				" device(s), cap " + std::to_string(limits.maxFileBytes >> 30) + " GiB, " +
-				(limits.clips ? "clips" : "every sample"));
+				(limits.clips ? "clips" : "every sample") + (limits.compact ? ", compact asked for" : ", raw asked for"));
 			return true;
 		}
 	}

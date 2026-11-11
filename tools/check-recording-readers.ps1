@@ -18,6 +18,12 @@
       3. tools\read-recording.py, a second reader written from the document
          and sharing no code with the first, prints the same (when Python 3
          is installed).
+      4. tools\novapose-convert.cpp compiles the same way, and writes each
+         reference recording again as a compact one (format version 2) and
+         as a raw one. Both readers print one listing for each result, so
+         they agree on every bit of every sample a block gives; and the
+         compact copy of a whole recording holds the same records and
+         samples as the recording it was made from.
 
     Run it after a change to the format, the listing or either reader.
 
@@ -73,17 +79,21 @@ foreach ($line in (& cmd.exe /c "`"$vcvars`" >nul 2>nul && set")) {
     if ($line -match '^([^=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process') }
 }
 $listingExe = Join-Path $out 'novapose-listing.exe'
-$ErrorActionPreference = 'Continue'
-# Objects land in the working directory.
-Push-Location $out
-$compile = & cl.exe /nologo /std:c++17 /EHsc /W4 /WX /O2 /I $alone `
-    (Join-Path $root 'tools\novapose-listing.cpp') "/Fe$listingExe" 2>&1
-$compileExit = $LASTEXITCODE
-Pop-Location
-$ErrorActionPreference = 'Stop'
-if ($compileExit -ne 0) {
-    $compile | Write-Output
-    throw 'The reader did not compile by itself: it needs something outside its two headers and the standard library.'
+$convertExe = Join-Path $out 'novapose-convert.exe'
+foreach ($tool in @(@{ Source = 'tools\novapose-listing.cpp'; Exe = $listingExe },
+        @{ Source = 'tools\novapose-convert.cpp'; Exe = $convertExe })) {
+    $ErrorActionPreference = 'Continue'
+    # Objects land in the working directory.
+    Push-Location $out
+    $compile = & cl.exe /nologo /std:c++17 /EHsc /W4 /WX /O2 /I $alone `
+        (Join-Path $root $tool.Source) "/Fe$($tool.Exe)" 2>&1
+    $compileExit = $LASTEXITCODE
+    Pop-Location
+    $ErrorActionPreference = 'Stop'
+    if ($compileExit -ne 0) {
+        $compile | Write-Output
+        throw "$($tool.Source) did not compile by itself: it needs something outside the reader's two headers and the standard library."
+    }
 }
 
 # 2 and 3. Both readers against the stored listings.
@@ -107,5 +117,43 @@ foreach ($recording in $recordings) {
         throw "tools\read-recording.py's listing of $($recording.Name) is not Tests\recordings\$($recording.BaseName).txt."
     }
 }
-Write-Output ("The C++ reader compiles by itself, and its listings of the $($recordings.Count) reference recordings are the stored ones" +
-    $(if ($pythonRuns) { '; tools\read-recording.py prints the same.' } else { '. Python 3 is not installed: tools\read-recording.py was not checked.' }))
+
+# 4. Each recording again in both modes: one listing from both readers for
+#    each copy, and a compact copy that holds what its recording holds.
+$copies = Join-Path $out 'copies'
+New-Item -ItemType Directory -Force $copies | Out-Null
+$converted = 0
+foreach ($recording in $recordings) {
+    $whole = [IO.File]::ReadAllText([IO.Path]::ChangeExtension($recording.FullName, '.txt')).EndsWith("file: complete`n")
+    foreach ($mode in 'compact', 'raw') {
+        $copy = Join-Path $copies "$($recording.BaseName)-$mode.novapose"
+        $arguments = @($recording.FullName, $copy) + $(if ($mode -eq 'raw') { @('--raw') } else { @() })
+        $ErrorActionPreference = 'Continue'
+        $null = & $convertExe @arguments 2>&1
+        $convertExit = $LASTEXITCODE
+        $ErrorActionPreference = 'Stop'
+        if ($convertExit -ne 0) { throw "novapose-convert could not write $($recording.Name) as a $mode recording." }
+        $fromCpp = Get-Listing $listingExe @($copy)
+        if (-not $fromCpp.Contains("`nfile: complete`n")) {
+            throw "The $mode copy of $($recording.Name) is not a whole recording to the C++ reader."
+        }
+        if ($pythonRuns -and (Get-Listing $python.Source @('-B', $readerScript, '--listing', $copy)) -cne $fromCpp) {
+            throw "The two readers print different listings for the $mode copy of $($recording.Name)."
+        }
+        # A recording that was cut short has no whole copy to compare with.
+        if ($whole) {
+            $ErrorActionPreference = 'Continue'
+            $null = & $convertExe '--compare' $recording.FullName $copy 2>&1
+            $compareExit = $LASTEXITCODE
+            $ErrorActionPreference = 'Stop'
+            if ($compareExit -ne 0) {
+                throw "The $mode copy of $($recording.Name) does not hold the records and samples of the recording."
+            }
+        }
+        $converted++
+    }
+}
+Write-Output ("The C++ reader and the converter compile by themselves, and the reader's listings of the $($recordings.Count) reference recordings are the stored ones" +
+    $(if ($pythonRuns) { '; tools\read-recording.py prints the same. ' } else { '. Python 3 is not installed: tools\read-recording.py was not checked. ' }) +
+    "Each recording was written again as a compact and as a raw one ($converted copies)" +
+    $(if ($pythonRuns) { ', and both readers print one listing for each copy.' } else { '.' }))

@@ -210,6 +210,11 @@ struct CalibrationContext : CalibrationProfileState
 	// clips, and which of its size caps. Whether it records is never saved.
 	bool motionRecorderFull = false;
 	int motionRecorderCap = questcal::MotionRecorderCapDefault;
+	// A new recording keeps every sample as it came (format version 1, about
+	// fifteen times the size) in place of the compact format. No screen has a
+	// control for it: it is a value of the settings record, for captures that
+	// must hold the driver's own doubles.
+	bool motionRecorderRaw = false;
 
 	// The overlay's language as a code ("en", "ja"); empty until the player
 	// picks one, meaning "follow Windows". Persisted setting.

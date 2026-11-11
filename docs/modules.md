@@ -15,7 +15,7 @@ overlay only turns on what was chosen.
 | --- | --- | --- |
 | Lighthouse | optional | Base station tools. So far one: the Lighthouse tab, each base station and which lighthouse devices see it (`docs/lighthouse-visibility.md`). More are planned. |
 | Smoothing | not built | Its tab only, greyed out with "Work in progress". No installer offers it yet. |
-| Motion Recorder | optional | For development and playtests. Its page records raw pose samples to one file (`docs/recording-format.md`) while the player has a recording on, as clips around tracking problems ("Automatic") or all of them ("Full"), and plays that file back. A recording shows how the player's body moves. |
+| Motion Recorder | optional | For development and playtests. Its page records the driver's pose samples to one file (`docs/recording-format.md`) while the player has a recording on, as clips around tracking problems ("Automatic") or all of them ("Full"), and plays that file back. A recording shows how the player's body moves. |
 
 What a module does not control stays core. Reading SteamVR's lighthouse
 log, its session log lines, the `[base stations]` diagnostics section and
@@ -125,6 +125,14 @@ choice is not a setting, so no recording runs when Nova Calibrator starts.
 - The mode and the size cap are saved settings (`motion_recorder_full` and
   `motion_recorder_cap` in the settings record). Whether a recording runs is
   never saved.
+- A new recording is a compact one (format version 2 of
+  `docs/recording-format.md`: position to a micrometer, rotation to a
+  microradian, a Quest headset's numbers bit for bit; about 0.17 GB an hour
+  for nine devices). With `"motion_recorder_raw": true` in the settings
+  record it keeps every sample as the driver sent it (format version 1, about
+  2.5 GB an hour). No screen has a control for it. A recording that goes on
+  after a stop stays in the format it began in, and
+  `tools/novapose-convert.cpp` writes a recording again in the other one.
 
 ## Adding a module
 

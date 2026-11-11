@@ -51,7 +51,8 @@ constexpr int MotionRecorderCapDefault = 1;
 	X(usesTundraTracker, "uses_tundra_tracker", false) \
 	X(usesIndexControllers, "uses_index_controllers", false) \
 	X(usesViveTracker2018, "uses_vive_tracker_2018", false) \
-	X(motionRecorderFull, "motion_recorder_full", false)
+	X(motionRecorderFull, "motion_recorder_full", false) \
+	X(motionRecorderRaw, "motion_recorder_raw", false)
 
 // The switches the settings screen marks "Experimental", by member. Records
 // saved under the QuestCalibrator name come in with these off

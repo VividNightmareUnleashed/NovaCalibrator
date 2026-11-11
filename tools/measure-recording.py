@@ -1123,6 +1123,9 @@ def measure(path, options, max_seconds=None, progress=None):
     """Returns everything the report prints, as a dictionary."""
     with open(path, "rb") as stream:
         recording = reader.Recording(stream)
+        if recording.compact:
+            # Its samples are already in steps: there is nothing raw to measure.
+            raise reader.NotARecording("it is a compact recording, and this tool measures raw ones (format version 1)")
         rate = recording.clock_rate
         described = {device.id: device for device in recording.devices}
         full = Analyzer(rate, options)
@@ -1497,13 +1500,14 @@ def synthetic_events(seed=7):
 
 
 def file_events(path):
-    """A recording file as the same list."""
+    """A recording file as the same list. A compact file's samples come as
+    the 186 bytes a raw file would hold them in."""
     events = []
     with open(path, "rb") as stream:
         recording = reader.Recording(stream)
         for kind, payload in reader.each_record(recording, {}):
-            if kind == reader.KIND_SAMPLE:
-                events.append(("sample", payload))
+            if kind == reader.KIND_SAMPLE or (kind == reader.KIND_SAMPLES and recording.compact):
+                events += [("sample", whole) for _, whole in reader.each_sample(recording, kind, payload)]
             elif kind in (reader.KIND_GAP, reader.KIND_BOUNDARY, reader.KIND_PAUSE, reader.KIND_RESUME,
                           reader.KIND_END):
                 events.append(("edge",))

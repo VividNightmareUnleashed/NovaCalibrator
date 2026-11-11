@@ -1,6 +1,7 @@
 # The pose recording format
 
-Format version 1, raw mode. File extension `.novapose`.
+Format version 1 (raw mode) and format version 2 (compact mode). File
+extension `.novapose`.
 
 This document is the contract for a pose recording. A reader written from it
 alone, in any language, is correct when it reports for each file in
@@ -9,8 +10,9 @@ alone, in any language, is correct when it reports for each file in
 standard library; `tools/read-recording.py` is a second reader written from
 this document. The Motion Recorder module (`docs/modules.md`) writes the file
 and plays it back (`Overlay/RecordingPlayback.h`).
-`tools/measure-recording.py` measures how small a recording could be stored;
-it defines no format.
+`tools/novapose-convert.cpp` writes a recording again in the other mode and
+says how far two recordings are apart. `tools/measure-recording.py` holds the
+measurements the compact mode was designed from; it defines no format.
 
 A recording holds every pose the driver captured while recording was on (or,
 in "Automatic", the poses around each tracking problem: see "Clips"): for
@@ -18,8 +20,23 @@ each tracked device, its position, rotation and velocities as SteamVR's driver
 reported them, before any calibration, with the capture time. It shows how the
 player's body moved. It holds no serial number, no device name the player
 typed, no account or computer name, and nothing recorded while recording was
-off. It is not encrypted or compressed: what is in the file is what this
-document says, and anyone can check it.
+off. It is not encrypted: what is in the file is what this document says, and
+anyone can check it.
+
+The two versions hold the same records. They differ in how a sample is stored:
+
+| | Version 1, raw | Version 2, compact |
+| --- | --- | --- |
+| A sample | 189 bytes, every number as the driver sent it | Most samples a few bits in a block, to the steps in "Compact samples". A sample that does not fit those steps is stored as in version 1 |
+| Position | The driver's double | Within 0.5 micrometers |
+| Rotation | The driver's doubles | Within 1 microradian |
+| A sample of single-precision numbers (a Quest headset's) | The driver's doubles | Bit for bit |
+| Size, measured (see "Measured sizes") | 189.0 bytes a sample, 2.48 GB an hour | 12.6 bytes a sample, 0.17 GB an hour |
+
+The Motion Recorder writes version 2. It writes version 1 when the settings
+record has `motion_recorder_raw` set, for a capture that must hold the
+driver's own doubles. The sections up to "The size cap" describe both
+versions; where version 2 differs, they say so.
 
 ## Rules for every field
 
@@ -56,8 +73,10 @@ last whole record at every moment, a crash included.
 | Field | Type | Meaning |
 | --- | --- | --- |
 | magic | 8 bytes | The ASCII text `NOVAPOSE` |
-| format version | u32 | 1 |
-| mode | u32 | 1, raw |
+| format version | u32 | 1 or 2 |
+| mode | u32 | 1, raw, in version 1. 2, compact, in version 2 |
+| velocity scale | u32 | Version 2 only: the velocity steps in one meter a second. 10000 is a step of 100 micrometers a second |
+| angular velocity scale | u32 | Version 2 only: the angular velocity steps in one radian a second |
 | clock rate | i64 | Counts per second. Greater than zero |
 | start count | i64 | The count when the recording began |
 | start time | i64 | The wall-clock time when the recording began |
@@ -65,11 +84,17 @@ last whole record at every moment, a crash included.
 | writer | string | The program and version that wrote the file |
 | devices | device entry, `device count` times | The devices known when the recording began |
 
+A version 1 header has no scale fields: the clock rate follows the mode.
+
 A reader refuses a file when the magic is different, when the format version
-is not one it knows, when the mode is not 1, when the clock rate is zero or
-negative, or when the device count is over 64. A format version above 1 is a
-layout this document does not describe: a version 1 reader must refuse it, not
-guess.
+is not one it knows, when the mode is not the one of its version, when the
+clock rate is zero or negative, or when the device count is over 64. It
+refuses a version 2 file when a scale is under 1000 or over 10,000,000, or
+when the clock rate is under 1,000,000 or over 1,000,000,000 (a pose time is
+kept to one count: on a slower clock that is too coarse). A format version
+above 2 is a layout this document does not describe: a reader must refuse it,
+not guess. A reader that knows version 1 alone refuses version 2 in the same
+way.
 
 ### Device entry
 
@@ -110,6 +135,11 @@ Every record starts with the same three bytes:
 | 8 | alignment | 74 to 329 |
 | 9 | model | 5 to 260 |
 | 10 | mark | 21 to 276 |
+| 11 | samples | Version 2 only. 3 to 65535 |
+| 12 | sync | Version 2 only. 0 |
+
+Kinds 11 and 12 are in "Compact samples". In a version 1 file they are kinds
+the format does not know.
 
 A reader skips a record whose kind it does not know by its size and goes on.
 A reader refuses the file from that record on when a kind is 0, when a known
@@ -143,6 +173,10 @@ widened to doubles.
 
 Samples are in the order the recorder received them. Across devices that is
 close to, but not exactly, the order of their capture counts.
+
+In a version 2 file this record is a sample stored whole. Most samples are in
+blocks (kind 11), which a reader turns into the same fields; the order of the
+samples in the file is the same.
 
 #### 2: gap
 
@@ -295,6 +329,276 @@ samples it had fetched): use the count. A full recording has a mark record at
 each such moment; in a recording of clips the first mark of a clip is also the
 trigger its resume record names. A reader that does not know kind 10 skips it.
 
+## Compact samples
+
+Format version 2. A sample is in the file in one of two ways:
+
+- **Whole**: a sample record (kind 1), as in version 1. Every number is the
+  driver's.
+- **In a block**: some bits in a samples record (kind 11). The bits say how the
+  sample differs from a guess, and the guess is made from the sample of the
+  same device before it.
+
+### What a block keeps
+
+| Field | A reader gets |
+| --- | --- |
+| capture count, device id, tracking result, the two flags, the world-from-driver transform | The recorded value, bit for bit |
+| position | The nearest micrometer: within 0.5 micrometers of the recorded number |
+| rotation | Each of the four numbers to the nearest 0.0000005: within 0.00000025. As an angle the rotation is within 1 microradian of the recorded one |
+| velocity | The nearest step of the header's velocity scale: within 50 micrometers a second for a scale of 10000 |
+| angular velocity | The nearest step of the header's angular velocity scale: within 50 microradians a second for a scale of 10000 |
+| pose time offset | The nearest clock count: within 50 nanoseconds for a clock of 10,000,000 counts a second |
+| all of a sample whose thirteen pose numbers are single-precision numbers | The recorded value, bit for bit, the pose time offset too |
+
+The thirteen pose numbers are the rotation (w, x, y, z), the position, the
+velocity and the angular velocity, in that order: numbers 0 to 12. "Within"
+is half a step, plus the last digit of the double itself (one part in 2^51 of
+the number).
+
+A Quest headset sends single-precision numbers, so its samples come back as
+they were recorded. A lighthouse device sends doubles, whose last digits are
+far under the sensor's noise (a tracker that does not move changes position
+by 30 to 40 micrometers from one sample to the next).
+
+A sample that cannot be kept to these steps is stored whole: a number that is
+not a number or is infinite, a number over a limit (below), and a sample of a
+device whose sample before it was one of those. So is the first sample of each
+device behind every place where a reader forgets the devices. An exact repeat
+(the thirteen pose numbers of the device's sample before it again, bit for
+bit) is one bit in a block, and a reader gets its own previous numbers again:
+a repeat stays a repeat.
+
+The numbers a reader gets do not depend on the reader. Every guess is
+arithmetic with whole numbers that fit 64 bits, and a floating-point number
+is made by one division. Two readers that follow this section print the same
+`sample digest` in a listing.
+
+### What a reader keeps
+
+To read a block a reader keeps a **model**:
+
+- The **devices** that had a whole sample since the model was last emptied, in
+  the order of their first whole sample. At most 64.
+- For each device: its **previous sample**, as this reader has it (whole or
+  from a block); `usable`, whether that sample can be guessed from; `single`,
+  whether its thirteen pose numbers are single-precision numbers; a `period`
+  in clock counts, 0 when not known; and 44 **contexts**: `steps[2][14]`,
+  `time[2]` and `singles[14]`.
+- The **last count**: the capture count of the sample before, of any device.
+- One more context, `capture`.
+
+The model is emptied (no devices, last count 0, `capture` at its first value)
+at the header, at a sync record (kind 12) and at a resume record (kind 7).
+Nothing else empties it: a block reaches back over a gap, a boundary, a
+device record or a mark, never over a sync or a resume.
+
+A **whole sample** (kind 1) in a version 2 file sets the last count to its
+capture count. When its device is not among the devices and there are fewer
+than 64, the device is added at the end. When the device is (now) among them,
+it starts anew: its previous sample is this sample, `usable` and `single` are
+found from it, its period is 0, and its contexts are at their first values. A
+whole sample of a 65th device changes the last count and nothing else.
+
+A sample is **usable** when its capture count is from -2^58 to 2^58, and the
+steps of its pose time offset and of each of its thirteen pose numbers exist:
+
+| Number | Scale: steps in one unit | Limit in steps |
+| --- | --- | --- |
+| pose time offset | the clock rate | 2^40 |
+| rotation, each of four | 2,000,000 | 2^22 |
+| position | 1,000,000 | 2^40 |
+| velocity | the header's velocity scale | 2^30 |
+| angular velocity | the header's angular velocity scale | 2^30 |
+
+**Steps** of a double `x` at a scale: `p = x * scale`, one double
+multiplication. When `p` is not a number, or is under `-limit` or over
+`limit`, there are no steps. Otherwise `w = floor(p)`, and the steps are
+`w + 1` when `p >= w + 0.5`, else `w`: the nearest whole number, a half
+upward. The comparison is made on `p` itself; do not compute `p + 0.5` or
+`p - w` in a way a compiler can join with the multiplication.
+
+**A double from steps**: `steps / scale`, one double division of two whole
+numbers that a double holds exactly.
+
+**A single-precision number** is a double whose value a 32-bit IEEE float
+holds exactly: a zero of either sign, or a finite number with at most 24
+significant bits in the float's range (the smallest are multiples of 2^-149).
+Infinity and not-a-number are none. Its **32 bits** are that float's bits as
+an unsigned number. Find them from the double's 64 bits, not with a
+conversion that a processor's settings for very small numbers can change.
+
+A **context** is one whole number, `sum`: about eight times the mean of the
+numbers it has coded. Its first value is 128; 524288 for each of `singles`;
+8192 for `capture`.
+
+### 11: samples
+
+A block.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| count | u16 | The number of samples in the block. Never 0 |
+| bits | the rest of the payload | The samples, one behind the other |
+
+The bits fill each byte from its lowest bit to its highest. Behind the last
+sample the last byte is filled up with zero bits. In the layout below:
+
+- `bit` is one bit.
+- `bits(n)` is a whole number of `n` bits, the lowest bit first.
+- `step(context, guess)` is a whole number, written as its distance from the
+  guess:
+  1. `k` is the number of bits `context.sum` takes (0 for 0, 8 for 128 to
+     255) less 5; not under 0 and not over 40.
+  2. Count zero bits up to the next one bit: `z` zeros. The one bit is used
+     up. More than `61 - k` zeros are not a number: refuse the block.
+  3. `h = bits(z)`, `l = bits(k)`, and `u = ((2^z + h - 1) * 2^k) + l`.
+  4. `context.sum` becomes `context.sum + min(u, 2^40) - floor(context.sum / 8)`.
+  5. The distance `d` is `u / 2` when `u` is even, else `-(u + 1) / 2`. The
+     number is `guess + d`.
+
+A writer does the reverse: `u = 2 * d` for `d` of 0 or more, else
+`-2 * d - 1`; `v = floor(u / 2^k) + 1`, which takes `n` bits; `n - 1` zero
+bits, a one bit, the low `n - 1` bits of `v`, the low `k` bits of `u`.
+
+Each sample, in this order:
+
+1. **The device**: `bits(L)`, where `L` is the number of bits that the number
+   of devices less one takes (no bits for one device, 2 bits for three or
+   four). It is the device's place among the model's devices, from 0. Refuse
+   the block when there is no such device or the device is not usable.
+2. **The capture count**: `step(capture, last count)`. Refuse when the last
+   count or the new count is outside -2^58 to 2^58. The last count becomes
+   this count.
+3. **What is unusual**: `plain = bit`. When it is 1, `status`, `moved` and
+   `repeat` are 0 and `single` is the device's `single`. When it is 0, four
+   bits follow: `status`, `moved`, `single`, `repeat`.
+   - With `status`: pose valid is `bit`, connected is `bit`, and the tracking
+     result is `bits(32)`. Without it they are the previous sample's.
+   - With `moved`: seven doubles, each `bits(64)`: the world-from-driver
+     rotation (w, x, y, z) and translation. Without it they are the previous
+     sample's.
+4. **The pose time offset.** `wasOffset` is the steps of the previous
+   sample's offset (scale: the clock rate), and `wasPoseTime` is the previous
+   capture count plus `wasOffset`.
+   - With `single`: `wide = bit`. With `wide` the offset is a double,
+     `bits(64)`. Without it the offset is a single-precision number (below)
+     with the context `singles[0]`.
+   - Without `single`: the offset is stored as the pose time, which for a
+     lighthouse device stays or goes on by a steady period. `periods` is the
+     count of one bits up to a zero bit, four at most (four ones have no zero
+     behind them). `onward` is 1 when `periods` is over 0, else 0.
+     - `periods` 4: the offset in counts is `wasOffset`, and `elapsed` is the
+       new capture count plus `wasOffset` less `wasPoseTime`.
+     - Otherwise `elapsed = step(time[onward], periods * period)`, and the
+       offset in counts is `wasPoseTime + elapsed` less the new capture count.
+       Refuse when it is outside -2^40 to 2^40. Then the period follows: when
+       `periods` is 1 or more and the period is 0, the period becomes
+       `elapsed` if `elapsed` is from 1 to 2^30; else when `periods` is 1,
+       with `miss = elapsed - period`, the period changes by
+       `min(floor(|miss| / 4), 8)` toward the miss, and is 1 at least.
+     - The offset is the offset in counts divided by the clock rate.
+5. **The thirteen pose numbers.**
+   - With `repeat` they are the previous sample's, bit for bit.
+   - Else with `single`, number `i` is a single-precision number with the
+     context `singles[1 + i]`.
+   - Else they are in steps. `from[i]` is the steps of the previous sample's
+     number `i`, `to[i]` the steps of the new one, and `C` is
+     `steps[onward]`.
+     1. The velocities: for `i` from 0 to 5, `to[7 + i] = step(C[i], from[7 + i])`.
+     2. `micros` is `floor(elapsed * 1000000 / clock rate)` when `elapsed` is
+        over 0 and not over `floor(clock rate / 4)`, else 0.
+     3. The position, moved on by the mean of the two velocities: for `i`
+        from 0 to 2, `to[4 + i] = step(C[6 + i], from[4 + i] + floor(((from[7 + i] + to[7 + i]) * micros + V) / (2 * V)))`,
+        with `V` the velocity scale.
+     4. The rotation, turned on by the new angular velocity in the device's
+        own frame. With `w, x, y, z = from[0..3]` and `a, b, c = to[10..12]`:
+        `turn = (-(x*a + y*b + z*c), w*a + y*c - z*b, w*b + z*a - x*c, w*c + x*b - y*a)`.
+        `largest` is the place of the largest of `|w|, |x|, |y|, |z|`, the
+        first of equals. For `i` from 0 to 3 without `largest`:
+        `to[i] = step(C[9 + i], from[i] + floor((floor(turn[i] / A) * micros + 1000000) / 2000000))`,
+        with `A` the angular velocity scale.
+     5. The rotation's largest number, from the other three, because the four
+        keep their length: `rest = w*w + x*x + y*y + z*z` less the squares of
+        the three new numbers; `root` is the largest whole number whose
+        square is not over `rest`, or 0 when `rest` is under 1; the guess is
+        `-root` when `from[largest]` is under 0, else `root`;
+        `to[largest] = step(C[13], guess)`.
+     6. Refuse when a number is over its limit in the table above. Number
+        `i` is `to[i]` divided by its scale.
+6. The device's previous sample is this sample as read, `usable` is found
+   from it, and its `single` is this sample's.
+
+Every `floor` is toward minus infinity.
+
+**A single-precision number with a context** is
+`step(context, base)`, where `base` is the 32 bits of the value that was in
+its place in the previous sample when that value is a single-precision
+number, else 0. Refuse when the result is under 0 or over 4294967295, or is
+not the 32 bits of a finite number (the eight exponent bits all 1). The
+number is the double with that single-precision value.
+
+A reader refuses a block that has fewer than two bytes or a count of 0, whose
+bits end inside a sample, that has 8 or more bits left behind its last
+sample, or any one bit among those left; and every block for which the layout
+above says "refuse". Records before it stay valid.
+
+### 12: sync
+
+No payload. The model is emptied here: behind it the first sample of each
+device is a whole one. A recorder writes one every two seconds of capture
+time, so that a reader can start in the middle of a file and a damaged byte
+costs two seconds at most, and one where the file can later be cut (see "The
+size cap").
+
+### What the writer does
+
+None of this is needed to read a file. The Motion Recorder's writer
+(`CompactWriter` in `Overlay/PoseRecordingFormat.h`):
+
+- stores a sample whole when its device is not in the model or not usable,
+  when the sample is not usable, and when the last count is outside -2^58 to
+  2^58;
+- sets `single` when all thirteen numbers are single-precision numbers, and
+  `repeat` when they are the thirteen it was given for the device's sample
+  before it, bit for bit;
+- chooses `periods` 4 when the offset in counts did not change, else the
+  count from 0 to 3 that leaves the smallest distance to write; with no
+  period yet, 1 when `elapsed` is over a 2000th of a second, else 0;
+- writes a sync record in front of a sample whose capture count is two
+  seconds or more from the first sample behind the last place the model was
+  emptied;
+- puts at most 1024 samples and 60000 bytes in one block, and closes the open
+  block in front of every other record.
+
+### Measured sizes
+
+The first real recording: 24.5 minutes, one Quest headset, six trackers and
+two controllers that all move, 5,353,159 samples (3,639 a second), with 110
+gaps and 331 marks.
+
+| Stored as | Bytes | Bytes a sample | One hour at this rate |
+| --- | --- | --- | --- |
+| Version 1, raw | 1,011,763,718 | 189.0 | 2.48 GB |
+| Version 2, velocity scales 10000 (steps of 100 micrometers and microradians a second) | 67,645,591 | 12.64 | 0.166 GB |
+| Version 2, velocity scales 100000 (steps of 10) | 78,558,120 | 14.68 | 0.192 GB |
+
+Read back and compared with the raw file, sample by sample
+(`novapose-convert --compare`): every sample has the same capture count,
+device, state and world-from-driver transform; all 94,571 samples of
+single-precision numbers are the same bit for bit; the largest distance is
+0.5 micrometers for a position, 0.00000025 for a rotation number (0.985
+microradians as an angle), half a velocity step, and half a clock count (50
+nanoseconds) for a pose time offset. 5,346,533 samples are in blocks and
+6,626 are stored whole: the first of each device at the start and behind each
+of the 735 sync records. Both readers print the same listing for the compact
+file, sample digest included.
+
+The Motion Recorder writes velocity scales of 10000. Most of what a block
+still holds is the sensors' noise, which no encoding removes and which the
+recording is for: a tracker that does not move changes its velocity by 350 to
+430 micrometers a second from one sample to the next.
+
 ## Clips
 
 In "Automatic" the recorder writes nothing until something is marked. What
@@ -343,7 +647,17 @@ that knows nothing of clips reads the file correctly.
      error in the file.
 5. Treat the file as untrusted. Read no more bytes for a record than its size
    says, bound every allocation by the sizes above, and check a device id
-   before using it as an index.
+   before using it as an index. In a block, read no bit behind the payload,
+   and refuse a number that is over its limit before it is used in
+   arithmetic.
+6. In a version 2 file, start reading only where the model is empty: at the
+   header, or at a sync or a resume record. A block behind any other place
+   has nothing to be read against. A reader that keeps places to jump to
+   keeps only those.
+7. In a version 2 file a number from a block is the recorded number to the
+   steps in "What a block keeps", not its last digits. Two samples of one
+   device with the same thirteen pose numbers are an exact repeat in the
+   recording, as they are in a version 1 file.
 
 ## The size cap
 
@@ -364,10 +678,15 @@ the old file's records from the cut on   byte for byte
 
 The cut is on a record's edge. The header's start count and start time are
 those of the cut, its device entries are the newest ones the dropped part held
-for each id, and the labels stay the same. The result is an ordinary version 1
-file that starts later: a reader needs to know nothing of this, and nothing in
-the file says how much was dropped. In a recording of clips the file can start
-at a clip's resume record or inside a clip.
+for each id, and the labels stay the same. The result is an ordinary file of
+the same version that starts later: a reader needs to know nothing of this,
+and nothing in the file says how much was dropped. In a recording of clips the
+file can start at a clip's resume record or inside a clip.
+
+In a version 2 file a cut is only where the model is empty. The recorder
+writes a sync record at each place it may later cut at (one for each 64th of
+the cap), so the part that stays starts with whole samples behind its new
+header.
 
 Until the one step that swaps the files, the old file is whole and is still
 the recording: the recorder keeps writing to it while it copies, the copy
@@ -387,17 +706,26 @@ can be compared by. Each line ends in a line feed. `tools/read-recording.py
 --listing FILE` and `tools/novapose-listing.cpp` print it.
 
 ```
-novapose listing 1
+novapose listing 2
 format: version V, mode M
+velocity steps: V in a meter a second, A in a radian a second               (version 2 only: the two scales)
 writer: WRITER
 clock: RATE ticks per second, start count COUNT, start time TIME us
 header devices: N
 device ID: class C, role R, label "L", model "M", system "S", type "T"     (one line for each header device)
-...one line for each record that is not a sample, in file order...
+...one line for each record that holds no sample, in file order...
 samples: TOTAL
+samples in blocks: N                                                        (version 2 only)
+sample digest: HHHHHHHH
 samples of device ID: N, valid V, first POSE, last POSE                     (one line for each device, by id)
 file: complete
 ```
+
+`TOTAL` counts every sample, whole or in a block. The sample digest is the
+CRC-32 of zlib and PNG, as eight lowercase hexadecimal digits, over every
+sample in file order, each as the 186 payload bytes a version 1 sample record
+holds it in (a sample from a block is put in that layout first). Two readers
+print the same digest only when they agree on every bit of every sample.
 
 The lines for records, where `K` is the number of samples in front of the
 record:
@@ -412,8 +740,13 @@ alignment after sample K: system "S", applied N, count C, rotation W X Y Z, tran
 model after sample K: device ID, render model "NAME"
 mark after sample K: name "NAME", device ID, count C, time T us
 end after sample K: reason N, count C, time T us, samples S
+sync after sample K                                                         (version 2 only)
 unknown record after sample K: kind N, B bytes
 ```
+
+A samples record (kind 11) of a version 2 file has no line of its own, as a
+sample record has none. In a version 1 file kinds 11 and 12 are unknown
+records.
 
 `POSE` is `count C position X Y Z rotation W X Y Z`, the sample's capture
 count, position and rotation. `valid` counts the samples whose pose-valid flag
@@ -427,10 +760,12 @@ refused has the first line and then `file: not a recording`.
 
 ## The reference recordings
 
-`Tests/recordings/` holds seven small recordings made from fixed input
+`Tests/recordings/` holds eight small recordings made from fixed input
 (`Tests/ReferenceRecordings.h`), each with its listing.
 `tools/check-recording-readers.ps1` compiles the C++ reader by itself and
-compares both readers' listings with them:
+compares both readers' listings with them. It also writes each of them again
+in the other mode with `tools/novapose-convert.cpp` and checks that both
+readers print one listing for the result:
 
 | File | What it shows |
 | --- | --- |
@@ -441,11 +776,14 @@ compares both readers' listings with them:
 | `newer-records` | A record of kind 77, and a pause and resume with cause 2 and a trigger |
 | `alignment` | An alignment record and a model record at the start, and a second alignment record, not applied, after 20 samples |
 | `clips` | A pause with cause 2 behind the header, then two clips: each a resume with its trigger, every device, the samples from before its mark, the mark and the samples after it. The second has a mark about device 3 and the player's own |
+| `compact` | Format version 2. 318 samples, 305 of them in blocks: a headset of single-precision numbers (one pose time offset that is none), a tracker whose pose time stays and goes on by its period, once by two periods, and a tracker whose offset never changes. One state change, one exact repeat, a moved driver frame, a tracker pose of single-precision numbers, and two poses that fit no block (too far away, not a number), each with the whole sample behind it. A gap that a sync follows, because three seconds pass; a mark; a pause and a resume with whole samples behind it; an end record |
 
 The harness fails when the generator no longer makes these exact bytes, so a
 change to the layout cannot be made without a change here. A change that a
-version 1 reader would misread (a field added to a known record, a field's
-meaning changed, a new rule for joining samples) needs a new format version.
-A new record kind does not: version 1 readers skip it. The values in the
-reference recordings are made with integers and binary fractions only, so
-they do not depend on a compiler.
+reader of the same version would misread (a field added to a known record, a
+field's meaning changed, a new rule for joining samples, another way to store
+a sample) needs a new format version, as blocks needed version 2. A new
+record kind that holds nothing a reader must have does not: readers skip it.
+The values in the reference recordings are made with integers and binary
+fractions only (and one division for a pose time), so they do not depend on a
+compiler.

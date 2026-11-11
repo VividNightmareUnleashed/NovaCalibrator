@@ -1281,8 +1281,8 @@ en: A new recording replaces the previous recording. To keep the previous record
 it: Una nuova registrazione sostituisce la precedente. Per conservare la precedente, copia prima il file.
 en: Maximum recording size
 it: Dimensione massima della registrazione
-en: One hour of recording can use 3 GB. When the file has this size, Nova Calibrator deletes the oldest part of the recording.
-it: Un'ora di registrazione può occupare 3 GB. Quando il file raggiunge questa dimensione, Nova Calibrator elimina la parte più vecchia della registrazione.
+en: One hour of recording can use 0.3 GB. When the file has this size, Nova Calibrator deletes the oldest part of the recording.
+it: Un'ora di registrazione può occupare 0,3 GB. Quando il file raggiunge questa dimensione, Nova Calibrator elimina la parte più vecchia della registrazione.
 en: Open recording folder
 it: Apri la cartella della registrazione
 en: Delete recording

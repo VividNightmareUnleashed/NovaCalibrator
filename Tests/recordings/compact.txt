@@ -1,0 +1,25 @@
+novapose listing 2
+format: version 2, mode 2
+velocity steps: 10000 in a meter a second, 10000 in a radian a second
+writer: novapose reference generator
+clock: 10000000 ticks per second, start count 5000000000, start time 1794230000000000 us
+header devices: 3
+device 0: class 1, role 0, label "a1b2c3d4", model "Headset model", system "oculus", type ""
+device 3: class 3, role 0, label "0f0e0d0c", model "Tracker model", system "lighthouse", type "vive_tracker_waist"
+device 5: class 3, role 0, label "9a8b7c6d", model "Tracker model", system "lighthouse", type "vive_tracker_left_foot"
+gap after sample 218: lost 40, hole 40, count 5032476400
+sync after sample 218
+mark after sample 278: name "tracking-lost", device 3, count 5033152900, time 1794230003315290 us
+pause after sample 278: cause 1, count 5033153100, time 1794230003315310 us
+resume after sample 278: cause 1, trigger "", count 5333153100, time 1794230033315310 us
+device record after sample 278: device 0: class 1, role 0, label "a1b2c3d4", model "Headset model", system "oculus", type ""
+device record after sample 278: device 3: class 3, role 0, label "0f0e0d0c", model "Tracker model", system "lighthouse", type "vive_tracker_waist"
+device record after sample 278: device 5: class 3, role 0, label "9a8b7c6d", model "Tracker model", system "lighthouse", type "vive_tracker_left_foot"
+end after sample 318: reason 4, count 5333580500, time 1794230033358050 us, samples 318
+samples: 318
+samples in blocks: 305
+sample digest: 5206eb73
+samples of device 0: 27, valid 27, first count 5000001000 position 0 1 -0.5 rotation 1 0 0 0, last count 5333570764 position 0.9794921875 1.002685546875 -0.5 rotation 0.5 -0.5 0.5 -0.5
+samples of device 3: 146, valid 145, first count 5000001400 position 0.75 1 -0.875 rotation 0.5 0.5 -0.5 0.5, last count 5333579500 position 1.7431639999999999 1.002197 -0.85948199999999997 rotation 0.50097000000000003 0.49951499999999999 -0.5 0.49975750000000002
+samples of device 5: 145, valid 143, first count 5000001400 position 1.25 1 -1.125 rotation 0.5 0.5 -0.5 0.5, last count 5333579500 position 2.2431640000000002 1.002197 -1.1094820000000001 rotation 0.50097000000000003 0.49951499999999999 -0.5 0.49975750000000002
+file: complete

@@ -13,6 +13,7 @@
 #include "../Overlay/PoseRecordingFormat.h"
 
 #include <algorithm>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -123,6 +124,133 @@ inline std::vector<Timed> Stream(int64_t firstCount = StartCount + 1000)
 inline int64_t TimeAt(int64_t count)
 {
 	return StartTime + (count - StartCount) / (ClockRate / 1000000);
+}
+
+// The `index`-th pose of device `id` for the compact reference recording. The
+// headset's numbers are single-precision ones, as a Quest's are; a tracker's
+// are not, and it has one pose of each kind a block treats in its own way.
+// Still integers and binary fractions, and one division for a pose time.
+inline Sample CompactPose(uint32_t id, int64_t index, int64_t count)
+{
+	Sample sample = Pose(id, index, count);
+	const double i = static_cast<double>(index);
+	if (id == 0)
+	{
+		// One pose time offset that no single-precision number holds.
+		sample.poseTimeOffset = index % 1000 == 5 ? -61.0 / 10000000.0 : -1.0 / 131072.0;
+		return sample;
+	}
+	// Numbers of more than 24 bits, which move on a little with each pose.
+	const double fine = i / 8589934592.0;   // index * 2^-33
+	sample.rotation[0] = 0.5 + i / 1048576.0 + fine;
+	sample.rotation[1] = 0.5 - i / 2097152.0;
+	sample.rotation[2] = -0.5 + fine;
+	sample.rotation[3] = 0.5 - i / 4194304.0 - fine;
+	sample.position[0] += fine;
+	sample.position[1] -= 3.0 * fine;
+	sample.position[2] += i / 65536.0 + fine;
+	sample.velocity[0] = 0.25 + fine;
+	sample.velocity[1] = i / 16384.0 - fine;
+	sample.angularVelocity[0] = 5.0 * fine;
+	sample.angularVelocity[2] = fine - i / 4096.0;
+	if (id == 5)
+	{
+		// Its pose time offset never changes. One pose of single-precision
+		// numbers among the others.
+		if (index % 1000 == 20)
+			sample = Pose(id, index, count);
+		return sample;
+	}
+	// Device 3. Its pose time stays for one pose and then goes on by two
+	// capture intervals; from pose 64 on it is two more intervals ahead.
+	const int64_t interval = ClockRate / 400;
+	const int64_t offsetCounts = (index % 1000 >= 64 ? 2 * interval : 0) - 39000 - (index % 2) * interval;
+	sample.poseTimeOffset = static_cast<double>(offsetCounts) / static_cast<double>(ClockRate);
+	switch (index % 1000)
+	{
+	case 30:
+		// No tracking for one pose.
+		sample.trackingResult = 101;
+		sample.poseValid = false;
+		break;
+	case 40:
+	{
+		// The pose before it again, number for number.
+		const Sample before = CompactPose(id, index - 1, count);
+		std::copy(before.rotation, before.rotation + 4, sample.rotation);
+		std::copy(before.position, before.position + 3, sample.position);
+		std::copy(before.velocity, before.velocity + 3, sample.velocity);
+		std::copy(before.angularVelocity, before.angularVelocity + 3, sample.angularVelocity);
+		break;
+	}
+	case 60:
+		// Further away than a block holds: stored whole, and so is the next.
+		sample.position[0] = 2097152.0;
+		break;
+	case 70:
+		// Not a number: stored whole.
+		sample.velocity[1] = std::numeric_limits<double>::quiet_NaN();
+		break;
+	default:
+		break;
+	}
+	// The driver's frame moves at pose 50.
+	if (index % 1000 >= 50)
+		sample.worldFromDriverTranslation[1] = -1.25;
+	return sample;
+}
+
+constexpr uint32_t CompactVelocityScale = 10000;
+
+// The compact reference recording as the records a version 1 file would hold
+// (`compact` false), or as the version 2 file itself. It has every kind of
+// sample: whole ones at the start, behind the sync that two seconds without a
+// sample bring, behind the resume, and where a pose does not fit a block;
+// blocks of single-precision poses and of poses in steps; a pose time that
+// stays, goes on, and keeps its offset; a state change, a repeat and a moved
+// driver frame.
+inline std::string CompactRecording(bool compact)
+{
+	const uint8_t closed = static_cast<uint8_t>(EndReason::AppExit);
+	const uint8_t player = static_cast<uint8_t>(PauseCause::Player);
+	Header header = FileHeader();
+	if (compact)
+	{
+		header.version = FormatVersionCompact;
+		header.mode = ModeCompact;
+		header.velocityScale = CompactVelocityScale;
+		header.angularScale = CompactVelocityScale;
+	}
+	std::string raw;
+	const std::vector<Timed> first = Stream();
+	for (const Timed &pose : first)
+		AppendSample(raw, CompactPose(pose.id, pose.index, pose.count));
+	// The recorder could not fetch for three seconds: a gap, and poses again.
+	const int64_t later = first.back().count + 3 * ClockRate;
+	AppendGap(raw, { later, 40, 40 });
+	const std::vector<Timed> second = Stream(later + 1000);
+	for (size_t i = 0; i < 60; ++i)
+		AppendSample(raw, CompactPose(second[i].id, second[i].index + 200, second[i].count));
+	AppendMark(raw, { second[59].count + 100, TimeAt(second[59].count + 100), 3, markname::TrackingLost });
+	const int64_t pauseCount = second[59].count + 300;
+	const int64_t resumeCount = pauseCount + 30 * ClockRate;
+	AppendPause(raw, { player, pauseCount, TimeAt(pauseCount) });
+	AppendResume(raw, { player, resumeCount, TimeAt(resumeCount), std::string() });
+	for (const DeviceInfo &device : Devices())
+		AppendDevice(raw, device);
+	const std::vector<Timed> third = Stream(resumeCount + 1000);
+	for (size_t i = 0; i < 40; ++i)
+		AppendSample(raw, CompactPose(third[i].id, third[i].index + 1000, third[i].count));
+	AppendEnd(raw, { closed, third[39].count + 1000, TimeAt(third[39].count + 1000), first.size() + 100 });
+
+	std::string file;
+	AppendHeader(file, header);
+	if (!compact)
+		return file + raw;
+	CompactWriter writer({ header.qpcFrequency, header.velocityScale, header.angularScale });
+	AppendCompact(file, writer, raw);
+	writer.Flush(file);
+	return file;
 }
 
 inline std::vector<File> Files()
@@ -294,6 +422,9 @@ inline std::vector<File> Files()
 	}
 	AppendPause(clipped, { clip, again[24].count + 200, TimeAt(again[24].count + 200) });
 	files.push_back({ "clips", clipped });
+
+	// Format version 2: most samples as a few bits each in blocks.
+	files.push_back({ "compact", CompactRecording(true) });
 	return files;
 }
 

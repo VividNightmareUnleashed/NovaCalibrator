@@ -1,4 +1,4 @@
-novapose listing 1
+novapose listing 2
 format: version 1, mode 1
 writer: novapose reference generator
 clock: 10000000 ticks per second, start count 5000000000, start time 1794230000000000 us
@@ -11,6 +11,7 @@ pause after sample 20: cause 2, count 5000226200, time 1794230000022620 us
 resume after sample 20: cause 2, trigger "example trigger", count 5000226300, time 1794230000022630 us
 end after sample 40: reason 4, count 5000427400, time 1794230000042740 us, samples 40
 samples: 40
+sample digest: f3a66952
 samples of device 0: 4, valid 4, first count 5000001000 position 0 1 -0.5 rotation 1 0 0 0, last count 5000417664 position 0.0029296875 1.000732421875 -0.5 rotation 0.5 -0.5 0.5 -0.5
 samples of device 3: 18, valid 18, first count 5000001400 position 0.75 1 -0.875 rotation 1 0 0 0, last count 5000426400 position 0.7666015625 1.000244140625 -0.875 rotation 0.5 0.5 0.5 0.5
 samples of device 5: 18, valid 18, first count 5000001400 position 1.25 1 -1.125 rotation 1 0 0 0, last count 5000426400 position 1.2666015625 1.000244140625 -1.125 rotation 0.5 0.5 0.5 0.5

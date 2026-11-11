@@ -17,11 +17,22 @@ namespace questcal
 // False when Windows cannot say.
 bool FreeDiskBytes(const std::wstring &directory, uint64_t &freeBytes);
 
-// What bounds a recording. Eight lighthouse devices and a headset write about
-// 2.4 GB an hour (3,450 samples a second, 189 bytes each).
+// What bounds a recording, and how it is stored. Eight lighthouse devices and
+// a headset send about 3,600 samples a second: 2.4 GB an hour raw (189 bytes a
+// sample), about 0.17 GB an hour compact (12.6 bytes a sample, measured).
 struct PoseRecordingLimits
 {
 	static constexpr uint64_t DefaultMinFreeDiskBytes = 4ull << 30;
+
+	// A new recording is a compact one (format version 2: position to a
+	// micrometer, rotation to a microradian, single-precision values bit for
+	// bit) with velocities in steps of 1 / `velocityScale` meters a second and
+	// 1 / `angularScale` radians a second. Without it, or on a clock a compact
+	// file cannot have, every sample is stored as it came (format version 1).
+	// A recording that goes on stays what it is.
+	bool compact = false;
+	uint32_t velocityScale = 10000;
+	uint32_t angularScale = 10000;
 
 	// The file never grows past this. What happens at the cap is decided in
 	// one place, `fits` in PoseRecorder::Run: with `keepNewest` the oldest part
@@ -138,6 +149,8 @@ public:
 		// The stretch was one of clips, and how many the recording has now.
 		bool clipMode = false;
 		uint64_t clips = 0;
+		// The file is a compact one (format version 2).
+		bool compact = false;
 		// How often this stretch dropped the file's oldest part at the cap.
 		uint64_t trims = 0;
 		// The file ends with its pause or end record. False after a failed write.
@@ -234,6 +247,10 @@ private:
 		uint64_t lost = 0;
 		double seconds = 0.0;
 		uint64_t clips = 0;
+		// How the file stores its samples: the next stretch does the same.
+		bool compact = false;
+		uint32_t velocityScale = 0;
+		uint32_t angularScale = 0;
 	} paused_;
 };
 

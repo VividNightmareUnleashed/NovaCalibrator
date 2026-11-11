@@ -5,7 +5,8 @@
 
 .DESCRIPTION
     One executable per target in Tests/Fuzz/FuzzTargets.h (profile, settings,
-    feed, signature, lighthouse, request, frame-recovery, recording), built with MSVC's
+    feed, signature, lighthouse, request, frame-recovery, recording,
+    recording-block), built with MSVC's
     /fsanitize=fuzzer,address into x64\fuzz\. Each run starts from the target's
     seeds and the corpus earlier runs grew (x64\fuzz\<target>\corpus), and stops
     at the time limit or at the first failure: a crash, a sanitizer report, an
@@ -23,7 +24,8 @@
 #>
 param(
     [int]$Seconds = 60,
-    [string[]]$Targets = @('profile', 'settings', 'feed', 'signature', 'lighthouse', 'request', 'frame-recovery', 'recording')
+    [string[]]$Targets = @('profile', 'settings', 'feed', 'signature', 'lighthouse', 'request', 'frame-recovery', 'recording',
+        'recording-block')
 )
 
 # Continue, not Stop: cl and the fuzzers write progress to stderr, which
@@ -74,6 +76,7 @@ $dictionaries = @{
     request    = @()
     "frame-recovery" = @()
     recording  = @('NOVAPOSE')
+    "recording-block" = @()
 }
 $failed = @()
 foreach ($t in $Targets)
