@@ -2995,6 +2995,211 @@ void RunJumpScenarios()
 			judged && candidates == 0 && deltas == 0, detail);
 	}
 
+	// A sparse Quest stream. Through Virtual Desktop the poses come at the
+	// game's frame rate: 20 to 38 Hz for minutes at a time in a busy world,
+	// with frames missing (a tester's session, 2026-11-14: 52 "universe jumps"
+	// of 0.03 to 3.45 degrees in 110 minutes, none of them real, and none in a
+	// session of the same build at 60 Hz). The head turns and reverses, upright
+	// or lying down, and both hands wave. Over 35 to 80 ms an ordinary turn's
+	// acceleration is a "frame jump", a line through three to five samples of
+	// it is a clean fit, and a controller's own false step then confirms the
+	// headset's by chance.
+	struct SparseRun
+	{
+		int deltas = 0, headsetSteps = 0, controllerSteps = 0, candidates = 0;
+		JumpDetector::UniverseDelta last;
+	};
+	// `energy` scales the motion (1 is a lively player, 0.15 one who stands
+	// still); `stepAt` > 0 moves the Quest's frame by (D_R, D_T) at that time;
+	// `devices` is 1 for a headset alone, 3 with both controllers.
+	auto sparseSession = [&](double rateHz, bool lyingDown, double energy, double seconds, double stepAt, uint32_t devices)
+	{
+		JumpDetector jd(TestQpcToSeconds);
+		jd.SetDetailed(true);
+		SparseRun run;
+		uint32_t seed = 20261114u + static_cast<uint32_t>(rateHz) * 7u + (lyingDown ? 1u : 0u);
+		auto uniform = [&]()
+		{
+			seed = seed * 1664525u + 1013904223u;
+			return (seed >> 8) * (1.0 / 16777216.0);
+		};
+		auto sample = [&](uint32_t id, double t)
+		{
+			double yaw, yawRate, pitch, pitchRate;
+			Eigen::Vector3d pos, vel;
+			if (id == hmd)
+			{
+				yaw = energy * (0.7 * std::sin(2.3 * t) + 0.22 * std::sin(8.1 * t + 0.7) + 0.05 * std::sin(19.0 * t + 2.0));
+				yawRate = energy * (0.7 * 2.3 * std::cos(2.3 * t) + 0.22 * 8.1 * std::cos(8.1 * t + 0.7) +
+					0.05 * 19.0 * std::cos(19.0 * t + 2.0));
+				pitch = (lyingDown ? -75.0 : -5.0) * questcal::Pi / 180.0 + energy * 0.15 * std::sin(3.1 * t + 0.3);
+				pitchRate = energy * 0.15 * 3.1 * std::cos(3.1 * t + 0.3);
+				pos = Eigen::Vector3d(0.0, lyingDown ? 0.25 : 1.55, 0.0) + energy * Eigen::Vector3d(
+					0.12 * std::sin(1.7 * t), 0.03 * std::sin(3.3 * t), 0.10 * std::sin(2.1 * t + 1.0));
+				vel = energy * Eigen::Vector3d(0.12 * 1.7 * std::cos(1.7 * t), 0.03 * 3.3 * std::cos(3.3 * t),
+					0.10 * 2.1 * std::cos(2.1 * t + 1.0));
+			}
+			else
+			{
+				const double phase = id;
+				yaw = energy * (0.6 * std::sin(2.6 * t + phase) + 0.15 * std::sin(7.9 * t + 2.0 * phase) +
+					0.06 * std::sin(17.0 * t + 3.0 * phase));
+				yawRate = energy * (0.6 * 2.6 * std::cos(2.6 * t + phase) + 0.15 * 7.9 * std::cos(7.9 * t + 2.0 * phase) +
+					0.06 * 17.0 * std::cos(17.0 * t + 3.0 * phase));
+				pitch = 0.9 + energy * 0.3 * std::sin(3.4 * t + phase);
+				pitchRate = energy * 0.3 * 3.4 * std::cos(3.4 * t + phase);
+				pos = Eigen::Vector3d(id == 1 ? -0.3 : 0.3, lyingDown ? 0.3 : 1.15, -0.3) + energy * 0.12 * Eigen::Vector3d(
+					std::sin(2.9 * t + phase), std::sin(3.7 * t + 2.0 * phase), std::cos(2.3 * t + phase));
+				vel = energy * 0.12 * Eigen::Vector3d(2.9 * std::cos(2.9 * t + phase),
+					3.7 * std::cos(3.7 * t + 2.0 * phase), -2.3 * std::sin(2.3 * t + phase));
+			}
+			const Eigen::Quaterniond heading(Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitY()));
+			Eigen::Quaterniond rot = heading * Eigen::Quaterniond(Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitX()));
+			Eigen::Vector3d inWorld = Eigen::Vector3d(0.0, yawRate, 0.0) + heading * Eigen::Vector3d(pitchRate, 0.0, 0.0);
+			if (stepAt > 0.0 && t >= stepAt)
+			{
+				rot = D_R * rot;
+				pos = D_R * pos + D_T;
+				vel = D_R * vel;
+				inWorld = D_R * inWorld;
+			}
+			// The rate in the device's own frame, as the Quest reports it.
+			return RingSample(id, t, Eigen::Quaterniond::Identity(), Eigen::Vector3d::Zero(),
+				rot, pos, vel, rot.conjugate() * inWorld);
+		};
+		JumpDetector::UniverseDelta d;
+		std::string line;
+		for (double t = 0.0; t < seconds;)
+		{
+			for (uint32_t id = 0; id < devices; ++id)
+				jd.Push(sample(id, t));
+			while (jd.PollDelta(d)) { run.deltas++; run.last = d; }
+			while (jd.PollNote(line))
+			{
+				run.headsetSteps += line.rfind("pose discontinuity on device 0:", 0) == 0;
+				run.controllerSteps += line.rfind("pose discontinuity on device 1:", 0) == 0 ||
+					line.rfind("pose discontinuity on device 2:", 0) == 0;
+			}
+			while (jd.PollDetail(line))
+				run.candidates += line.rfind("candidate on device", 0) == 0;
+			// One frame in eight is missing, and the rest come unevenly.
+			double interval = (0.85 + 0.3 * uniform()) / rateHz;
+			if (uniform() < 0.12)
+				interval *= 2.0;
+			t += interval;
+		}
+		return run;
+	};
+	// Down to the slowest stream: the limit is a rule of the interval, not of
+	// one rate, so it holds at 5 Hz as at 30.
+	for (const double rateHz : { 60.0, 30.0, 20.0, 15.0, 10.0, 5.0 })
+		for (const bool lyingDown : { false, true })
+		{
+			const SparseRun run = sparseSession(rateHz, lyingDown, 1.0, 180.0, 0.0, 3);
+			char name[128];
+			snprintf(name, sizeof name, "jump: a lively player on a %.0f Hz stream, %s, makes no universe jump",
+				rateHz, lyingDown ? "lying down" : "upright");
+			snprintf(detail, sizeof detail,
+				"deltas %d (last yaw %+.2f deg, %d device(s)), fitted steps %d on the headset and %d on the controllers, candidates %d",
+				run.deltas, 2.0 * std::atan2(run.last.rotation.y(), run.last.rotation.w()) * 180.0 / questcal::Pi,
+				run.last.devicesAgreeing, run.headsetSteps, run.controllerSteps, run.candidates);
+			Check(name, run.deltas == 0, detail);
+		}
+	// A headset alone has no second device to disagree, and a large step is
+	// applied on the fit alone. Moved three times as hard, past the 100 rad/s2
+	// the limits allow for (a headset that is taken off or put down), it still
+	// makes no universe jump: the fit's own limits refuse those windows. A fit
+	// limit that grew with the step passed 50 here.
+	{
+		int deltas = 0, steps = 0;
+		for (const double rateHz : { 90.0, 72.0, 60.0, 45.0, 30.0, 20.0, 15.0, 10.0 })
+			for (const bool lyingDown : { false, true })
+			{
+				const SparseRun run = sparseSession(rateHz, lyingDown, 3.0, 300.0, 0.0, 1);
+				deltas += run.deltas;
+				steps += run.headsetSteps;
+			}
+		snprintf(detail, sizeof detail, "deltas %d, fitted headset steps %d, in 80 minutes at 10 to 90 Hz", deltas, steps);
+		Check("jump: a headset alone, moved harder than the limits allow for, makes no universe jump", deltas == 0, detail);
+	}
+	// What the fit resolves on such a stream. A 4 degree, 3 cm step that the
+	// headset and a controller share is past what a 33 ms interval can hide
+	// (3.2 degrees, 17 mm), and it is compensated. With one frame missing
+	// beside it the windows hold a 67 ms interval, which can hide 12.7 degrees
+	// and 67 mm: the same step is then left, with the reason logged.
+	for (const bool frameMissing : { false, true })
+	{
+		JumpDetector jd(TestQpcToSeconds);
+		jd.SetDetailed(true);
+		const double stepYaw = 4.0 * questcal::Pi / 180.0;
+		const Eigen::Quaterniond stepRot(Eigen::AngleAxisd(stepYaw, Eigen::Vector3d::UnitY()));
+		const Eigen::Vector3d stepTrans(0.03, 0.0, 0.0);
+		JumpRun r;
+		bool hidden = false;
+		std::string line;
+		for (int frame = 0; frame < 300; ++frame)
+		{
+			if (frameMissing && frame == 152)
+				continue;
+			const double t = frame / 30.0;
+			for (uint32_t id = 0; id <= 1; ++id)
+			{
+				Eigen::Quaterniond rot = Eigen::Quaterniond::Identity();
+				Eigen::Vector3d pos(0.3 * id, 1.2, 0.2);
+				if (frame >= 150)
+				{
+					rot = stepRot;
+					pos = stepRot * pos + stepTrans;
+				}
+				jd.Push(RingSample(id, t, Eigen::Quaterniond::Identity(), Eigen::Vector3d::Zero(),
+					rot, pos, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero()));
+			}
+			JumpDetector::UniverseDelta d;
+			while (jd.PollDelta(d)) { r.deltas++; r.last = d; }
+			while (jd.PollDetail(line))
+				hidden = hidden || line.find("interval can hide") != std::string::npos;
+		}
+		snprintf(detail, sizeof detail, "deltas %d, yaw error %.2f deg, translation error %.3f m, hidden-step line %d",
+			r.deltas, r.YawErrDeg(stepYaw), r.TransErr(stepTrans), hidden ? 1 : 0);
+		if (frameMissing)
+			Check("jump: a small step beside a missing frame of a 30 Hz stream is left", r.deltas == 0 && hidden, detail);
+		else
+			Check("jump: a small step on a whole 30 Hz stream is compensated",
+				r.deltas == 1 && r.YawErrDeg(stepYaw) < 0.05 && r.TransErr(stepTrans) < 0.002 && !hidden, detail);
+	}
+	// A recenter stays a universe jump there. A player who recenters stands
+	// still, and 25 degrees with half a metre is more than a 100 ms interval
+	// can hide. Sixty recenters at each rate, each at another moment of the
+	// uneven stream: all are compensated at 30 Hz and above. Below, the fit
+	// windows widen to hold three samples a side and frame pairs up to 200 ms
+	// apart are compared (before that: 48 of 60 at 20 Hz, 10 at 15 Hz). What
+	// is still missed there is a window the fit's limits refuse, and no
+	// compensation is ever a wrong one.
+	struct RecenterFloor { double rateHz; int compensated; };
+	for (const RecenterFloor floor : { RecenterFloor{ 60.0, 60 }, RecenterFloor{ 30.0, 60 },
+		RecenterFloor{ 20.0, 57 }, RecenterFloor{ 15.0, 35 } })
+	{
+		int good = 0, wrong = 0, missed = 0;
+		for (int k = 0; k < 60; ++k)
+		{
+			const SparseRun run = sparseSession(floor.rateHz, false, 0.15, 26.0 + 0.173 * k, 20.0 + 0.173 * k, 3);
+			JumpRun r;
+			r.deltas = run.deltas;
+			r.last = run.last;
+			if (run.deltas == 0)
+				missed++;
+			else if (run.deltas == 1 && r.YawErrDeg(jumpYaw) < 2.5 && r.TransErr(D_T) < 0.03)
+				good++;
+			else
+				wrong++;
+		}
+		char name[128];
+		snprintf(name, sizeof name, "jump: recenters on a %.0f Hz stream are compensated", floor.rateHz);
+		snprintf(detail, sizeof detail, "of 60: compensated %d (at least %d), wrong %d, missed %d",
+			good, floor.compensated, wrong, missed);
+		Check(name, good >= floor.compensated && wrong == 0, detail);
+	}
+
 	// Hard gap in the reference stream: gap event, never a compensation.
 	{
 		JumpDetector jd(TestQpcToSeconds);

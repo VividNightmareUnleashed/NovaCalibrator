@@ -264,7 +264,7 @@ void JumpDetector::Push(const protocol::DevicePoseSample &s)
 	else
 		dev.repeatedPositions = 0;
 	dev.hist.push_back(h);
-	while (h.t - dev.hist.front().t > 2.0 * config.window)
+	while (h.t - dev.hist.front().t > 2.0 * config.sparseWindow)
 		dev.hist.pop_front();
 
 	dev.wfdRot = p.wfdRot;
@@ -320,7 +320,7 @@ void JumpDetector::DetectDiscontinuity(uint32_t id, DeviceState &dev, const Hist
 {
 	const Hist &prev = dev.hist.back();
 	double dt = incoming.t - prev.t;   // > 0: Push rejects out-of-order samples
-	if (dt > config.maxFrameGap)
+	if (dt > config.maxStepInterval)
 		return;
 
 	double posErr = (incoming.pos - questcal::PredictPosition(prev.pos, prev.vel, incoming.vel, dt)).norm();
@@ -345,14 +345,18 @@ void JumpDetector::DetectDiscontinuity(uint32_t id, DeviceState &dev, const Hist
 	double yawErr = deviceFrame ? yawErrDevice : yawErrWorld;
 	const double yawRate = deviceFrame ? incoming.rateDevice.y() : incoming.rateWorld.y();
 
-	if (posErr < config.corroboratedPos && yawErr < config.corroboratedYawRad)
+	// Past the floor, and past what the device could have done unseen in the
+	// interval: on a sparse stream an ordinary turn's acceleration alone
+	// leaves the prediction by degrees.
+	if (posErr < (std::max)(config.corroboratedPos, HiddenPos(dt)) &&
+		yawErr < (std::max)(config.corroboratedYawRad, HiddenYaw(dt)))
 		return;
 
 	// One pending candidate per device per window. A later jump inside it is
 	// counted for the candidate's line.
 	for (auto &c : candidates)
 		if (c.deviceId == id && c.life != Life::Dead &&
-			std::abs(c.t - incoming.t) < config.window)
+			std::abs(c.t - incoming.t) < c.window)
 		{
 			c.jumpsInside++;
 			c.largestInsidePos = (std::max)(c.largestInsidePos, posErr);
@@ -371,11 +375,20 @@ void JumpDetector::DetectDiscontinuity(uint32_t id, DeviceState &dev, const Hist
 	c.frameInterval = dt;
 	c.usualInterval = usualInterval;
 	c.needsCorroboration = posErr < config.discontinuityPos && yawErr < config.discontinuityYawRad;
-	c.followDeadline = c.t + config.window + config.controllerFollowSeconds;
+	// On a sparse stream the windows reach back to the third sample before
+	// the step, with room for the uneven intervals after it.
+	c.window = config.window;
+	if (dev.hist.size() >= 3)
+	{
+		const double span = c.t - dev.hist[dev.hist.size() - 3].t;
+		if (span > config.window)
+			c.window = (std::min)(1.4 * span, config.sparseWindow);
+	}
+	c.followDeadline = c.t + c.window + config.controllerFollowSeconds;
 	c.lastHoldCheck = c.t;
 	// Keep only the pre-jump window.
 	size_t first = 0;
-	while (first < dev.hist.size() && c.t - dev.hist[first].t > config.window)
+	while (first < dev.hist.size() && c.t - dev.hist[first].t > c.window)
 		++first;
 	c.preWindow.assign(dev.hist.begin() + first, dev.hist.end());
 	if (detailed)
@@ -402,7 +415,7 @@ void JumpDetector::EvaluatePendingCandidates()
 		if (!c.PendingHeuristic())
 			continue;
 		double now = devices[c.deviceId].lastValidTime;
-		if (now < c.t + config.window)
+		if (now < c.t + c.window)
 			continue;   // post window still filling
 
 		const auto &dev = devices[c.deviceId];
@@ -413,7 +426,7 @@ void JumpDetector::EvaluatePendingCandidates()
 			pre.Add(h.t, h.pos, h.yaw, c.t);
 		for (const auto &h : dev.hist)
 		{
-			if (h.t < c.t || h.t > c.t + config.window)
+			if (h.t < c.t || h.t > c.t + c.window)
 				continue;
 			post.Add(h.t, h.pos, h.yaw, c.t);
 		}
@@ -435,7 +448,7 @@ void JumpDetector::EvaluatePendingCandidates()
 			FitResidual r;
 			for (const auto &h : history)
 			{
-				if (after && (h.t < c.t || h.t > c.t + config.window))
+				if (after && (h.t < c.t || h.t > c.t + c.window))
 					continue;
 				Eigen::Vector3d predicted;
 				double yaw = 0.0;
@@ -465,6 +478,33 @@ void JumpDetector::EvaluatePendingCandidates()
 			Drop(c, "fit not clean, a transient or a second step: " + fitText);
 			continue;
 		}
+		// A line through a few samples of a turn is a clean fit, and the two
+		// lines meet at the step with whatever the device did between its
+		// samples. The fit resolves a step only past what the longest interval
+		// in its windows can hide, the one across the step included.
+		{
+			double longest = 0.0, last = -1.0;
+			auto span = [&](const Hist &h)
+			{
+				if (last >= 0.0)
+					longest = (std::max)(longest, h.t - last);
+				last = h.t;
+			};
+			for (const auto &h : c.preWindow)
+				span(h);
+			for (const auto &h : dev.hist)
+				if (h.t >= c.t && h.t <= c.t + c.window)
+					span(h);
+			const double turned = std::abs(WrapAngle(postYaw - preYaw));
+			const double moved = (postPos - prePos).norm();
+			if (turned <= HiddenYaw(longest) && moved <= HiddenPos(longest))
+			{
+				Drop(c, Format("a %.1f ms interval can hide its %.2f deg and %.1f mm (up to %.2f deg and %.1f mm); ",
+					longest * 1000.0, turned * 180.0 / questcal::Pi, moved * 1000.0,
+					HiddenYaw(longest) * 180.0 / questcal::Pi, HiddenPos(longest) * 1000.0) + fitText);
+				continue;
+			}
+		}
 		if (detailed)
 		{
 			WriteCandidateLine(c, Format(
@@ -482,7 +522,7 @@ void JumpDetector::EvaluatePendingCandidates()
 			for (const auto &h : c.preWindow)
 				add(h);
 			for (const auto &h : dev.hist)
-				if (h.t >= c.t && h.t <= c.t + config.window)
+				if (h.t >= c.t && h.t <= c.t + c.window)
 					add(h);
 			details.push_back(samples);
 		}
@@ -523,7 +563,7 @@ void JumpDetector::EvaluatePendingCandidates()
 			// 0.9 m/s, and even the exact step left more error than none).
 			std::vector<Hist> postWindow;
 			for (const auto &h : dev.hist)
-				if (h.t >= c.t && h.t <= c.t + config.window)
+				if (h.t >= c.t && h.t <= c.t + c.window)
 					postWindow.push_back(h);
 			const bool heldBefore = HeldPositionSignature(c.preWindow);
 			const bool heldAfter = !heldBefore && HeldPositionSignature(postWindow);
@@ -587,7 +627,7 @@ bool JumpDetector::AwaitsFittedStep(const Candidate &c0, double now) const
 	return std::any_of(candidates.begin(), candidates.end(), [&](const Candidate &o) {
 		return o.deviceId != c0.deviceId && o.PendingHeuristic() &&
 			o.t - c0.t >= -config.controllerLeadSeconds && o.t <= c0.followDeadline &&
-			now <= o.t + config.window + config.maxFrameGap;
+			now <= o.t + o.window + config.maxStepInterval;
 	});
 }
 
@@ -815,7 +855,7 @@ void JumpDetector::TryAccept()
 			return;
 		}
 
-		if (now <= c0.t + config.window + config.agreeWindow)
+		if (now <= c0.t + c0.window + config.agreeWindow)
 			continue;   // immediate agreement can still arrive
 		// While every other reference device is locked still it cannot
 		// step, so that time does not count against the follow-up wait.

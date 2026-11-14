@@ -142,9 +142,14 @@ const LoggedSample LateFrameStep[] = {
 // ending before the 0.2 s pre-window so the fit sees only logged samples,
 // then carries the last logged motion on until the post-step window closes.
 // Returns the deltas applied; notes are drained into `log`.
-int ReplayLoggedLateStep(std::vector<std::string> &log)
+// `asThatBuild` judges it with no limit on what an interval can hide, as the
+// build of that day did.
+int ReplayLoggedLateStep(std::vector<std::string> &log, bool asThatBuild)
 {
-	JumpDetector detector(QpcSeconds);
+	JumpDetector::Config policy;
+	if (asThatBuild)
+		policy.hiddenAngularAcceleration = policy.hiddenAcceleration = 0.0;
+	JumpDetector detector(QpcSeconds, policy);
 	const double step = 72.0;
 	int count = 0;
 	auto push = [&](double time, double x, double y, double z, double yawDeg)
@@ -605,12 +610,20 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 		check("late frame: a late frame a second before the step changes nothing", count == 1,
 			"only the frame carrying the step is judged");
 
+		// Two rules refuse it. The late-frame rule does when the step is
+		// judged as that build judged it. A 43.9 ms interval can also hide
+		// 5.5 degrees and 29 mm of the head's own motion, more than the frame
+		// pair shows, so the candidate is no longer raised at all.
 		log.clear();
-		count = ReplayLoggedLateStep(log);
+		count = ReplayLoggedLateStep(log, true);
 		check("late frame: the step of 2026-10-24 22:34:13 replays as logged",
 			Has(log, "yaw -3.94 deg, shift 0.034 m, device moved 0.053 m"), LastWith(log, "pose discontinuity").c_str());
+		const bool refusedAsLate = count == 0 && Has(log, "its frame came late (43.9 ms");
+		log.clear();
+		count = ReplayLoggedLateStep(log, false);
 		check("late frame: and is no longer applied alone",
-			count == 0 && Has(log, "its frame came late (43.9 ms"), LastWith(log, "pose discontinuity").c_str());
+			refusedAsLate && count == 0 && !Has(log, "pose discontinuity"),
+			"refused as late under that build's limits, and not raised under today's");
 
 		// A step whose heading barely moved is no turn about the head: it is a
 		// small displacement and joins the ignored total. A one-frame 2.2 deg

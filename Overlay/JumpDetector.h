@@ -49,6 +49,40 @@ public:
 		double corroboratedYawTolRad = 1.0 * 3.14159265358979 / 180.0;
 		double fitPositionRms = 0.01;
 		double fitYawRmsRad = 0.5 * 3.14159265358979 / 180.0;
+		// These limits stay absolute, also for a large step. Let grow with the
+		// step (a tenth of it), they passed 50 false jumps of 10 deg and more in
+		// 80 minutes of a headset moved harder than the limits below allow for,
+		// as when it is taken off; held, they passed none (harness, 2026-11-14).
+		// What a device can do between two samples, where the stream does not
+		// show it. A head starts or reverses a turn with up to about 100 rad/s2
+		// and moves with up to about 30 m/s2, so over an interval dt it can
+		// leave the path its samples predict by dt^2 / 2 times that: 0.8 deg and
+		// 4 mm at 60 Hz, 3.2 deg and 17 mm at 30 Hz, 7.2 deg and 38 mm at
+		// 20 Hz, 19 deg and 10 cm over an 82 ms hole. A step no larger than
+		// that is no evidence of a frame change: it is neither raised from a
+		// frame pair nor kept from a fit whose windows hold such an interval.
+		// Through Virtual Desktop a Quest's poses come at the game's frame
+		// rate. A tester's session of 2026-11-14 ran at 20 to 38 Hz for minutes
+		// at a time, and 52 head turns of 0.03 to 3.45 deg were compensated as
+		// universe jumps: fitted as steps over three to five samples a side,
+		// then confirmed by a controller's own false step. Of the 37 headset
+		// steps that log kept, these limits pass the three that came at 60 Hz;
+		// of the 460 on the controllers, 95.
+		double hiddenAngularAcceleration = 100.0;   // rad/s^2
+		double hiddenAcceleration = 30.0;           // m/s^2
+		// The sparsest streams. Below about 15 Hz `window` holds fewer than
+		// three samples a side, and frames more than maxFrameGap apart were
+		// never compared, so a recenter there went unseen: of 60 recenters by a
+		// player standing still, 12 at 20 Hz, 50 at 15 Hz and all at 12 Hz
+		// and below (harness sweep, 2026-11-14). A candidate's windows now
+		// widen until each holds three samples, to sparseWindow at most, and
+		// frame pairs up to maxStepInterval apart are compared: 3 of the 60
+		// are missed at 20 Hz and 25 at 15 Hz, each in windows the fit's limits
+		// refuse. What an interval can hide grows with its square (38 deg and
+		// 20 cm at 115 ms, 115 deg and 60 cm at 200 ms), so only a step the
+		// size of a recenter passes there, and below about 7 Hz none does.
+		double sparseWindow = 0.5;
+		double maxStepInterval = 0.2;
 		double maxFrameGap = ringpose::MaxAdjacentFrameSeconds;
 		// After a driver queue drop, a device whose next interval is this many
 		// times its usual one lost a frame of its own (one lost frame doubles
@@ -169,6 +203,9 @@ public:
 	};
 
 	explicit JumpDetector(double qpcToSeconds) : qpcToSeconds(qpcToSeconds) { }
+	// With another policy: the harness replays a logged step as the build of
+	// its day judged it.
+	JumpDetector(double qpcToSeconds, const Config &policy) : config(policy), qpcToSeconds(qpcToSeconds) { }
 
 	// Feed one reference-system sample, in ring order and valid or not (a bad
 	// frame breaks continuity). The caller bounds deviceId; non-reference
@@ -287,6 +324,9 @@ private:
 		int64_t sample = 0;   // the sample at `t` (Hist::sample)
 		Kind kind = Kind::Heuristic;
 		Life life = Life::Pending;
+		// Heuristic candidates: the length of each fit window, `window` or
+		// longer on a sparse stream (see sparseWindow in Config).
+		double window = 0.0;
 		Eigen::Quaterniond rot{ 1, 0, 0, 0 };
 		Eigen::Vector3d trans{ 0, 0, 0 };
 		double residualTiltRad = 0.0;
@@ -400,6 +440,10 @@ private:
 	// The engine's 3DoF fallback: position held bit-for-bit between frames
 	// while the orientation keeps integrating. Never seen in 6DoF.
 	static bool HeldPositionSignature(const std::vector<Hist> &window);
+	// The turn and the displacement a device can make unseen in `interval`
+	// seconds (see hiddenAngularAcceleration in Config).
+	double HiddenYaw(double interval) const { return 0.5 * config.hiddenAngularAcceleration * interval * interval; }
+	double HiddenPos(double interval) const { return 0.5 * config.hiddenAcceleration * interval * interval; }
 
 	void DetectWfdRebase(uint32_t id, DeviceState &dev, double t, int64_t sample,
 	                     const Eigen::Quaterniond &newRot, const Eigen::Vector3d &newTrans);
