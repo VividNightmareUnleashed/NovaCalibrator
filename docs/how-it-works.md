@@ -32,7 +32,8 @@ Solver (new `CalibrationEngine`, covered by synthetic tests in `Tests/`):
 - Calibration collects both streams for a fixed duration, solves once, and publishes
   the complete transform. It starts measuring only once both devices track and a
   lighthouse device's tracking has settled (15 s after it restarted, two base
-  stations in view, 10 s after SteamVR chose where its base stations stand),
+  stations in view, or the only one in a room with one, 10 s after SteamVR
+  chose where its base stations stand),
   and waits for that on its own rather than refusing. A base
   station SteamVR re-solves during the measurement is followed: the samples are
   kept in the frame the run began in and the result is carried to the new one.

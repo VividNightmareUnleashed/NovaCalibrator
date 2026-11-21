@@ -151,7 +151,10 @@ lighthouse device in the pair is neither degraded nor within ten seconds of a
 disturbance, until fifteen seconds after its last new solution (a solution
 still settling was measured 1.2 deg off on 2026-09-26), and until ten seconds
 after SteamVR chose its universe. It starts on its own once that holds, and
-after 30 s measures a device that tracks but never settled.
+after 30 s measures a device that tracks but never settled. In a room where
+the log has named one base station, that station in view is enough for this
+wait and for the continuous loop: there is no second one to wait for. Drift
+evidence is still not counted there, since one station is one baseline.
 
 Continuous calibration reads the headset tracker's lines the same way: no
 verdict while it settles, and a pause within two minutes of one of its
