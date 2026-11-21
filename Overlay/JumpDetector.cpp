@@ -386,6 +386,7 @@ void JumpDetector::DetectDiscontinuity(uint32_t id, DeviceState &dev, const Hist
 	}
 	c.followDeadline = c.t + c.window + config.controllerFollowSeconds;
 	c.lastHoldCheck = c.t;
+	c.othersAtStep = ActiveDeviceCount(c.t) > 1;
 	// Keep only the pre-jump window.
 	size_t first = 0;
 	while (first < dev.hist.size() && c.t - dev.hist[first].t > c.window)
@@ -756,7 +757,10 @@ void JumpDetector::TryAccept()
 			}
 		}
 
-		bool solo = ActiveDeviceCount(now) <= 1;
+		// Headset-only is a fact of the step, not of the moment it is judged:
+		// a step that a tracking controller did not follow stays unconfirmed
+		// when that controller's poses stop for a second during the hold.
+		bool solo = !c0.othersAtStep && ActiveDeviceCount(now) <= 1;
 		// A large step after a held position is the catch-up onto resumed
 		// tracking (a wake, a dark corner): the frame did not change, the
 		// head did. A step into one is measured against a position the head

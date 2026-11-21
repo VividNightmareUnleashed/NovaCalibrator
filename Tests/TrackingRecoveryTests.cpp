@@ -682,6 +682,60 @@ void RunTrackingRecoveryScenarios(void (*check)(const char *, bool, const char *
 		JumpDetector::UniverseDelta delta;
 		check("recovery: tracking loss revokes ready jump evidence", !detector.PollDelta(delta), "delayed agreement after invalid HMD frame");
 	}
+
+	// Headset-only is a fact of the step. A 6 cm headset step on a stream
+	// steady for 70 s, with a controller that tracked through it and did not
+	// step: the controller's to confirm. Its poses then stop for 1.5 s ten
+	// seconds into the hold. With one device left the step was once taken for
+	// a headset-only one and applied at that moment; it stays unconfirmed, as
+	// it does when the controller tracks throughout. With no controller at
+	// all it is applied alone, as before.
+	{
+		const auto run = [](double lostFrom, double lostUntil, bool controller)
+		{
+			JumpDetector detector(QpcSeconds);
+			int deltas = 0;
+			const double dt = 1.0 / 72.0;
+			for (int i = 0; i < 72 * 110; ++i)
+			{
+				const double rel = i * dt, time = 1000.0 + rel;
+				auto hmd = Sample(0, time, 0.0);
+				hmd.position[0] = 0.05 * std::sin(0.5 * rel) + (rel >= 70.0 ? 0.06 : 0.0);
+				hmd.position[2] = 0.03 * std::cos(0.4 * rel);
+				hmd.velocity[0] = 0.025 * std::cos(0.5 * rel);
+				hmd.velocity[2] = -0.012 * std::sin(0.4 * rel);
+				detector.Push(hmd);
+				if (controller)
+				{
+					// Moving, so it is not locked still, and never stepping.
+					auto hand = Sample(1, time + 0.003, 0.0);
+					hand.position[0] = 0.3 + 0.1 * std::sin(0.7 * rel);
+					hand.position[2] = 0.2 + 0.1 * std::cos(0.6 * rel);
+					hand.velocity[0] = 0.07 * std::cos(0.7 * rel);
+					hand.velocity[2] = -0.06 * std::sin(0.6 * rel);
+					if (rel >= lostFrom && rel < lostUntil)
+					{
+						hand.poseIsValid = false;
+						hand.trackingResult = vr::TrackingResult_Running_OutOfRange;
+					}
+					detector.Push(hand);
+				}
+				JumpDetector::UniverseDelta delta;
+				while (detector.PollDelta(delta))
+					++deltas;
+			}
+			return deltas;
+		};
+		const int tracked = run(1e9, 1e9, true);
+		const int lost = run(80.0, 81.5, true);
+		const int alone = run(1e9, 1e9, false);
+		char detail[160];
+		snprintf(detail, sizeof detail,
+			"deltas: %d with the controller tracking, %d with its poses gone for 1.5 s in the hold, %d with no controller",
+			tracked, lost, alone);
+		check("recovery: a controller going quiet in the hold does not make the step headset-only",
+			tracked == 0 && lost == 0 && alone == 1, detail);
+	}
 	{
 		auto aligner = Aligner();
 		Warm(aligner, .015);

@@ -362,6 +362,11 @@ private:
 		bool heldPosition = false;
 		bool driftCatchUp = false;
 		bool settledSolo = false;
+		// HMD heuristic: another reference device was tracking when the step
+		// was raised. Such a step is that device's to confirm or to leave
+		// unconfirmed: the device going quiet during the hold does not make
+		// the step a headset-only one.
+		bool othersAtStep = false;
 		// HMD heuristic, for the log only: shaped like a drift catch-up
 		// (threshold-sized or a turn about the head, followed drift or not),
 		// and the other devices whose own frames jumped within agreeWindow of
