@@ -2,6 +2,13 @@
 #include "PoseStreamHub.h"
 #include "../common/PoseRingReader.h"
 
+PoseStreamHub::PoseStreamHub()
+{
+	LARGE_INTEGER frequency;
+	QueryPerformanceFrequency(&frequency);
+	secondsPerTick = 1.0 / static_cast<double>(frequency.QuadPart);
+}
+
 PoseStreamHub::~PoseStreamHub()
 {
 	Stop();
@@ -215,6 +222,41 @@ void PoseStreamHub::AppendSampleLocked(const protocol::DevicePoseSample &sample)
 	if (sample.deviceId < diagnostics.devices.size())
 	{
 		auto &device = diagnostics.devices[sample.deviceId];
+		auto &q = device.quality;
+		if (device.streamBoundary != diagnostics.streamBoundaries)
+			q = {};
+		const double now = static_cast<double>(sample.sampleTimeQpc) * secondsPerTick;
+		const bool good = sample.poseIsValid && sample.trackingResult == vr::TrackingResult_Running_OK;
+		// Count fully observed episodes only. A hole in the recorder or a
+		// silent device cannot tell us how long tracking was out of range.
+		const bool continuous = q.lastSample >= 0.0 && now >= q.lastSample && now - q.lastSample <= 0.25 &&
+			q.gapMarker == diagnostics.gapMarkers;
+		if (!continuous)
+			q.started = -1.0;
+		else if (q.wasGood && !good)
+			q.started = now;
+		else if (good && q.started >= 0.0)
+		{
+			++q.recoveries;
+			q.lastRecovery = now;
+			q.lastDuration = now - q.started;
+			q.started = -1.0;
+			q.peersObserved = q.peersGood = 0;
+			for (const auto &other : diagnostics.devices)
+			{
+				const auto &peer = other.quality;
+				if (&other == &device || other.received < 2 || other.streamBoundary != diagnostics.streamBoundaries ||
+					peer.gapMarker != diagnostics.gapMarkers || peer.lastSample < 0 ||
+					now < peer.lastSample || now - peer.lastSample > 0.025)
+					continue;
+				++q.peersObserved;
+				if (peer.wasGood)
+					++q.peersGood;
+			}
+		}
+		q.lastSample = now;
+		q.wasGood = good;
+		q.gapMarker = diagnostics.gapMarkers;
 		++device.received;
 		device.streamBoundary = diagnostics.streamBoundaries;
 		device.latest = sample;

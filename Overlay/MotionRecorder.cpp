@@ -12,6 +12,7 @@
 #include "../common/Version.h"
 
 #include "MotionRecorder.h"
+#include "TrackingTrace.h"
 #include "MotionRecorderText.h"
 #include "PoseRecorder.h"
 #include "RecordingTriggers.h"
@@ -34,6 +35,7 @@ namespace
 using recording::Playback;
 
 PoseRecorder Recorder;
+stagetrace::Capture StageCapture;
 Playback ThePlayer;
 // The overlay's hub, as the first tick hands it over; null in a preview and
 // for as long as the module is not installed.
@@ -317,7 +319,8 @@ std::string PreviewRecording()
 				recording::Sample sample;
 				sample.qpc = baseQpc + static_cast<int64_t>(into * frequency);
 				sample.deviceId = body.id;
-				sample.trackingResult = 200;
+				sample.trackingResult = body.id == 4 && from + into >= 3.95 && from + into < 4.25
+					? vr::TrackingResult_Calibrating_OutOfRange : vr::TrackingResult_Running_OK;
 				sample.poseValid = true;
 				sample.connected = true;
 				PreviewPosition(body.id, from + into, sample.position);
@@ -499,6 +502,70 @@ void Pause()
 	Recorder.RequestPause();
 }
 
+bool StageCaptureActive()
+{
+	return StageCapture.Status() == stagetrace::Result::Working;
+}
+
+void ToggleStageCapture()
+{
+	if (g_uiPreviewMode || !Installed())
+		return;
+	if (StageCaptureActive())
+	{
+		StageCapture.Stop();
+		return;
+	}
+	const std::wstring folder = Folder();
+	if (!folder.empty())
+	{
+		CreateDirectoryW(folder.substr(0, folder.rfind(L'\\')).c_str(), nullptr);
+		CreateDirectoryW(folder.c_str(), nullptr);
+	}
+	StageCapture.Start(vr::VRSystem(), folder);
+}
+
+// Says once how a capture began and how it ended, as the recorder does of
+// its file. The capture has a thread of its own; this is the tick's look at it.
+void ReportStageCapture(CalibrationContext &ctx)
+{
+	using stagetrace::Result;
+	static Result told = Result::Idle;
+	const Result status = StageCapture.Status();
+	if (status == told)
+		return;
+	told = status;
+	switch (status)
+	{
+	case Result::Working:
+		AppendSessionLog("tracking comparison: capture started");
+		ctx.Tell(text::TraceWorking, CalibrationContext::Tone::Neutral);
+		break;
+	case Result::Complete:
+	case Result::Stopped:
+		AppendSessionLog(status == Result::Complete ? "tracking comparison: saved after 30 seconds"
+			: "tracking comparison: saved, stopped by the player");
+		ctx.Tell(text::TraceSaved, CalibrationContext::Tone::Good);
+		break;
+	case Result::DriverMissing:
+	case Result::DriverEnded:
+		AppendSessionLog(status == Result::DriverMissing ? "tracking comparison: the driver sent no poses"
+			: "tracking comparison: the driver's poses ended early");
+		ctx.Tell(text::TraceDriver, CalibrationContext::Tone::Warn);
+		break;
+	case Result::SizeLimit:
+		AppendSessionLog("tracking comparison: stopped at the size limit");
+		ctx.Tell(text::TraceLimit, CalibrationContext::Tone::Warn);
+		break;
+	case Result::Failed:
+		AppendSessionLog("tracking comparison: capture failed");
+		ctx.ReportError(std::string(text::TraceFailed) + "\n");
+		break;
+	case Result::Idle:
+		break;
+	}
+}
+
 void DeleteRecording()
 {
 	if (g_uiPreviewMode)
@@ -534,6 +601,7 @@ void Tick(CalibrationContext &ctx, PoseStreamHub &hub, double time)
 {
 	if (!Modules::On(ctx.modules.motionRecorder))
 		return;
+	ReportStageCapture(ctx);
 	Hub = &hub;
 	// A stretch that a limit, a failed write or the player's stop closed.
 	TakeFinished(ctx, true);
@@ -586,6 +654,7 @@ void Tick(CalibrationContext &ctx, PoseStreamHub &hub, double time)
 
 void Close(bool steamVrEnded)
 {
+	StageCapture.Close();
 	using recording::EndReason;
 	const bool closed = Recorder.StopAndWait(steamVrEnded ? EndReason::SteamVrQuit : EndReason::AppExit, CloseWaitMs);
 	On = false;
@@ -684,6 +753,7 @@ void LivePoses(double time, std::vector<recording::Playback::DevicePose> &device
 		out.info.controllerType = known.controllerType;
 		out.renderModel = known.renderModel;
 		out.tracked = tracked;
+		out.limited = tracked && pose.eTrackingResult != vr::TrackingResult_Running_OK;
 		if (tracked)
 		{
 			const std::array<float, 3> at = { pose.mDeviceToAbsoluteTracking.m[0][3],

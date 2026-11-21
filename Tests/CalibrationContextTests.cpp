@@ -230,6 +230,43 @@ bool PoseStreamDiagnosticsScenario()
 		samples.front().sampleTimeQpc == 10010 && hub.ReadDiagnostics().devices[16].received == 2;
 }
 
+bool TrackingQualityScenario()
+{
+	PoseStreamHub hub;
+	protocol::DevicePoseSample s{};
+	s.deviceId = 11;
+	s.poseIsValid = true;
+	s.deviceIsConnected = true;
+	LARGE_INTEGER hz;
+	QueryPerformanceFrequency(&hz);
+	const auto feed = [&](int ms, bool good) {
+		s.sampleTimeQpc = hz.QuadPart + hz.QuadPart * ms / 1000;
+		s.trackingResult = good ? vr::TrackingResult_Running_OK : vr::TrackingResult_Calibrating_OutOfRange;
+		hub.AppendSampleForTest(s);
+	};
+	feed(0, true);
+	feed(10, false);
+	s.deviceId = 3;
+	feed(51, true);
+	feed(55, true);
+	s.deviceId = 4;
+	feed(51, true);
+	feed(55, false);
+	s.deviceId = 11;
+	feed(60, true);
+	feed(70, false);
+	hub.AppendGapForTest(1);
+	feed(80, true);
+	feed(90, false);
+	feed(900, true);
+	const auto q = hub.ReadDiagnostics().devices[11].quality;
+	hub.AppendSessionBoundaryForTest();
+	feed(910, false);
+	feed(920, true);
+	return q.recoveries == 1 && std::abs(q.lastDuration - 0.05) < 1e-5 && q.peersObserved == 2 && q.peersGood == 1 &&
+		hub.ReadDiagnostics().devices[11].quality.recoveries == 0;
+}
+
 bool ContinuousWindowDiagnosticsScenario()
 {
 	using Engine = questcal::ContinuousAlignment;

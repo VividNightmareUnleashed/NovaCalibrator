@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <deque>
 #include <set>
 #include <utility>
 
@@ -28,6 +29,19 @@ constexpr size_t MaxDevices = 256;
 constexpr size_t MaxSystems = 16;
 constexpr double TrailStepSeconds = 1.0 / 90.0;
 constexpr uint64_t ProgressStepBytes = 8ull << 20;
+constexpr double MaxPoseOffset = 0.050;
+constexpr double MaxBracket = 0.035;
+constexpr double SameStamp = 0.0001;
+constexpr size_t MaxQueuedSamples = 8192;
+constexpr uint32_t RunningOK = 200; // OpenVR ETrackingResult on the recording's wire
+
+struct TimedSample
+{
+	Sample sample;
+	double capture = 0.0;
+	double stamp = 0.0;
+	bool reliableTime = false;
+};
 
 bool Finite3(const double v[3])
 {
@@ -65,6 +79,41 @@ void Multiply(const double a[4], const double b[4], double out[4])
 	out[1] = a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2];
 	out[2] = a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1];
 	out[3] = a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0];
+}
+
+// Only join healthy reports in the same space. A long interval needs closer
+// agreement with the reported motion, as on the hand's recorded 28 ms gap.
+bool CanInterpolate(const TimedSample &left, const TimedSample &right)
+{
+	const auto &a = left.sample;
+	const auto &b = right.sample;
+	const double dt = right.stamp - left.stamp;
+	if (!left.reliableTime || !right.reliableTime || dt <= SameStamp || dt > MaxBracket ||
+		right.capture - left.capture > 0.045 || a.trackingResult != RunningOK || b.trackingResult != RunningOK ||
+		!a.poseValid || !b.poseValid || !a.connected || !b.connected ||
+		!std::equal(a.worldFromDriverRotation, a.worldFromDriverRotation + 4, b.worldFromDriverRotation) ||
+		!std::equal(a.worldFromDriverTranslation, a.worldFromDriverTranslation + 3, b.worldFromDriverTranslation))
+		return false;
+	double qa[4], qb[4];
+	if (!Unit(a.rotation, qa) || !Unit(b.rotation, qb))
+		return false;
+	double dot = 0.0;
+	for (int i = 0; i < 4; ++i)
+		dot += qa[i] * qb[i];
+	const double turn = 2.0 * std::acos((std::min)(1.0, std::abs(dot)));
+	double error[3], travel[3], angular[3];
+	for (int i = 0; i < 3; ++i)
+	{
+		travel[i] = (0.5 * a.velocity[i] + 0.5 * b.velocity[i]) * dt;
+		error[i] = b.position[i] - a.position[i] - travel[i];
+		angular[i] = (0.5 * a.angularVelocity[i] + 0.5 * b.angularVelocity[i]) * dt;
+	}
+	const double distance = std::hypot(travel[0], travel[1], travel[2]);
+	const double angle = std::hypot(angular[0], angular[1], angular[2]);
+	const bool longer = dt > 0.012;
+	return std::isfinite(distance) && std::isfinite(angle) &&
+		std::hypot(error[0], error[1], error[2]) <= (longer ? 0.0015 + 0.065 * distance : 0.005 + distance) &&
+		std::abs(turn - angle) <= (longer ? 0.022 + 0.15 * angle : 0.035 + angle);
 }
 
 // Seconds from a stretch's first sample to this one, never negative and never
@@ -115,19 +164,25 @@ struct Playback::Cursor
 	std::unique_ptr<Reader> reader;
 	size_t span = 0;
 	double spanSeconds = 0.0;
-	double time = 0.0;
+	double playhead = 0.0;
 	bool hasPending = false;
 	Record pending;
 	double pendingTime = 0.0;
 	// The samples of the block that was read last, and the next one to give.
 	std::vector<Sample> block;
 	size_t blockAt = 0;
+	double segmentStart = 0.0;
+	size_t queued = 0;
 
 	struct Device
 	{
 		DeviceInfo info;
 		bool any = false;
 		bool tracked = false;
+		bool limited = false;
+		bool hasPrevious = false;
+		TimedSample previous;
+		std::deque<TimedSample> upcoming;
 		double position[3] = { 0.0, 0.0, 0.0 };
 		double rotation[4] = { 1.0, 0.0, 0.0, 0.0 };
 		std::string renderModel;
@@ -183,17 +238,13 @@ struct Playback::Cursor
 		}
 	}
 
-	void Apply(const Sample &sample, double at)
+	bool Place(const Device &device, const Sample &sample, double position[3], double rotation[4]) const
 	{
-		Device *device = Find(sample.deviceId, true);
-		if (!device)
-			return;
 		double driver[4], world[3], own[4], turned[4];
 		const bool usable = sample.poseValid && sample.connected && Finite3(sample.position) &&
 			Finite3(sample.worldFromDriverTranslation) && Unit(sample.worldFromDriverRotation, driver);
-		device->tracked = usable;
 		if (!usable)
-			return;
+			return false;
 		Rotate(driver, sample.position, world);
 		for (int i = 0; i < 3; ++i)
 			world[i] += sample.worldFromDriverTranslation[i];
@@ -205,7 +256,7 @@ struct Playback::Cursor
 		for (const Alignment &alignment : alignments)
 		{
 			double turn[4];
-			if (!alignment.applied || alignment.trackingSystem != device->info.trackingSystem ||
+			if (!alignment.applied || alignment.trackingSystem != device.info.trackingSystem ||
 				!Unit(alignment.rotation, turn) || !Finite3(alignment.translation) || !std::isfinite(alignment.scale))
 				continue;
 			const double scaled[3] = { world[0] * alignment.scale, world[1] * alignment.scale, world[2] * alignment.scale };
@@ -217,20 +268,105 @@ struct Playback::Cursor
 			break;
 		}
 		if (!Finite3(world))
-		{
-			device->tracked = false;
+			return false;
+		std::copy(world, world + 3, position);
+		std::copy(turned, turned + 4, rotation);
+		return true;
+	}
+
+	void Apply(Device &device, const TimedSample &point)
+	{
+		device.previous = point;
+		device.hasPrevious = true;
+		// A device with limited tracking still reports where it is, and the
+		// step it makes when its tracking comes back is what a viewer looks
+		// for: its trail goes on through both.
+		device.tracked = Place(device, point.sample, device.position, device.rotation);
+		device.limited = device.tracked && point.sample.trackingResult != RunningOK;
+		if (!device.tracked)
 			return;
-		}
-		device->any = true;
-		for (int i = 0; i < 3; ++i)
-			device->position[i] = world[i];
-		std::copy(turned, turned + 4, device->rotation);
-		if (at - device->lastTrail >= TrailStepSeconds)
+		device.any = true;
+		if (point.stamp - device.lastTrail >= TrailStepSeconds)
 		{
-			device->lastTrail = at;
-			device->trail.push_back({ at, { static_cast<float>(world[0]), static_cast<float>(world[1]),
-				static_cast<float>(world[2]) } });
+			device.lastTrail = point.stamp;
+			device.trail.push_back({ point.stamp, { static_cast<float>(device.position[0]),
+				static_cast<float>(device.position[1]), static_cast<float>(device.position[2]) } });
 		}
+	}
+
+	void Queue(const Sample &sample, double at, double time, double end)
+	{
+		auto *device = Find(sample.deviceId, true);
+		if (!device)
+			return;
+		const bool bounded = std::isfinite(sample.poseTimeOffset) && std::abs(sample.poseTimeOffset) <= MaxPoseOffset;
+		TimedSample point{ sample, at, std::clamp(at + (bounded ? sample.poseTimeOffset : 0.0), segmentStart, end), bounded };
+		if (!device->upcoming.empty() || device->hasPrevious)
+		{
+			const auto &last = device->upcoming.empty() ? device->previous : device->upcoming.back();
+			if (point.stamp < last.stamp + SameStamp)
+			{
+				point.reliableTime = point.reliableTime && point.stamp >= last.stamp - SameStamp;
+				point.stamp = last.stamp;
+			}
+		}
+		const double due = (std::min)(time, at);
+		AdvanceDevice(*device, due);
+		if (point.stamp <= due)
+			Apply(*device, point);
+		else
+		{
+			device->upcoming.push_back(point);
+			++queued;
+		}
+	}
+
+	void AdvanceDevice(Device &device, double time)
+	{
+		while (!device.upcoming.empty() && device.upcoming.front().stamp <= time)
+		{
+			Apply(device, device.upcoming.front());
+			device.upcoming.pop_front();
+			--queued;
+		}
+	}
+
+	void Advance(double time)
+	{
+		for (auto &device : devices)
+			AdvanceDevice(device, time);
+	}
+
+	void Fence(double time)
+	{
+		Advance(time);
+		for (auto &device : devices)
+		{
+			device.upcoming.clear();
+			device.hasPrevious = false;
+		}
+		queued = 0;
+		segmentStart = time;
+	}
+
+	void Interpolate(const Device &device, double time, DevicePose &pose) const
+	{
+		if (!device.tracked || device.limited || !device.hasPrevious || device.upcoming.empty() ||
+			time <= device.previous.stamp)
+			return;
+		const auto &next = device.upcoming.front();
+		double position[3], rotation[4];
+		if (time >= next.stamp || !CanInterpolate(device.previous, next) || !Place(device, next.sample, position, rotation))
+			return;
+		const double u = (time - device.previous.stamp) / (next.stamp - device.previous.stamp);
+		double dot = 0.0;
+		for (int i = 0; i < 4; ++i)
+			dot += pose.rotation[i] * rotation[i];
+		for (int i = 0; i < 3; ++i)
+			pose.position[i] = (1.0 - u) * pose.position[i] + u * position[i];
+		for (int i = 0; i < 4; ++i)
+			rotation[i] = (1.0 - u) * pose.rotation[i] + (dot < 0.0 ? -u : u) * rotation[i];
+		Unit(rotation, pose.rotation);
 	}
 };
 
@@ -529,11 +665,14 @@ void Playback::Seek(const Index &index, double time)
 	cursor.devices.clear();
 	cursor.alignments.clear();
 	cursor.hasPending = false;
+	cursor.pendingTime = 0.0;
 	cursor.block.clear();
 	cursor.blockAt = 0;
+	cursor.queued = 0;
+	cursor.segmentStart = 0.0;
 	cursor.span = 0;
 	cursor.spanSeconds = 0.0;
-	cursor.time = 0.0;
+	cursor.playhead = 0.0;
 	if (!cursor.reader || index.points.empty())
 		return;
 
@@ -554,7 +693,8 @@ void Playback::Seek(const Index &index, double time)
 	while (cursor.span + 1 < index.spans.size() && point.offset >= index.spans[cursor.span + 1].firstOffset)
 		++cursor.span;
 	cursor.spanSeconds = (std::max)(0.0, point.time - index.spans[cursor.span].start);
-	cursor.time = point.time;
+	cursor.playhead = point.time;
+	cursor.segmentStart = index.spans[cursor.span].start;
 	if (!cursor.reader->SeekToRecord(point.offset))
 		cursor.reader.reset();
 }
@@ -576,13 +716,14 @@ bool Playback::Frame(double time, std::vector<DevicePose> &devices)
 	time = std::isfinite(time) ? (std::min)((std::max)(time, 0.0), total) : 0.0;
 
 	// Backwards, or far ahead: start again a trail's length before the moment.
-	if (!cursor_ || time < cursor_->time || time > cursor_->time + 5.0)
+	if (!cursor_ || time < cursor_->playhead || time > cursor_->playhead + 5.0)
 		Seek(index, (std::max)(0.0, time - TrailSeconds));
 	Cursor &cursor = *cursor_;
 	if (!cursor.reader)
 		return true;
 
-	for (int budget = FrameRecordBudget; budget > 0; --budget)
+	cursor.Advance((std::min)(time, cursor.pendingTime));
+	for (int budget = FrameRecordBudget; budget > 0 && cursor.queued < MaxQueuedSamples; --budget)
 	{
 		if (!cursor.hasPending)
 		{
@@ -601,7 +742,6 @@ bool Playback::Frame(double time, std::vector<DevicePose> &devices)
 				{
 					++cursor.span;
 					cursor.spanSeconds = 0.0;
-					cursor.CutTrails();
 				}
 				if (cursor.pending.kind == KindSamples && !cursor.pending.samples.empty())
 				{
@@ -616,14 +756,21 @@ bool Playback::Frame(double time, std::vector<DevicePose> &devices)
 			cursor.pendingTime = span.start + cursor.spanSeconds;
 			cursor.hasPending = true;
 		}
-		if (cursor.pending.kind == KindSample && cursor.pendingTime > time)
+		// A delayed report can describe the requested moment or its next
+		// endpoint. Keep lookahead local to the current stretch and frame.
+		const auto kind = cursor.pending.kind;
+		const bool fence = kind == KindDevice || kind == KindModel || kind == KindAlignment || kind == KindGap ||
+			kind == KindBoundary || kind == KindPause || kind == KindResume || kind == KindEnd;
+		if (cursor.pendingTime > time + MaxPoseOffset + MaxBracket || (fence && cursor.pendingTime > time))
 			break;
+		if (fence)
+			cursor.Fence(cursor.pendingTime);
 		cursor.hasPending = false;
 		switch (cursor.pending.kind)
 		{
 		case KindSample:
-			cursor.Apply(cursor.pending.sample, cursor.pendingTime);
-			cursor.time = cursor.pendingTime;
+			cursor.Queue(cursor.pending.sample, cursor.pendingTime, time,
+				index.spans[cursor.span].start + index.spans[cursor.span].seconds);
 			break;
 		case KindDevice:
 			cursor.Describe(cursor.pending.device);
@@ -646,7 +793,9 @@ bool Playback::Frame(double time, std::vector<DevicePose> &devices)
 		}
 	}
 
-	const double trailStart = cursor.time - TrailSeconds;
+	cursor.Advance((std::min)(time, cursor.pendingTime));
+	cursor.playhead = time;
+	const double trailStart = time - TrailSeconds;
 	for (Cursor::Device &device : cursor.devices)
 	{
 		if (!device.any)
@@ -658,9 +807,11 @@ bool Playback::Frame(double time, std::vector<DevicePose> &devices)
 		DevicePose pose;
 		pose.info = device.info;
 		pose.tracked = device.tracked;
+		pose.limited = device.limited;
 		for (int i = 0; i < 3; ++i)
 			pose.position[i] = device.position[i];
 		std::copy(device.rotation, device.rotation + 4, pose.rotation);
+		cursor.Interpolate(device, time, pose);
 		pose.renderModel = device.renderModel;
 		pose.trail.reserve(device.trail.size());
 		for (const auto &entry : device.trail)

@@ -38,6 +38,7 @@ struct DiagnosticCapture
 // queryRuntime false leaves out what only SteamVR can answer (its world scale
 // setting), for a SteamVR that is gone.
 DiagnosticCapture CaptureCalibrationDiagnostics(bool queryRuntime = true);
+PoseStreamHub::Diagnostics ReadTrackingQuality(double &sampleClock);
 std::string DescribeFrameMoveSnapshot(const CalibrationContext &ctx, vr::IVRSystem *system,
 	const DiagnosticCapture &capture, double qpcToSeconds);
 

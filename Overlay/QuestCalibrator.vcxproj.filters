@@ -138,10 +138,22 @@
     <ClInclude Include="MotionRecorder.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="BodyRole.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="MotionRecorderText.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="PoseRecorder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TrackingTrace.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TrackingTraceWriter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\common\PoseStageTrace.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="PoseRecordingFormat.h">
@@ -303,6 +315,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="MotionRecorder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="TrackingTrace.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="PoseRecorder.cpp">

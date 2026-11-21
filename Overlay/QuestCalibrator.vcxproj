@@ -146,8 +146,12 @@
     <ClInclude Include="LighthouseVisibility.h" />
     <ClInclude Include="Modules.h" />
     <ClInclude Include="MotionRecorder.h" />
+    <ClInclude Include="BodyRole.h" />
     <ClInclude Include="MotionRecorderText.h" />
     <ClInclude Include="PoseRecorder.h" />
+    <ClInclude Include="TrackingTrace.h" />
+    <ClInclude Include="TrackingTraceWriter.h" />
+    <ClInclude Include="..\common\PoseStageTrace.h" />
     <ClInclude Include="PoseRecordingFormat.h" />
     <ClInclude Include="PoseRecordingListing.h" />
     <ClInclude Include="RecordingPlayback.h" />
@@ -460,6 +464,7 @@
     </ClCompile>
     <ClCompile Include="Modules.cpp" />
     <ClCompile Include="MotionRecorder.cpp" />
+    <ClCompile Include="TrackingTrace.cpp" />
     <ClCompile Include="PoseRecorder.cpp" />
     <ClCompile Include="RecordingPlayback.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>

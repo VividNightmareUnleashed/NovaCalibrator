@@ -69,6 +69,9 @@
     <ClInclude Include="..\common\PoseRing.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="..\common\PoseStageTrace.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="..\common\PoseRingWriter.h">
       <Filter>Header Files</Filter>
     </ClInclude>

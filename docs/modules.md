@@ -23,6 +23,15 @@ the rule that keeps a tracker's own base station changes out of the drift
 evidence all run on every install, with or without the Lighthouse module:
 they make calibration better whether or not the player looks at the tab.
 
+So does the count of how often each device's tracking was limited, which the
+pose stream hub keeps for every install (`PoseStreamHub::Diagnostics`): a
+device is counted when its poses stay valid while its driver reports them out
+of range, and again have normal tracking, with no gap in what the hub saw.
+Settings → Support → Tracking quality shows it as one card for each tracked
+device of the body, and the `[raw poses]` section of a diagnostics export has
+the same numbers with how long the last time took and how many other devices
+had normal tracking then.
+
 ## Module or core
 
 Lighthouse is slim today and will grow, and so will any module after it.
@@ -76,6 +85,30 @@ A manual install has no installer to ask; the install readme gives the
   modules are on, as the design draws the sidebar, and the Motion Recorder
   module is on only in the `-uipreview-recorder` screens.
 
+## Post Processing
+
+The filters are `Driver/PoseFilter.h`, which says what each one stands on and
+what it was measured against; `Overlay/PostProcessing.h` is the player's
+choice of them. "Soften jumps" does three things to a device the player
+picked, all to its position as its own driver made it. The pose ring, the
+recordings and the calibration get the pose as it came.
+
+- A correction the driver makes with no new pose time is let out over a
+  tenth of a second, 2 cm of it at the most.
+- A tracker or controller whose tracking comes back with a correction of 2
+  to 15 cm has up to 8 cm of it held, when at least two devices of its own
+  tracking system within 1.25 m stayed where they were
+  (`ServerTrackedDeviceProvider::RecoveredAlone`). A peer that moves or
+  loses tracking in the next 25 ms takes the larger hold back. Peers that
+  could not be asked do neither.
+- A step on a new pose time that the velocities reported at its two ends do
+  not account for is held, up to 4 cm, and let out over 25 ms. This acts
+  only on a stream whose velocities have accounted for its movement
+  (`posefilter::TrustedVelocities`), on poses at most 27 ms apart, and not
+  across limited tracking.
+
+What is held goes out with time whatever the stream does next.
+
 ## The Motion Recorder
 
 Everything of it is gated on `Modules::On(CalCtx.modules.motionRecorder)`:
@@ -109,6 +142,11 @@ choice is not a setting, so no recording runs when Nova Calibrator starts.
 - `Overlay/RecordingPlayback.h` reads the file once on its own thread to find
   its stretches, losses and record positions, then reads only the span around
   the moment shown. The file is untrusted input (fuzz target `recording`).
+  A device is shown where it was at its pose time, between two poses of
+  normal tracking at most 35 ms apart whose reported motion agrees. A ring
+  marks a device whose driver reports a position without normal tracking;
+  its trail goes on. No pose is made up across a recorded gap or a change of
+  the tracking state.
 - `Overlay/SceneView.h` draws the devices as a 3D picture into a texture of
   its own: SteamVR's render model for each device at its position and
   orientation, a plain shape where SteamVR has no model, and a floor grid. The
@@ -133,6 +171,12 @@ choice is not a setting, so no recording runs when Nova Calibrator starts.
   2.5 GB an hour). No screen has a control for it. A recording that goes on
   after a stop stays in the format it began in, and
   `tools/novapose-convert.cpp` writes a recording again in the other one.
+- "Compare tracking" on the page is apart from the recording: it captures up
+  to 30 seconds of each device's pose as it reaches the driver, as the driver
+  sends it on and as SteamVR gives it to applications, in one
+  `Tracking-stages-*.novatrace` in the recording folder
+  (`Overlay/TrackingTrace.h`, [the format and its reader](tracking-trace.md)).
+  The folder keeps the five newest; a capture that fails leaves no file.
 
 ## Adding a module
 

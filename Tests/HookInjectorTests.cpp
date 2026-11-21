@@ -6,6 +6,7 @@
 #include "../Driver/ServerTrackedDeviceProvider.h"
 #include "../Overlay/HookCoverage.h"
 #include "../common/Protocol.h"
+#include "../common/PoseRingReader.h"
 
 #include <windows.h>
 
@@ -1148,6 +1149,37 @@ void ObserverOvertakenScenario(Check check)
 		overtaken.foreignAheadMask == protocol::PoseHook006 && notReplaced && flows &&
 		secondLeft && released && observerLeft && firstLeft, detail);
 }
+void TrackingTracePair(Check check)
+{
+	using namespace questcal::stagetrace;
+	auto provider = std::make_unique<ServerTrackedDeviceProvider>();
+	const auto name = std::string("Local\\NovaTraceTest-") + std::to_string(GetCurrentProcessId());
+	protocol::PoseRingReader ring;
+	const bool opened = provider->StartTraceForTest(name.c_str()) && ring.Open(name.c_str());
+	const bool injected = InjectHooks(provider.get(), reinterpret_cast<vr::IVRDriverContext *>(&Context));
+	bool calibrated = false;
+	double received = 0.0;
+	if (injected)
+	{
+		RequestHostInterface();
+		calibrated = CalibrateDeviceZero(*provider);
+		received = SendPoseThroughHost(0, sizeof(vr::DriverPose_t), 0.375);
+		SendPoseThroughHost(63, sizeof(vr::DriverPose_t), -0.25);
+		DisableHooks();
+	}
+	std::vector<protocol::DevicePoseSample> v;
+	if (opened) ring.Drain([&](const auto &s) { v.push_back(s); });
+	const bool paired = v.size() == 4 && v[0].deviceId == Tag(0, Stage::Input, 1) &&
+		v[1].deviceId == Tag(0, Stage::Submitted, 1) && v[2].deviceId == Tag(63, Stage::Input, 1) &&
+		v[3].deviceId == Tag(63, Stage::Submitted, 1) && v[0].sampleTimeQpc <= v[1].sampleTimeQpc;
+	check("tracking trace: input and submitted callback IDs match at both ends of the OpenVR device range",
+		injected && opened && paired, "two driver callbacks, two trace pairs");
+	check("tracking trace: only the outgoing trace has the calibration that reached the host",
+		paired && calibrated && received != 0.0 && v[0].worldFromDriverTranslation[0] == 0.0 &&
+		v[1].worldFromDriverTranslation[0] == received && v[0].position[0] == 0.375 &&
+		v[2].position[0] == v[3].position[0] && provider->PublishedForTest() == 2,
+		"independent diagnostic ring, one solver publication per callback");
+}
 } // namespace
 
 void RunHookInjectorScenarios(Check check)
@@ -1167,4 +1199,5 @@ void RunHookInjectorScenarios(Check check)
 	ForeignMotionRestoredScenario(check);
 	ObserverOvertakenScenario(check);
 	ObserverSwitchedOffMidCallScenario(check);
+	TrackingTracePair(check);
 }

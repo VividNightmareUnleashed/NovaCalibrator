@@ -378,6 +378,165 @@ void ReleaseScenarios(Check check)
 			heldTurn <= MaxHeldRadians * 1.0001, detail);
 }
 
+// A jump on a new pose time: a step that the reported velocities do not
+// account for, on a stream whose velocities have accounted for its movement.
+void JumpScenarios(Check check)
+{
+	char detail[240];
+	const auto sample = [](State &state, double time, double position, double velocity, bool normal = true,
+		double offset = 0.0, bool valid = true) {
+		vr::DriverPose_t pose{};
+		pose.poseIsValid = valid;
+		pose.result = normal ? vr::TrackingResult_Running_OK : vr::TrackingResult_Calibrating_OutOfRange;
+		pose.qRotation.w = 1.0;
+		pose.poseTimeOffset = offset;
+		pose.vecPosition[0] = position;
+		pose.vecVelocity[0] = velocity;
+		questcal::driverfilter::Apply(Release(), state, time, pose);
+		return pose.vecPosition[0];
+	};
+	// A stream that has shown what the rule asks of it. How a stream gets
+	// there is checked by itself below.
+	const auto trusted = []
+	{
+		State state;
+		state.velocityTrust = 1.0;
+		return state;
+	};
+
+	// The recorded hand: 30.6 mm in 4 ms at a reported 0.56 m/s.
+	State hand = trusted();
+	sample(hand, 1.0, 0.0, 0.56);
+	const double first = sample(hand, 1.004, 0.0306, 0.56);
+	const double later = sample(hand, 1.029, 0.0446, 0.56);
+	check("pose filter: a jump on a new pose time lets through what the velocities account for and lets the rest out with time",
+		std::abs(first - 0.00224) < 1e-10 && std::abs(0.0446 - later - (0.0306 - first) / std::exp(1.0)) < 1e-9, "");
+
+	bool follows = true;
+	for (double hz : { 45.0, 90.0, 250.0 })
+	{
+		State swing = trusted();
+		double x = 0.0, v = 0.0;
+		sample(swing, 1.0, x, v);
+		for (int i = 1; i < 70; ++i)
+		{
+			const double next = 4.0 * std::sin(i * 0.3);
+			x += (v + next) * 0.5 / hz;
+			follows = follows && sample(swing, 1.0 + i / hz, x, next) == x;
+			v = next;
+		}
+	}
+	check("pose filter: a fast hand that accelerates and reverses passes as it came at 45, 90 and 250 Hz", follows, "");
+
+	const auto pair = [&](double interval, double step, double speed, bool before = true, bool after = true) {
+		State state = trusted();
+		sample(state, 1.0, 0.0, speed, before);
+		return sample(state, 1.0 + interval, step, speed, after);
+	};
+	const double frame = 1.0 / 45.0;
+	check("pose filter: a 45 Hz stream has room for more acceleration, and a jump past it is still held",
+		pair(frame, 0.025, 0.12) == 0.025 && std::abs(pair(frame, 0.055, 0.12) - 0.015) < 1e-10, "");
+	check("pose filter: a device at rest that jumps is held, with no speed to measure the jump against",
+		std::abs(pair(Tick, 0.035, 0.0)) < 1e-10, "a step of 35 mm in 4 ms from rest is no movement");
+	check("pose filter: a long interval, a device in another place and limited tracking at either end are not judged",
+		pair(0.06, 0.045, 0.2) == 0.045 && pair(Tick, 0.25, 0.3) == 0.25 && pair(Tick, 0.035, 0.2, false) == 0.035 &&
+			pair(Tick, 0.035, 0.2, true, false) == 0.035, "");
+
+	// A jump, a correction after it at the same pose time, then tracking that
+	// gets worse: what is held goes on out with time.
+	State repeat = trusted();
+	sample(repeat, 2.0, 0.0, 0.3);
+	const double newTime = sample(repeat, 2.004, 0.060, 0.3);
+	const double sameTime = sample(repeat, 2.005, 0.075, 0.3, true, -0.001);
+	const double limited = sample(repeat, 2.008, 0.077, 0.3, false);
+	const double after = sample(repeat, 2.058, 0.092, 0.3, false);
+	const double left = MaxMotionHeldMeters * std::exp(-0.054 / MotionReleaseSeconds) + 0.015 * std::exp(-0.053 / 0.1);
+	snprintf(detail, sizeof detail, "held %.2f, %.2f and %.2f mm, then %.3f mm 50 ms later (%.3f mm by the two releases)",
+		(0.060 - newTime) * 1000.0, (0.075 - sameTime) * 1000.0, (0.077 - limited) * 1000.0, (0.092 - after) * 1000.0,
+		left * 1000.0);
+	check("pose filter: a jump and a correction beside it share one limit, and limited tracking does not end the hold",
+		std::abs(0.060 - newTime - MaxMotionHeldMeters) < 1e-10 && std::abs(0.075 - sameTime - MaxMotionHeldMeters) < 1e-10 &&
+			std::abs(0.077 - limited - MaxMotionHeldMeters) < 1e-10 && std::abs(0.092 - after - left) < 1e-9, detail);
+
+	// A jump that the driver undoes, in either order of the two kinds of
+	// change: the pose stays on its side of where the device is.
+	State undone = trusted();
+	sample(undone, 3.0, 0.0, 0.0);
+	const double jumped = sample(undone, 3.004, 0.030, 0.0);
+	const double back = sample(undone, 3.005, 0.0, 0.0, true, -0.001);
+	State other = trusted();
+	sample(other, 4.0, 0.0, 0.0);
+	const double corrected = sample(other, 4.001, 0.030, 0.0, true, -0.001);
+	const double returned = sample(other, 4.004, 0.0, 0.0);
+	const double settled = sample(other, 4.054, 0.0, 0.0);
+	snprintf(detail, sizeof detail, "jump then correction: %.3f then %.3f mm; correction then jump: %.3f, %.3f, then %.3f mm",
+		jumped * 1000.0, back * 1000.0, corrected * 1000.0, returned * 1000.0, settled * 1000.0);
+	check("pose filter: a jump the driver takes back leaves the pose on no far side",
+		std::abs(jumped) < 1e-10 && back >= 0.0 && back < 0.002 && std::abs(corrected - 0.010) < 1e-10 &&
+			returned > 0.010 && returned < 0.012 && settled >= 0.0 && settled < returned, detail);
+
+	// What a stream has to show. A jump before it has shown anything passes;
+	// after a second and a half of movement its velocities account for, a jump
+	// is held, and an invalid pose does not make the stream show it again.
+	State learner;
+	sample(learner, 5.0, 0.0, 0.5);
+	const double early = sample(learner, 5.004, 0.032, 0.5);
+	double x = 0.032, t = 5.004;
+	for (int i = 0; i < 375; ++i)
+	{
+		t += Tick;
+		x += 0.5 * Tick;
+		sample(learner, t, x, 0.5);
+	}
+	const double earned = learner.velocityTrust;
+	t += Tick;
+	x += 0.5 * Tick;
+	const double held = x - sample(learner, t, x + 0.030, 0.5);
+	x += 0.030;
+	sample(learner, t + Tick, x, 0.5, true, 0.0, false);
+	sample(learner, t + 2.0 * Tick, x, 0.0);
+	const double again = sample(learner, t + 3.0 * Tick, x + 0.030, 0.0);
+	snprintf(detail, sizeof detail, "passed %.1f mm at first; trust %.3f after 1.5 s; then held %.1f mm, and %.1f mm after a break",
+		early * 1000.0, earned, (0.030 + held) * 1000.0, (x + 0.030 - again) * 1000.0);
+	check("pose filter: a stream is judged for jumps once its velocities have accounted for its movement, breaks or not",
+		early == 0.032 && earned >= TrustedVelocities && std::abs(held) < 1e-9 && std::abs(again - x) < 1e-9, detail);
+
+	// Streams whose velocities do not account for the movement: none at all, a
+	// fifth of the true ones, and true ones 50 ms late. A hand swings 30 cm
+	// each way 2.5 times a second for four seconds at 90 poses a second, and
+	// every pose passes as it came. A stream whose velocities are 6% short, as
+	// a recorded Quest Pro's are, passes that swing too and has a jump held:
+	// one at the end of a swing, where the hand is slow. (In the middle of it,
+	// at 4.7 m/s, 30 mm are less than the speeds leave open in 11 ms.)
+	const double swing = 0.3, turn = 2.0 * Pi * 2.5;
+	const int poses = 351;
+	const auto swings = [&](double share, double late, double *trust) {
+		State state;
+		bool same = true;
+		for (int i = 0; i < poses; ++i)
+		{
+			const double at = i / 90.0;
+			const double position = swing * std::sin(turn * at);
+			same = sample(state, 10.0 + at, position, share * swing * turn * std::cos(turn * (at - late))) == position && same;
+		}
+		if (trust)
+			*trust = state.velocityTrust;
+		return std::make_pair(same, state);
+	};
+	double none = 0.0, small = 0.0, late = 0.0, close = 0.0;
+	const bool noneSame = swings(0.0, 0.0, &none).first, smallSame = swings(0.2, 0.0, &small).first,
+		lateSame = swings(1.0, 0.05, &late).first;
+	auto quest = swings(0.94, 0.0, &close);
+	const double end = poses / 90.0, atEnd = swing * std::sin(turn * end) + 0.030;
+	const double questHeld = atEnd - sample(quest.second, 10.0 + end, atEnd, 0.94 * swing * turn * std::cos(turn * end));
+	snprintf(detail, sizeof detail,
+		"trust with no velocities %.2f, a fifth %.2f, 50 ms late %.2f, 6%% short %.2f; held %.1f mm of a 30 mm jump there",
+		none, small, late, close, questHeld * 1000.0);
+	check("pose filter: a stream whose velocities do not account for its movement has no step taken for a jump",
+		noneSame && smallSame && lateSame && none < 0.01 && small < 0.01 && late < TrustedVelocities &&
+			quest.first && close >= TrustedVelocities && questHeld > 0.025, detail);
+}
+
 void RestartScenarios(Check check)
 {
 	char detail[240];
@@ -709,6 +868,60 @@ void DriverScenarios(Check check)
 	check("pose filter: a filtered device gets its own motion back from a pose another driver changed",
 		accepted && ownMotion && restKept && otherKept && afterCut == 1 && afterPlain == 1 && afterSame == 1 &&
 			behind->PublishedForTest() == 0, detail);
+
+	// The recorded foot's correction of 103.6 mm as its tracking came back,
+	// with a peer that steps with it before or after (peerOrder), with peers
+	// of its own tracking system or of another, and with its next pose `next`
+	// later.
+	const auto recovery = [&](int peerOrder, uint32_t last, double step, bool newTimestamp, bool sharedSpace = true,
+		double next = Tick) {
+		auto driver = std::make_unique<ServerTrackedDeviceProvider>();
+		protocol::SetRuntimeState plan;
+		plan.filterMask = uint64_t{1} << 3;
+		plan.filter.releaseCorrections = 1;
+		driver->TrySetRuntimeState(plan);
+		const auto send = [&](uint32_t id, double at, double x, bool lost, double age) {
+			driver->SetPoseTimeForTest(at);
+			auto pose = still();
+			pose.vecPosition[0] = x;
+			pose.poseTimeOffset = age;
+			if (lost)
+				pose.result = vr::TrackingResult_Calibrating_OutOfRange;
+			driver->HandleDevicePoseUpdated(id, pose);
+			return pose.vecPosition[0];
+		};
+		for (uint32_t id = 3; id <= last; ++id)
+		{
+			driver->SetDeviceClassForTest(id, vr::TrackedDeviceClass_GenericTracker, id == 3 || sharedSpace ? 1 : 2);
+			send(id, 1.0, 0.0, false, 0.0);
+		}
+		driver->ResendQuietPosesForTest();
+		for (int i = 1; i <= 30; ++i)
+			for (uint32_t id = 3; id <= last; ++id)
+				send(id, 1.0 + i * Tick, 0.0, id == 3, 0.0);
+		const double at = 1.0 + 30 * Tick;
+		if (peerOrder < 0)
+			send(4, at + 0.0001, step, false, 0.0);
+		const double first = send(3, at + 0.0002, step, false, newTimestamp ? 0.0 : -0.0002);
+		if (peerOrder > 0)
+			send(4, at + 0.0003, step, false, 0.0);
+		return std::make_pair(first, send(3, at + next, step, false, 0.0));
+	};
+	const auto isolated = recovery(0, 13, 0.1036, false);
+	check("pose filter: a valid out-of-range recovery beside two steady trackers releases up to eight centimetres",
+		std::abs(isolated.first - 0.0236) < 1e-8 && isolated.second > isolated.first && isolated.second < 0.04, "");
+	check("pose filter: a peer step before or after the recovery withdraws the extra hold",
+		recovery(-1, 5, 0.1036, false).first > 0.08 && recovery(1, 5, 0.1036, false).second > 0.08, "");
+	// 25.1 ms on, the peers' poses are too old to count and the recovery is
+	// still watched: peers that say nothing are not peers that moved.
+	const auto unasked = recovery(0, 13, 0.1036, false, true, 0.0251);
+	snprintf(detail, sizeof detail, "%.1f mm behind at the recovery and %.1f mm behind 25 ms later",
+		(0.1036 - unasked.first) * 1000.0, (0.1036 - unasked.second) * 1000.0);
+	check("pose filter: peers that cannot be asked do not withdraw the extra hold",
+		unasked.second > unasked.first && unasked.second < 0.06, detail);
+	check("pose filter: sparse peers, a new movement sample and a large relocation keep the ordinary limits",
+		recovery(0, 3, 0.1036, false).first > 0.08 && recovery(0, 5, 0.1036, true).first == 0.1036 &&
+		recovery(0, 5, 0.25, false).first >= 0.229 && recovery(0, 5, 0.1036, false, false).first > 0.08, "");
 }
 
 } // namespace
@@ -718,6 +931,7 @@ void RunPoseFilterScenarios(Check check)
 	SettingsScenarios(check);
 	SmoothingScenarios(check);
 	ReleaseScenarios(check);
+	JumpScenarios(check);
 	RestartScenarios(check);
 	DriverScenarios(check);
 }

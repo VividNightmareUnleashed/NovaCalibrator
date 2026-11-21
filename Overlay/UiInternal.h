@@ -46,6 +46,7 @@ struct VRDevice
 	std::string model;
 	std::string serial;
 	std::string trackingSystem;
+	std::string controllerType;
 	std::string renderModel; // SteamVR's model of it, such as "{htc}vr_tracker_vive_3_0"
 	std::string iconPath;   // absolute path to the SteamVR device icon, matched to state (ready/low/off)
 	vr::ETrackedControllerRole controllerRole = vr::TrackedControllerRole_Invalid;
@@ -148,7 +149,7 @@ enum class FilterPane { OneEuro, Classic, SoftenJumps };
 // What covers the page: one sheet at a time, and a dialog that may sit over
 // it. Both live at the window's root (UiSheets.cpp), so anything can open
 // them.
-enum class Sheet { None, Pair, Calibrate, Chaperone, Anchors, Activity, Editor, Credits, FilterDevices };
+enum class Sheet { None, Pair, Calibrate, Chaperone, Anchors, Activity, Editor, Credits, FilterDevices, TrackingQuality };
 enum class Dialog { None, ClearCalibration, ClearAnchors, ChaperoneWarning, MotionRecorder };
 
 // The sidebar's width; pages lay out in what is left of the window.
@@ -254,6 +255,7 @@ void BuildAnchorsSheet();
 void BuildActivitySheet();
 void BuildEditorSheet();
 void BuildCreditsSheet();
+void BuildTrackingQualitySheet(const VRState &state);
 void BuildFilterDevicesSheet(const VRState &state);
 void BuildClearCalibrationDialog();
 void BuildClearAnchorsDialog();

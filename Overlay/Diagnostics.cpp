@@ -243,6 +243,12 @@ void DescribeRawPoses(std::ostream &out, const PoseStreamHub::Diagnostics &strea
 			<< ", capture age (ms) " << (qpcNow > 0.0 ? (qpcNow - RingCaptureTime(s, qpcToSeconds)) * 1000.0 : -1.0)
 			<< ", connected " << OnOff(s.deviceIsConnected) << ", valid " << OnOff(s.poseIsValid)
 			<< ", tracking result " << s.trackingResult << ", pose time offset (ms) " << s.poseTimeOffset * 1000.0 << "\n";
+		const auto &q = device.quality;
+		out << "  observed tracking recoveries: " << q.recoveries;
+		if (q.lastRecovery >= 0.0)
+			out << ", last duration (ms) " << q.lastDuration * 1000.0 << ", seconds before export " << qpcNow - q.lastRecovery
+				<< ", other devices tracking normally at recovery " << q.peersGood << "/" << q.peersObserved;
+		out << "\n";
 		auto vector = [&](const char *label, const double (&value)[3]) {
 			out << label << value[0] << " " << value[1] << " " << value[2];
 		};

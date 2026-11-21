@@ -1440,8 +1440,6 @@ en: This filter decreases the shake of your trackers when you stand still. It ad
 it: Questo filtro riduce il tremolio dei tracker quando stai fermo. Quando ti muovi non aggiunge quasi alcun ritardo.
 en: SteamVR corrects the position of a tracker many times each second. You see a large correction as a jump.
 it: SteamVR corregge la posizione di un tracker molte volte al secondo. Una correzione grande si vede come un salto.
-en: With this filter, the tracker moves to its new position in a tenth of a second. The filter adds no delay, but it can make mistakes and cause problems of its own.
-it: Con questo filtro, il tracker raggiunge la nuova posizione in un decimo di secondo. Il filtro non aggiunge ritardo, ma può sbagliare e causare problemi propri.
 en: This filter makes tracking very fluid, but it adds more delay. It can cause motion sickness if you use it on the HMD.
 it: Questo filtro rende il tracciamento molto fluido, ma aggiunge più ritardo. Se lo usi sull'HMD può causare nausea.
 en: This filter decreases SteamVR's *local* motion prediction. Other players do not see any difference.
@@ -1458,3 +1456,39 @@ en: Devices to filter
 it: Dispositivi da filtrare
 en: This filter never changes the headset or the headset tracker.
 it: Questo filtro non modifica mai il visore né il tracker del visore.
+en: Tracking quality
+it: Qualità del tracciamento
+en: Tracking is normal.
+it: Il tracciamento è normale.
+en: Tracking is limited.
+it: Il tracciamento è limitato.
+en: No tracking data
+it: Nessun dato di tracciamento
+en: Tracking was limited 1 time, %.0f s ago.
+it: Il tracciamento è stato limitato 1 volta, {0} s fa.
+en: Tracking was limited %u times. The last time was %.0f s ago.
+it: Il tracciamento è stato limitato {0} volte. L'ultima volta {1} s fa.
+en: Tracking was limited 1 time, %.0f min ago.
+it: Il tracciamento è stato limitato 1 volta, {0} min fa.
+en: Tracking was limited %u times. The last time was %.0f min ago.
+it: Il tracciamento è stato limitato {0} volte. L'ultima volta {1} min fa.
+en: With this filter, the tracker moves to its new position in a tenth of a second. During this time, the tracker is not at its measured position.
+it: Con questo filtro, il tracker raggiunge la nuova posizione in un decimo di secondo. In questo intervallo il tracker non si trova nella posizione misurata.
+en: The filter adds no delay to a movement, but it can make mistakes. Then a fast movement looks soft for a moment.
+it: Il filtro non aggiunge ritardo ai movimenti, ma può sbagliare. In tal caso un movimento rapido appare attenuato per un istante.
+en: Compare tracking
+it: Confronta il tracciamento
+en: Stop capture
+it: Ferma acquisizione
+en: A capture records 30 seconds of body motion from the driver, Nova Calibrator, and SteamVR in one file.
+it: Un'acquisizione registra in un solo file 30 secondi di movimenti del corpo dal driver, da Nova Calibrator e da SteamVR.
+en: The capture is active. It stops after 30 seconds.
+it: L'acquisizione è attiva. Si ferma dopo 30 secondi.
+en: The recording folder contains the comparison file.
+it: La cartella delle registrazioni contiene il file di confronto.
+en: The driver data is incomplete. Make sure that SteamVR uses the Nova Calibrator driver of the same version.
+it: I dati del driver sono incompleti. Verifica che SteamVR usi il driver della stessa versione di Nova Calibrator.
+en: The comparison file reached its size limit.
+it: Il file di confronto ha raggiunto il limite di dimensione.
+en: The capture failed. Make sure that SteamVR is on and that the disk has free space.
+it: L'acquisizione non è riuscita. Assicurati che SteamVR sia attivo e che il disco abbia spazio libero.

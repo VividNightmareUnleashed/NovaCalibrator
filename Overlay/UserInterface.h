@@ -19,7 +19,7 @@ extern bool g_uiPreviewMany;
 enum class PreviewScenario
 {
 	Healthy, Frozen, TrackerOff, Failed, Empty, Guide, GuideWait, Move, Result, Lighthouse, Settings,
-	Pair, Chaperone, Anchors, Activity, ClearCalibration, ChaperoneWarning, Notices, SettingsMore, Editor, Credits,
+	Pair, Chaperone, Anchors, Activity, ClearCalibration, ChaperoneWarning, Notices, SettingsMore, TrackingQuality, Editor, Credits,
 	Recorder, RecorderLive, RecorderLiveFull, RecorderEmpty, RecorderWarning, RecorderDelete,
 	SetupWelcome, SetupHeadset, SetupTrackers, SetupUpdates, SetupCalibrate,
 	PostProcessing, PostProcessingOff, PostProcessingClassic, PostProcessingJumps, PostProcessingDevices,

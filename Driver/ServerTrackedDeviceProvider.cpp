@@ -20,6 +20,21 @@ static constexpr double ResendQuietSeconds = 0.5;
 static constexpr double ResendMinMoveMeters = 1e-5;
 static constexpr double ResendMinTurnRadians = 1e-5;
 static constexpr uint64_t ResendLogIntervalMs = 60000;
+// What a device's peers are asked about a correction (PeersNear). A peer
+// counts when its newest pose is this fresh and this near, and is steady when
+// it stayed within PeerSteadyMeters of its two kept positions, the older of
+// them at most PeerWindowSeconds old.
+static constexpr double PeerFreshSeconds = 0.025;
+static constexpr double PeerReachMeters = 1.25;
+static constexpr double PeerSteadyMeters = 0.015;
+static constexpr double PeerStepSeconds = 1.0 / 60.0;
+static constexpr double PeerWindowSeconds = 0.060;
+// For this long after a recovery, a peer that moves takes the larger hold
+// back: another driver thread can deliver the same movement a moment later.
+static constexpr double RecoveryWatchSeconds = 0.025;
+// The driver's own space did not move between two poses.
+static constexpr double SameSpaceMeters = 0.001;
+static constexpr double SameSpaceRadians = 0.001;
 
 namespace
 {
@@ -37,12 +52,17 @@ WorldPose World(const vr::DriverPose_t &pose)
 		questcal::driverpose::Multiply(pose.qWorldFromDriverRotation, pose.qRotation) };
 }
 
-double Distance(const vr::HmdVector3d_t &a, const vr::HmdVector3d_t &b)
+double Distance(const double (&a)[3], const double (&b)[3])
 {
 	double sum = 0.0;
 	for (int i = 0; i < 3; ++i)
-		sum += (a.v[i] - b.v[i]) * (a.v[i] - b.v[i]);
+		sum += (a[i] - b[i]) * (a[i] - b[i]);
 	return std::sqrt(sum);
+}
+
+double Distance(const vr::HmdVector3d_t &a, const vr::HmdVector3d_t &b)
+{
+	return Distance(a.v, b.v);
 }
 
 // The angle of conj(a) * b, which neither quaternion's length changes: the
@@ -139,10 +159,14 @@ void ServerTrackedDeviceProvider::Teardown()
 	// into an unmapped view.
 	const bool released = DisableHooks();
 	poseRingReady.store(false, std::memory_order_release);
+	traceActive.store(false, std::memory_order_release);
 	// The IPC thread has stopped; write what it would have.
 	FlushFrameLog();
 	if (released)
+	{
 		poseRing.Close();
+		traceRing.Close();
+	}
 	else
 	{
 		// A pose thread may still reach the ring, so leak the mapping; the next
@@ -168,6 +192,7 @@ void ServerTrackedDeviceProvider::Cleanup()
 
 void ServerTrackedDeviceProvider::RunFrame()
 {
+	PollTraceRequest();
 	ResendQuietPoses();
 
 	if (poseRingReady.load(std::memory_order_acquire))
@@ -250,7 +275,128 @@ vr::ETrackedDeviceClass ServerTrackedDeviceProvider::DeviceClass(uint32_t openVR
 			deviceClasses[openVRID] = static_cast<vr::ETrackedDeviceClass>(value);
 	}
 #endif
+	if (deviceClasses[openVRID] == vr::TrackedDeviceClass_GenericTracker ||
+		deviceClasses[openVRID] == vr::TrackedDeviceClass_Controller)
+		bodyDevices.fetch_or(uint64_t{ 1 } << openVRID, std::memory_order_release);
 	return deviceClasses[openVRID];
+}
+
+// Called under the pose mutex of `id`, by its pose thread.
+ServerTrackedDeviceProvider::Peers ServerTrackedDeviceProvider::PeersNear(uint32_t id, const vr::DriverPose_t &pose,
+	bool targetSpace, double now)
+{
+	const uint64_t system = trackingSystems[id].load(std::memory_order_acquire);
+	if (!system)
+		return Peers::Unknown;
+	const auto where = World(pose).position;
+	const uint64_t others = bodyDevices.load(std::memory_order_acquire) & ~(uint64_t{ 1 } << id);
+	int steady = 0;
+	for (uint32_t i = 0; i < vr::k_unMaxTrackedDeviceCount; ++i)
+	{
+		if (!(others & (uint64_t{ 1 } << i)) || trackingSystems[i].load(std::memory_order_acquire) != system)
+			continue;
+		// Never wait on another device's pose thread. A peer whose pose is going
+		// through says nothing this time, which is not the same as a peer that
+		// moved.
+		std::unique_lock<std::mutex> lock(poseMutexes[i], std::try_to_lock);
+		if (!lock.owns_lock())
+			continue;
+		const PeerMotion &peer = peerMotion[i];
+		const RuntimePoseRecord &last = runtimePoses[i];
+		if (peer.targetSpace != targetSpace || !last.seen || now < last.receivedAt ||
+			now - last.receivedAt > PeerFreshSeconds)
+			continue;
+		const auto at = World(last.raw).position;
+		if (!(Distance(at, where) < PeerReachMeters))
+			continue;
+		if (!last.raw.poseIsValid || last.raw.result != vr::TrackingResult_Running_OK)
+			return Peers::Disturbed;
+		if (peer.before < 0.0 || now - peer.before > PeerWindowSeconds)
+			continue;
+		if (!(Distance(at, peer.previous) < PeerSteadyMeters && Distance(at, peer.position) < PeerSteadyMeters))
+			return Peers::Disturbed;
+		++steady;
+	}
+	return steady >= 2 ? Peers::Steady : Peers::Unknown;
+}
+
+// Whether `raw` is the correction a tracker or controller makes as its
+// tracking comes back, with its peers steady: the pose before it was valid
+// but out of range, this one has the same pose time and normal tracking, and
+// the driver's space did not move. Called under the device's pose mutex,
+// before its record takes this pose.
+bool ServerTrackedDeviceProvider::RecoveredAlone(uint32_t id, const vr::DriverPose_t &raw, bool targetSpace,
+	double now)
+{
+	using namespace questcal::posefilter;
+	if (!raw.poseIsValid || raw.result != vr::TrackingResult_Running_OK)
+		return false;
+	State &state = poseFilterStates[id];
+	const RuntimePoseRecord &last = runtimePoses[id];
+	const bool cameBack = last.seen && last.raw.poseIsValid &&
+		(last.raw.result == vr::TrackingResult_Calibrating_OutOfRange ||
+			last.raw.result == vr::TrackingResult_Running_OutOfRange) &&
+		state.primed && !state.captureIsPoseTime && now >= last.receivedAt && now - last.receivedAt <= PeerFreshSeconds &&
+		std::abs(now + raw.poseTimeOffset - state.poseTime) < SamePoseSeconds;
+	if (!cameBack)
+	{
+		if (state.recoveryAllowance > 0.0 && now - state.recoveryTime < RecoveryWatchSeconds &&
+			PeersNear(id, raw, targetSpace, now) == Peers::Disturbed)
+			state.recoveryAllowance = 0.0;
+		return false;
+	}
+	const double step = Distance(raw.vecPosition, last.raw.vecPosition);
+	return step > MaxHeldMeters && step <= MaxRecoveryStepMeters &&
+		Distance(raw.vecWorldFromDriverTranslation, last.raw.vecWorldFromDriverTranslation) < SameSpaceMeters &&
+		Turn(raw.qWorldFromDriverRotation, last.raw.qWorldFromDriverRotation) < SameSpaceRadians &&
+		PeersNear(id, raw, targetSpace, now) == Peers::Steady;
+}
+
+// Keeps the device's two positions for its peers. Under its pose mutex.
+void ServerTrackedDeviceProvider::NotePeerMotion(uint32_t id, const vr::DriverPose_t &raw, bool targetSpace,
+	double now)
+{
+	PeerMotion &peer = peerMotion[id];
+	const bool tracking = raw.poseIsValid && raw.result == vr::TrackingResult_Running_OK;
+	if (!tracking || peer.targetSpace != targetSpace || now < peer.at || now - peer.at > PeerWindowSeconds)
+		peer = {};
+	peer.targetSpace = targetSpace;
+	if (tracking && now - peer.at >= PeerStepSeconds)
+	{
+		peer.before = peer.at;
+		peer.previous = peer.position;
+		peer.at = now;
+		peer.position = World(raw).position;
+	}
+}
+
+// RunFrame's: asks SteamVR once for the name of a tracker's or controller's
+// tracking system, and again for as long as SteamVR has none. A name longer
+// than any SteamVR has leaves the device with none, and PeersNear then never
+// counts it.
+void ServerTrackedDeviceProvider::ReadTrackingSystem(uint32_t id)
+{
+#ifdef QUESTCAL_DRIVER_PROVIDER_TEST_SEAM
+	(void)id;
+#else
+	if ((trackingSystemsRead & (uint64_t{ 1 } << id)) != 0)
+		return;
+	vr::CVRPropertyHelpers *properties = vr::VRProperties();
+	if (!properties)
+		return;
+	char name[128];
+	vr::ETrackedPropertyError error = vr::TrackedProp_Success;
+	const uint32_t size = properties->GetStringProperty(properties->TrackedDeviceToPropertyContainer(id),
+		vr::Prop_TrackingSystemName_String, name, sizeof name, &error);
+	if (error != vr::TrackedProp_Success || size < 2 || size > sizeof name)
+		return;
+	// FNV-1a over the name, and never the zero that stands for no name.
+	uint64_t code = 14695981039346656037ull;
+	for (uint32_t i = 0; i + 1 < size && name[i] != '\0'; ++i)
+		code = (code ^ static_cast<unsigned char>(name[i])) * 1099511628211ull;
+	trackingSystemsRead |= uint64_t{ 1 } << id;
+	trackingSystems[id].store(code ? code : 1, std::memory_order_release);
+#endif
 }
 
 void ServerTrackedDeviceProvider::ResendQuietPoses()
@@ -265,8 +411,13 @@ void ServerTrackedDeviceProvider::ResendQuietPoses()
 	{
 		// Base stations alone: every other device sends poses many times a
 		// second, each taking the calibration as it stands.
-		if ((recorded & (uint64_t{ 1 } << id)) == 0 ||
-			DeviceClass(id) != vr::TrackedDeviceClass_TrackingReference)
+		if ((recorded & (uint64_t{ 1 } << id)) == 0)
+			continue;
+		const vr::ETrackedDeviceClass deviceClass = DeviceClass(id);
+		if (observeRecoveryPeers.load(std::memory_order_acquire) &&
+			(deviceClass == vr::TrackedDeviceClass_GenericTracker || deviceClass == vr::TrackedDeviceClass_Controller))
+			ReadTrackingSystem(id);
+		if (deviceClass != vr::TrackedDeviceClass_TrackingReference)
 			continue;
 
 		vr::DriverPose_t pose{};
@@ -321,6 +472,12 @@ void ServerTrackedDeviceProvider::ResendQuietPoses()
 			}
 		}
 
+		if (traceActive.load(std::memory_order_acquire))
+		{
+			LARGE_INTEGER stamp;
+			QueryPerformanceCounter(&stamp);
+			TracePose(id, questcal::stagetrace::Stage::Resent, received, pose, stamp.QuadPart);
+		}
 		ResendPose(host, id, pose);
 		resentDevices.fetch_or(uint64_t{ 1 } << id, std::memory_order_relaxed);
 		resentPoses.fetch_add(1, std::memory_order_release);
@@ -411,6 +568,7 @@ bool ServerTrackedDeviceProvider::TrySetRuntimeState(const protocol::SetRuntimeS
 	// why a pose may read them mid-change.
 	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
 		poseFilters[id].Store(filters.filter, ((filters.filterMask >> id) & 1) != 0, filters.predictionCut[id]);
+	observeRecoveryPeers.store(filters.filterMask && filters.filter.releaseCorrections, std::memory_order_release);
 	return true;
 }
 
@@ -423,7 +581,7 @@ void ServerTrackedDeviceProvider::ReadRuntimeState(uint32_t openVRID,
     field = snapshot.field;
 }
 
-void ServerTrackedDeviceProvider::PublishSample(uint32_t openVRID, const vr::DriverPose_t &pose,
+static protocol::DevicePoseSample SampleFromDriver(uint32_t openVRID, const vr::DriverPose_t &pose,
 	int64_t qpc)
 {
 	protocol::DevicePoseSample sample;
@@ -442,6 +600,45 @@ void ServerTrackedDeviceProvider::PublishSample(uint32_t openVRID, const vr::Dri
 		sample.velocity[i] = pose.vecVelocity[i];
 		sample.angularVelocity[i] = pose.vecAngularVelocity[i];
 	}
+	return sample;
+}
+
+void ServerTrackedDeviceProvider::PollTraceRequest()
+{
+	const auto now = GetTickCount64();
+	if (now - lastTracePoll < 100)
+		return;
+	lastTracePoll = now;
+	const HANDLE request = OpenEventA(SYNCHRONIZE, FALSE, questcal::stagetrace::Request);
+	const bool active = request && WaitForSingleObject(request, 0) == WAIT_OBJECT_0 &&
+		traceRing.Create(questcal::stagetrace::Ring, 0);
+	if (request)
+		CloseHandle(request);
+	traceActive.store(active, std::memory_order_release);
+}
+
+void ServerTrackedDeviceProvider::TracePose(uint32_t id, questcal::stagetrace::Stage stage, uint64_t sequence,
+	const vr::DriverPose_t &pose, int64_t qpc)
+{
+	using namespace questcal::stagetrace;
+	static_assert(vr::k_unMaxTrackedDeviceCount == 64);
+	auto sample = SampleFromDriver(Tag(id, stage, sequence), pose, qpc);
+	traceRing.Publish(sample);
+	const auto &q = pose.qDriverFromHeadRotation;
+	const auto &v = pose.vecDriverFromHeadTranslation;
+	if (q.w != 1 || q.x != 0 || q.y != 0 || q.z != 0 || v[0] != 0 || v[1] != 0 || v[2] != 0)
+	{
+		const auto head = static_cast<Stage>(static_cast<uint32_t>(stage) + static_cast<uint32_t>(Stage::InputHead));
+		sample.deviceId = Tag(id, head, sequence);
+		sample.rotation = q;
+		std::copy_n(v, 3, sample.position);
+		traceRing.Publish(sample);
+	}
+}
+
+void ServerTrackedDeviceProvider::PublishSample(uint32_t openVRID, const vr::DriverPose_t &pose, int64_t qpc)
+{
+	const auto sample = SampleFromDriver(openVRID, pose, qpc);
 #ifdef QUESTCAL_DRIVER_PROVIDER_TEST_SEAM
 	lastPublishedForTest = sample;
 	publishedForTest.fetch_add(1, std::memory_order_relaxed);
@@ -478,6 +675,9 @@ void ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr:
 
 	if (publish)
 		PublishSample(openVRID, pose, now.QuadPart);
+	const bool trace = traceActive.load(std::memory_order_acquire) && host.original;
+	if (trace)
+		TracePose(openVRID, questcal::stagetrace::Stage::Input, runtimePoses[openVRID].received + 1ull, pose, now.QuadPart);
 
 	// Another module's code changed this pose on its way here, and `own` is
 	// the pose before it. A device this driver post-processes gets its own
@@ -512,7 +712,13 @@ void ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr:
 
 	// Post-processing works on the pose as the device's own driver made it,
 	// before the calibration moves it. The pose ring already has it raw.
-	questcal::driverfilter::Apply(filter, poseFilterStates[openVRID], nowSeconds, pose);
+	const bool body = observeRecoveryPeers.load(std::memory_order_acquire) &&
+		(bodyDevices.load(std::memory_order_acquire) & (uint64_t{ 1 } << openVRID)) != 0;
+	const bool recovered = body && filter.releaseCorrections &&
+		RecoveredAlone(openVRID, raw, tf.control.enabled, nowSeconds);
+	questcal::driverfilter::Apply(filter, poseFilterStates[openVRID], nowSeconds, pose, recovered);
+	if (body)
+		NotePeerMotion(openVRID, raw, tf.control.enabled, nowSeconds);
 
 	questcal::driverpose::ApplyRuntimePose(pose, tf.calibration, tf.frame,
         field, nowSeconds, baseState[openVRID], fieldState[openVRID]);
@@ -545,6 +751,12 @@ void ServerTrackedDeviceProvider::HandleDevicePoseUpdated(uint32_t openVRID, vr:
 	record.host = host;
 	record.receivedAt = nowSeconds;
 	++record.received;
+	if (trace)
+	{
+		LARGE_INTEGER stamp;
+		QueryPerformanceCounter(&stamp);
+		TracePose(openVRID, questcal::stagetrace::Stage::Submitted, record.received, pose, stamp.QuadPart);
+	}
 	if (!record.seen)
 	{
 		record.seen = true;

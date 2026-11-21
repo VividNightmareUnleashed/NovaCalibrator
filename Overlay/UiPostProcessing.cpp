@@ -458,8 +458,10 @@ void SoftenJumpsPane(Build &b, YGNodeRef pane, float paneInnerW, const std::vect
 	YGNodeRef note = AddNote(b, pane, 14.0f, ui::Icon::Info, ui::col::Link, kNoteFill, kNoteEdge);
 	AddParagraph(b, note, Tr("SteamVR corrects the position of a tracker many times each second. You see a large "
 		"correction as a jump."), 0.0f);
-	AddParagraph(b, note, Tr("With this filter, the tracker moves to its new position in a tenth of a second. The "
-		"filter adds no delay, but it can make mistakes and cause problems of its own."), 8.0f);
+	AddParagraph(b, note, Tr("With this filter, the tracker moves to its new position in a tenth of a second. During "
+		"this time, the tracker is not at its measured position."), 8.0f);
+	AddParagraph(b, note, Tr("The filter adds no delay to a movement, but it can make mistakes. Then a fast movement "
+		"looks soft for a moment."), 8.0f);
 
 	using namespace postprocessart;
 	const bool on = CalCtx.postProcessing.softenJumps;

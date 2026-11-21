@@ -1436,8 +1436,6 @@ en: This filter decreases the shake of your trackers when you stand still. It ad
 ja: このフィルターは、じっと立っているときのトラッカーの揺れを減らします。動いたときの遅延はほとんど増えません。
 en: SteamVR corrects the position of a tracker many times each second. You see a large correction as a jump.
 ja: SteamVR はトラッカーの位置を毎秒何度も補正します。大きな補正はジャンプとして見えます。
-en: With this filter, the tracker moves to its new position in a tenth of a second. The filter adds no delay, but it can make mistakes and cause problems of its own.
-ja: このフィルターを使うと、トラッカーは 0.1 秒かけて新しい位置へ移動します。遅延は増えませんが、フィルターが誤って判断し、別の問題を起こす場合があります。
 en: This filter makes tracking very fluid, but it adds more delay. It can cause motion sickness if you use it on the HMD.
 ja: このフィルターはトラッキングをとてもなめらかにしますが、遅延が増えます。HMD に使うと VR 酔いの原因になる場合があります。
 en: This filter decreases SteamVR's *local* motion prediction. Other players do not see any difference.
@@ -1454,3 +1452,39 @@ en: Devices to filter
 ja: フィルターをかけるデバイス
 en: This filter never changes the headset or the headset tracker.
 ja: このフィルターがヘッドセットとヘッドセットトラッカーを変更することはありません。
+en: Tracking quality
+ja: トラッキングの品質
+en: Tracking is normal.
+ja: トラッキングは正常です。
+en: Tracking is limited.
+ja: トラッキングが制限されています。
+en: No tracking data
+ja: トラッキングデータなし
+en: Tracking was limited 1 time, %.0f s ago.
+ja: {0} 秒前に 1 回制限されました。
+en: Tracking was limited %u times. The last time was %.0f s ago.
+ja: {0} 回制限されました。最後は {1} 秒前です。
+en: Tracking was limited 1 time, %.0f min ago.
+ja: {0} 分前に 1 回制限されました。
+en: Tracking was limited %u times. The last time was %.0f min ago.
+ja: {0} 回制限されました。最後は {1} 分前です。
+en: With this filter, the tracker moves to its new position in a tenth of a second. During this time, the tracker is not at its measured position.
+ja: このフィルターを使うと、トラッカーは 0.1 秒かけて新しい位置へ移動します。その間、トラッカーは測定された位置にありません。
+en: The filter adds no delay to a movement, but it can make mistakes. Then a fast movement looks soft for a moment.
+ja: このフィルターは動きを遅らせませんが、誤って判断する場合があります。その場合、速い動きが一瞬ゆるやかに見えます。
+en: Compare tracking
+ja: トラッキングを比較
+en: Stop capture
+ja: 記録を停止
+en: A capture records 30 seconds of body motion from the driver, Nova Calibrator, and SteamVR in one file.
+ja: ドライバー、Nova Calibrator、SteamVR で取得した体の動きを 30 秒間、1 つのファイルに記録します。
+en: The capture is active. It stops after 30 seconds.
+ja: 記録中です。30 秒後に停止します。
+en: The recording folder contains the comparison file.
+ja: 比較ファイルを記録フォルダーに保存しました。
+en: The driver data is incomplete. Make sure that SteamVR uses the Nova Calibrator driver of the same version.
+ja: ドライバーのデータが不完全です。SteamVR が同じバージョンの Nova Calibrator ドライバーを使用しているか確認してください。
+en: The comparison file reached its size limit.
+ja: 比較ファイルがサイズの上限に達しました。
+en: The capture failed. Make sure that SteamVR is on and that the disk has free space.
+ja: 記録に失敗しました。SteamVR が起動していること、ディスクに空き容量があることを確認してください。

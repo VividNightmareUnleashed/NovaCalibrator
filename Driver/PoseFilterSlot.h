@@ -113,13 +113,14 @@ inline bool TakeOwnMotion(vr::DriverPose_t &pose, const vr::DriverPose_t &own) n
 //
 // A pose counts as usable when its driver calls it valid. Whether the device
 // is "connected" does not: Standable hides physical trackers by reporting
-// them disconnected while their poses stay valid and in use.
+// them disconnected while their poses stay valid and in use. `recovered` is
+// posefilter::Apply's, and only a caller that sees the other devices sets it.
 inline void Apply(const posefilter::Settings &settings, posefilter::State &state, double captureSeconds,
-	vr::DriverPose_t &pose)
+	vr::DriverPose_t &pose, bool recovered = false)
 {
 	if (!Acts(settings))
 	{
-		if (state.primed || state.captureIsPoseTime)
+		if (state.primed || state.captureIsPoseTime || state.velocityTrust != 0.0)
 			posefilter::Reset(state);
 		return;
 	}
@@ -137,7 +138,8 @@ inline void Apply(const posefilter::Settings &settings, posefilter::State &state
 		filtered.angularVelocity[i] = pose.vecAngularVelocity[i];
 		filtered.angularAcceleration[i] = pose.vecAngularAcceleration[i];
 	}
-	posefilter::Apply(state, settings, captureSeconds, pose.poseIsValid, filtered);
+	posefilter::Apply(state, settings, captureSeconds, pose.poseIsValid, filtered, recovered,
+		pose.result == vr::TrackingResult_Running_OK);
 	pose.qRotation.w = filtered.rotation[0];
 	pose.qRotation.x = filtered.rotation[1];
 	pose.qRotation.y = filtered.rotation[2];

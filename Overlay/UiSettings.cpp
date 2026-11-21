@@ -2,6 +2,8 @@
 #include "stdafx.h"
 #include "UiInternal.h"
 #include "Diagnostics.h"
+#include "BodyRole.h"
+#include "MotionRecorderText.h"
 #include "LocalizationTables.h"
 
 #include <deque>
@@ -714,6 +716,7 @@ void UpdateRows(RowPage &page)
 void SupportRows(RowPage &page)
 {
 	page.Section("Support");
+	page.Link(ui::Icon::Info, "Tracking quality", ui::col::Text, true, [] { OpenSheet(Sheet::TrackingQuality); });
 	// Extra detail in the session log while on, and one file to send,
 	// written on request with personal folders taken out.
 	page.Toggle("Detailed calibration logging",
@@ -756,6 +759,202 @@ float BuildSettingsPage(const VRState &state, ImVec2 origin, float width)
 	UpdateRows(page);
 	SupportRows(page);
 	return page.Finish(origin);
+}
+
+// ---------------------------------------------------------------------------
+// Tracking quality
+// ---------------------------------------------------------------------------
+
+namespace
+{
+// What one card of the sheet says of a device, and where the layout put it.
+struct QualityCard
+{
+	const VRDevice *device = nullptr;
+	questcal::bodyrole::Part part = questcal::bodyrole::NotABody;
+	std::string name, state, history;
+	ImU32 ink = ui::col::Muted;
+	bool limited = false;
+	YGNodeRef box = nullptr, art = nullptr, title = nullptr, dot = nullptr, line = nullptr, past = nullptr,
+		identify = nullptr;
+};
+
+// How often a device's tracking was limited in this session and how long ago
+// it last came back: nothing for a device it never was.
+std::string QualityHistory(uint64_t times, double secondsAgo)
+{
+	if (times == 0)
+		return {};
+	const unsigned count = static_cast<unsigned>((std::min)(times, uint64_t{ 99999 }));
+	if (secondsAgo < 90.0)
+	{
+		if (count == 1)
+			return Tr(FormatString("Tracking was limited 1 time, %.0f s ago.", secondsAgo));
+		return Tr(FormatString("Tracking was limited %u times. The last time was %.0f s ago.", count, secondsAgo));
+	}
+	if (count == 1)
+		return Tr(FormatString("Tracking was limited 1 time, %.0f min ago.", secondsAgo / 60.0));
+	return Tr(FormatString("Tracking was limited %u times. The last time was %.0f min ago.", count, secondsAgo / 60.0));
+}
+} // namespace
+
+// Each tracked device of the body as a card: its tracking now, and how often
+// it was limited since SteamVR started. The numbers are the pose stream hub's
+// (PoseStreamHub::Diagnostics::Device::Quality), which every install keeps.
+void BuildTrackingQualitySheet(const VRState &state)
+{
+	using namespace questcal::bodyrole;
+	double now = 0.0;
+	const PoseStreamHub::Diagnostics snapshot = ReadTrackingQuality(now);
+
+	std::vector<QualityCard> cards;
+	for (const VRDevice &dev : state.devices)
+	{
+		if (dev.id < 0 || static_cast<size_t>(dev.id) >= snapshot.devices.size())
+			continue;
+		const Part part = PartOf(dev.deviceClass, dev.controllerRole, dev.controllerType);
+		if (part == NotABody)
+			continue;
+		const auto &stream = snapshot.devices[static_cast<size_t>(dev.id)];
+		auto quality = stream.quality;
+		// Its poses reached the hub in this driver session, and still do.
+		bool observed = stream.received != 0 && stream.streamBoundary == snapshot.streamBoundaries;
+		bool live = observed && snapshot.open && quality.gapMarker == snapshot.gapMarkers &&
+			now - quality.lastSample <= 0.25;
+		if (g_uiPreviewMode)
+		{
+			// One tracker that came back seven times and one that is limited now.
+			now = 60.0;
+			observed = live = dev.connected;
+			quality.wasGood = dev.id != 5;
+			quality.recoveries = dev.id == 4 ? 7 : 0;
+			quality.lastRecovery = now - 18.0;
+		}
+		if (!dev.connected && !observed)
+			continue;
+
+		QualityCard card;
+		card.device = &dev;
+		card.part = part;
+		const std::string *custom = FindDeviceName(dev.serial);
+		if (custom)
+			card.name = *custom;
+		else if ((part == OtherTracker || part == OtherController) && !dev.model.empty())
+			card.name = dev.model;
+		else
+			card.name = Tr(questcal::motionrecorder::text::DeviceNames[part]);
+		if (!live)
+		{
+			card.state = Tr("No tracking data");
+			card.ink = ui::col::Faint;
+		}
+		else if (quality.wasGood)
+		{
+			card.state = Tr("Tracking is normal.");
+			card.ink = ui::col::Good;
+		}
+		else
+		{
+			card.state = Tr("Tracking is limited.");
+			card.ink = ui::col::Caution;
+			card.limited = true;
+		}
+		if (observed)
+			card.history = QualityHistory(quality.recoveries, (std::max)(0.0, now - quality.lastRecovery));
+		cards.push_back(std::move(card));
+	}
+	// From the head down, so that a device keeps its place as tracking changes.
+	std::stable_sort(cards.begin(), cards.end(), [](const QualityCard &a, const QualityCard &b) { return a.part < b.part; });
+
+	// Two cards to a row. Six rows hold a headset, two hands and eight
+	// trackers with room to spare; more than that scrolls.
+	const float gap = 12.0f, contentW = 900.0f, headerH = 44.0f + 16.0f, mostGridH = 560.0f;
+	const float cardW = std::floor((contentW - gap) * 0.5f);
+	FlexLayout fl;
+	YGNodeRef grid = fl.Root();
+	YGNodeStyleSetFlexDirection(grid, YGFlexDirectionRow);
+	YGNodeStyleSetFlexWrap(grid, YGWrapWrap);
+	YGNodeStyleSetGap(grid, YGGutterAll, gap);
+	for (QualityCard &card : cards)
+	{
+		card.box = fl.Row(grid);
+		YGNodeStyleSetWidth(card.box, cardW);
+		YGNodeStyleSetMinHeight(card.box, 72.0f);
+		YGNodeStyleSetAlignItems(card.box, YGAlignCenter);
+		YGNodeStyleSetPadding(card.box, YGEdgeHorizontal, 14.0f);
+		YGNodeStyleSetPadding(card.box, YGEdgeVertical, 12.0f);
+		YGNodeStyleSetGap(card.box, YGGutterColumn, 12.0f);
+		card.art = fl.Box(card.box, 44.0f, 44.0f);
+		YGNodeRef words = fl.Column(card.box);
+		YGNodeStyleSetFlexGrow(words, 1.0f);
+		YGNodeStyleSetFlexShrink(words, 1.0f);
+		YGNodeStyleSetFlexBasis(words, 0.0f);
+		YGNodeStyleSetGap(words, YGGutterRow, 2.0f);
+		card.title = ui::TextNode(fl, words, ui::type::Strong, card.name);
+		YGNodeRef stateRow = fl.Row(words);
+		YGNodeStyleSetAlignItems(stateRow, YGAlignCenter);
+		YGNodeStyleSetGap(stateRow, YGGutterColumn, 8.0f);
+		card.dot = fl.Box(stateRow, 8.0f, 8.0f);
+		card.line = ui::TextNode(fl, stateRow, ui::type::Footnote, card.state);
+		YGNodeStyleSetFlexShrink(card.line, 1.0f);
+		if (!card.history.empty())
+			card.past = ui::TextNode(fl, words, ui::type::Caption, card.history);
+		// A headset cannot buzz or blink on command.
+		if (card.device->connected && card.device->deviceClass != vr::TrackedDeviceClass_HMD)
+			card.identify = fl.Box(card.box, 36.0f, 36.0f);
+	}
+	fl.Compute(ImVec2(0.0f, 0.0f), contentW, YGUndefined);
+	const float allH = cards.empty() ? 120.0f : fl.Rect(grid).H();
+	const float gridH = (std::min)(allH, mostGridH);
+
+	const FlexRect c = SheetPanel(contentW + 64.0f, 28.0f + headerH + gridH + 32.0f);
+	if (SheetHeader(c, Tr("Tracking quality")))
+		CloseSheet();
+	const ImVec2 top(c.min.x, c.min.y + headerH);
+	if (cards.empty())
+	{
+		ui::DrawText(ImGui::GetWindowDrawList(), ui::type::Body, ImVec2(top.x, top.y + gridH * 0.5f - 12.0f), c.W(),
+			ui::col::Muted, Tr("No devices connected"), ui::Align::Center);
+		return;
+	}
+
+	ImGui::SetCursorScreenPos(top);
+	// A little wider and taller than the cards, so the focus ring is not cut.
+	ImGui::BeginChild("##quality", ImVec2(c.W() + 8.0f, gridH + 8.0f), ImGuiChildFlags_NavFlattened,
+		ImGuiWindowFlags_NoBackground);
+	const ImVec2 origin = ImGui::GetCursorScreenPos();
+	fl.Compute(origin, contentW, YGUndefined);
+	ImDrawList *dl = ImGui::GetWindowDrawList();
+	for (const QualityCard &card : cards)
+	{
+		const FlexRect r = fl.Rect(card.box);
+		ui::FillRounded(dl, r.min, r.max, ui::col::Card, 16.0f);
+		ui::InnerEdge(dl, r.min, r.max, card.limited ? ui::Fade(ui::col::Caution, 0.55f) : ui::col::CardEdge, 16.0f);
+		DrawDeviceArt(dl, *card.device, fl.Rect(card.art), ui::col::Muted);
+		const FlexRect title = fl.Rect(card.title), line = fl.Rect(card.line);
+		ui::DrawText(dl, ui::type::Strong, title.min, title.W(), ui::col::Text, card.name.c_str());
+		dl->AddCircleFilled(fl.Rect(card.dot).Center(), 4.0f, card.ink, 16);
+		ui::DrawText(dl, ui::type::Footnote, line.min, line.W(), card.limited ? ui::col::Caution : ui::col::Muted,
+			card.state.c_str());
+		if (card.past)
+		{
+			const FlexRect past = fl.Rect(card.past);
+			ui::DrawText(dl, ui::type::Caption, past.min, past.W(), ui::col::Quiet, card.history.c_str());
+		}
+		if (card.identify)
+		{
+			ImGui::PushID(card.device->id);
+			if (ui::RoundButton("identify", fl.Rect(card.identify).Center(), 36.0f, ui::Icon::Identify, 18.0f,
+					ui::Rgba(255, 255, 255, 0.08f), ui::col::Text))
+				StartIdentifyPulse(static_cast<uint32_t>(card.device->id), vr::k_unTrackedDeviceIndexInvalid);
+			if (ImGui::IsItemHovered())
+				ShowTip("Identify this device");
+			ImGui::PopID();
+		}
+	}
+	ImGui::SetCursorScreenPos(origin);
+	ImGui::Dummy(ImVec2(contentW, allH));
+	ImGui::EndChild();
 }
 
 // ---------------------------------------------------------------------------

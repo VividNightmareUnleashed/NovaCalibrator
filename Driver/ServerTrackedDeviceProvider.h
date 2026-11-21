@@ -6,6 +6,7 @@
 #include "PoseFilterSlot.h"
 #include "IPCServer.h"
 #include "../common/PoseRingWriter.h"
+#include "../common/PoseStageTrace.h"
 
 #include <openvr_driver.h>
 
@@ -73,12 +74,21 @@ public:
 #ifdef QUESTCAL_DRIVER_PROVIDER_TEST_SEAM
 	void SetSessionForTest(uint64_t id) { driverSessionId = id; recoveryState = {}; }
 	void SetPoseTimeForTest(double seconds) { poseTimeForTest = seconds; }
-	void SetDeviceClassForTest(uint32_t id, vr::ETrackedDeviceClass deviceClass)
+	// `trackingSystem` stands for the name SteamVR has for the device's
+	// tracking system: any number but zero, the same for devices of one system.
+	void SetDeviceClassForTest(uint32_t id, vr::ETrackedDeviceClass deviceClass, uint64_t trackingSystem = 1)
 	{
 		deviceClassForTest[id] = deviceClass;
+		trackingSystems[id].store(trackingSystem, std::memory_order_relaxed);
 	}
 	// RunFrame's re-send pass, without its pose ring retry.
 	void ResendQuietPosesForTest() { ResendQuietPoses(); }
+	bool StartTraceForTest(const char *name)
+	{
+		const bool ready = traceRing.Create(name);
+		traceActive.store(ready);
+		return ready;
+	}
 	// Every sample built for the pose ring, counted even with no ring open;
 	// the last one under its device's pose mutex.
 	uint32_t PublishedForTest() const { return publishedForTest.load(std::memory_order_relaxed); }
@@ -170,6 +180,38 @@ private:
 		uint32_t received = 0;      // counts that driver's poses
 	};
 	RuntimePoseRecord runtimePoses[vr::k_unMaxTrackedDeviceCount];
+	// "Soften jumps" holds back more of the correction a tracker or controller
+	// makes as its tracking comes back, when the other devices of its tracking
+	// system say that nothing else moved (posefilter::MaxRecoveryHeldMeters). For
+	// that, each such device keeps two of its recent world positions, taken a
+	// sixtieth of a second apart under its pose mutex, so that a driver with
+	// 500 poses a second is compared over the same time as one with 60.
+	struct PeerMotion
+	{
+		double at = -1.0, before = -1.0;
+		vr::HmdVector3d_t position{}, previous{};
+		bool targetSpace = false;
+	};
+	PeerMotion peerMotion[vr::k_unMaxTrackedDeviceCount];
+	// The trackers and controllers, and a number for the name of each one's
+	// tracking system ("lighthouse", "oculus"), zero while SteamVR has none:
+	// the name the overlay pairs devices by. Two systems' raw spaces can hold
+	// the same numbers for different places, so only devices of one system
+	// are compared. RunFrame reads both.
+	std::atomic<uint64_t> bodyDevices{ 0 };
+	std::atomic<uint64_t> trackingSystems[vr::k_unMaxTrackedDeviceCount]{};
+	uint64_t trackingSystemsRead = 0;   // RunFrame's own
+	// A device has "Soften jumps" on, so the positions above are kept.
+	std::atomic<bool> observeRecoveryPeers{ false };
+	// What the other devices of a device's tracking system say of a correction
+	// it made:
+	// at least two near it were steady, one moved or lost tracking with it, or
+	// too few could be asked.
+	enum class Peers { Steady, Disturbed, Unknown };
+	Peers PeersNear(uint32_t id, const vr::DriverPose_t &pose, bool targetSpace, double now);
+	bool RecoveredAlone(uint32_t id, const vr::DriverPose_t &raw, bool targetSpace, double now);
+	void NotePeerMotion(uint32_t id, const vr::DriverPose_t &raw, bool targetSpace, double now);
+	void ReadTrackingSystem(uint32_t id);
 	// Devices with a record, so the pass skips the rest without a lock.
 	std::atomic<uint64_t> recordedDevices{ 0 };
 	// RunFrame's own.
@@ -199,6 +241,12 @@ private:
 	void PublishSample(uint32_t openVRID, const vr::DriverPose_t &pose, int64_t qpc);
 	// Publishes every raw (pre-transform) pose for the overlay's solver.
 	protocol::PoseRingWriter poseRing;
+	protocol::PoseRingWriter traceRing;
+	std::atomic<bool> traceActive{ false };
+	uint64_t lastTracePoll = 0;
+	void PollTraceRequest();
+	void TracePose(uint32_t id, questcal::stagetrace::Stage stage, uint64_t sequence,
+		const vr::DriverPose_t &pose, int64_t qpc);
 	// Publishes a completed Create (in Init or a RunFrame retry) to the pose
 	// threads. Publish runs only while this is set.
 	std::atomic<bool> poseRingReady{ false };

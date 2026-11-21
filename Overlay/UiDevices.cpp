@@ -480,6 +480,7 @@ VRState LoadVRState()
 				device.deviceClass = deviceClass;
 				device.trackingSystem = system;
 
+				device.controllerType = readStringProperty(id, vr::Prop_ControllerType_String);
 				device.model = readStringProperty(id, vr::Prop_ModelNumber_String);
 				device.serial = readStringProperty(id, vr::Prop_SerialNumber_String);
 				device.renderModel = readStringProperty(id, vr::Prop_RenderModelName_String);

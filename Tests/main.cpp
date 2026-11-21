@@ -75,6 +75,7 @@ bool CalibrationContextCadenceScenario();
 bool CalibrationContextCorrectionBasisScenario();
 bool ContinuousInputDiagnosticsScenario();
 bool PoseStreamDiagnosticsScenario();
+bool TrackingQualityScenario();
 bool DiagnosticsExportScenario();
 bool DiagnosticsAnonymisationScenario();
 bool DiagnosticsSlotRangesScenario();
@@ -1509,6 +1510,8 @@ void RunPoseSampleScenarios()
 		"one line names every slot with nothing to report");
 	Check("diagnostics: a long session log keeps its start and its end", SessionLogTrimScenario(),
 		"past its budget the log is the first lines, a count of those left out, and the latest");
+	Check("tracking quality counts complete episodes across valid out-of-range poses and respects observation gaps",
+		TrackingQualityScenario(), "");
 	Check("pose stream diagnostics: passive snapshot", PoseStreamDiagnosticsScenario(),
 		"all devices and loss markers are retained without consuming another reader's samples");
 	Check("continuous diagnostics: input and export", ContinuousInputDiagnosticsScenario(),

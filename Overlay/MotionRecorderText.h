@@ -10,6 +10,16 @@ namespace questcal::motionrecorder::text
 {
 
 inline constexpr const char *PageTitle = "Motion Recorder";
+// The tracking comparison: a link of the page, the tip on it, and the
+// messages that say how a capture began and ended.
+inline constexpr const char *TraceStart = "Compare tracking";
+inline constexpr const char *TraceStop = "Stop capture";
+inline constexpr const char *TraceLine = "A capture records 30 seconds of body motion from the driver, Nova Calibrator, and SteamVR in one file.";
+inline constexpr const char *TraceWorking = "The capture is active. It stops after 30 seconds.";
+inline constexpr const char *TraceSaved = "The recording folder contains the comparison file.";
+inline constexpr const char *TraceDriver = "The driver data is incomplete. Make sure that SteamVR uses the Nova Calibrator driver of the same version.";
+inline constexpr const char *TraceLimit = "The comparison file reached its size limit.";
+inline constexpr const char *TraceFailed = "The capture failed. Make sure that SteamVR is on and that the disk has free space.";
 
 // The row that starts and stops a recording.
 inline constexpr const char *RowTitle = "Record motion";
@@ -120,6 +130,7 @@ inline constexpr const char *CannotDelete = "Nova Calibrator could not delete th
 // patterns and the two sentences that end in a path are checked beside it. A
 // new string goes here.
 inline constexpr const char *const Whole[] = {
+	TraceStart, TraceStop, TraceLine, TraceWorking, TraceSaved, TraceDriver, TraceLimit, TraceFailed,
 	PageTitle, RowTitle, PrivacyLabel, LineFirst, LineContinues, LineReplaces, StartButton, StopButton, Sign,
 	CancelButton, CapTitle, CapLine, OpenFolder, DeleteRecording, DeleteTitle, DeleteLine, KeepButton,
 	ViewHint, LegendRecorded, LegendOff, LegendLost, Live, LiveLine, Reading, NoRecordingTitle, NoRecordingLine,

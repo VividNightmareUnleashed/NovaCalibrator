@@ -56,7 +56,8 @@ VRState PreviewVRState()
 	touchPro.iconPath = PreviewIconPath("oculus\\resources\\icons\\rifts_right_controller_ready_2x.png");
 	touchPro.battery = 0.75f;
 	touchPro.tracking = true;
-	state.devices.push_back(touchPro);
+	if (g_uiPreviewScenario != PreviewScenario::TrackingQuality)
+		state.devices.push_back(touchPro);
 
 	VRDevice right;
 	right.id = 1;
@@ -84,7 +85,8 @@ VRState PreviewVRState()
 	left.tracking = true;
 	state.devices.push_back(left);
 
-	int trackerCount = g_uiPreviewMany ? kPreviewManyTrackerCount : 1;
+	const int trackerCount = g_uiPreviewScenario == PreviewScenario::TrackingQuality ? 8 :
+		g_uiPreviewMany ? kPreviewManyTrackerCount : 1;
 	for (int i = 0; i < trackerCount; ++i)
 	{
 		VRDevice tracker;
@@ -98,6 +100,12 @@ VRState PreviewVRState()
 		snprintf(serial, sizeof serial, "LHR-77E5A2%02X", 0x11 + i);
 		tracker.serial = serial;
 		tracker.trackingSystem = "lighthouse";
+		if (g_uiPreviewScenario == PreviewScenario::TrackingQuality)
+		{
+			static const char *const roles[] = { "right_foot", "waist", "left_foot", "chest",
+				"left_knee", "right_knee", "left_elbow", "right_elbow" };
+			tracker.controllerType = roles[i];
+		}
 		// Demo the row states: the lone tracker sits disconnected; with
 		// -uipreview-many they fan out across battery levels instead, the
 		// last one staying disconnected to keep that row state on screen.
@@ -447,6 +455,10 @@ void SetupPreviewState()
 			questcal::motionrecorder::OpenWarning();
 		else if (g_uiPreviewScenario == PreviewScenario::RecorderDelete)
 			questcal::motionrecorder::OpenDeleteConfirm();
+		break;
+	case PreviewScenario::TrackingQuality:
+		g_page = Page::Settings;
+		OpenSheet(Sheet::TrackingQuality);
 		break;
 	case PreviewScenario::Settings:
 	case PreviewScenario::SettingsMore:

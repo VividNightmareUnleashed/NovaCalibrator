@@ -36,6 +36,7 @@ public:
 	// Entries a drain copies per hold of the producer mutex.
 	static const uint64_t CopyChunk = 512;
 
+	PoseStreamHub();
 	~PoseStreamHub();
 
 	// Once per hub; there is no restart after Stop.
@@ -56,6 +57,15 @@ public:
 	{
 		struct Device
 		{
+			struct Quality
+			{
+				uint64_t recoveries = 0;
+				double started = -1.0, lastRecovery = -1.0, lastDuration = 0.0;
+				double lastSample = -1.0;
+				bool wasGood = false;
+				uint64_t gapMarker = 0;
+				unsigned peersObserved = 0, peersGood = 0;
+			} quality;
 			uint64_t received = 0;
 			uint64_t streamBoundary = 0;
 			protocol::DevicePoseSample latest;
@@ -180,6 +190,7 @@ private:
 
 	std::mutex mutex;                                   // guards all fields below
 	Diagnostics diagnostics;
+	double secondsPerTick = 0.0;
 	std::vector<HistoryEntry> history;                  // ring, `capacity` entries
 	uint64_t capacity = HistoryCapacity;                // fixed but for SetGeometryForTest
 	uint64_t copyChunk = CopyChunk;

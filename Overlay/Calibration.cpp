@@ -94,6 +94,12 @@ void calibration_internal::DispatchStreamEvent(CalibrationContext &ctx, questcal
 
 CalibrationContext CalCtx;
 
+PoseStreamHub::Diagnostics ReadTrackingQuality(double &sampleClock)
+{
+	sampleClock = QpcNowSeconds();
+	return PoseHub.ReadDiagnostics();
+}
+
 DiagnosticCapture CaptureCalibrationDiagnostics(bool queryRuntime)
 {
 	DiagnosticCapture capture{ PoseHub.ReadDiagnostics(), questcal::CaptureDriverSyncDiagnostics() };

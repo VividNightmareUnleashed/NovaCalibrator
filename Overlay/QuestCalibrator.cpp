@@ -1528,11 +1528,12 @@ static LaunchOptions ParseCommandLine(LPWSTR lpCmdLine)
 			: cmd == L"-uipreview-recorder-warning" ? PreviewScenario::RecorderWarning : PreviewScenario::RecorderDelete;
 	}
 	else if (cmd == L"-uipreview-settings" || cmd == L"-uipreview-settings-more" || cmd == L"-uipreview-editor" ||
-		cmd == L"-uipreview-credits")
+		cmd == L"-uipreview-credits" || cmd == L"-uipreview-quality")
 	{
 		options.preview = true;
 		options.previewMany = true;
 		options.previewScenario = cmd == L"-uipreview-settings" ? PreviewScenario::Settings
+			: cmd == L"-uipreview-quality" ? PreviewScenario::TrackingQuality
 			: cmd == L"-uipreview-settings-more" ? PreviewScenario::SettingsMore
 			: cmd == L"-uipreview-editor" ? PreviewScenario::Editor : PreviewScenario::Credits;
 	}

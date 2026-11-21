@@ -100,7 +100,10 @@ public:
 		DeviceInfo info;
 		// The last sample before the moment was valid and connected.
 		bool tracked = false;
-		// Meters, in the space SteamVR showed the device in: the driver's pose
+		// Tracked, but its driver did not report normal tracking: the position
+		// is what the driver could still work out.
+		bool limited = false;
+		// Meters in the recorded standing space: the driver's pose
 		// put in its world, then the recording's alignment for its system.
 		double position[3] = { 0.0, 0.0, 0.0 };
 		// Its orientation in that space, w x y z.

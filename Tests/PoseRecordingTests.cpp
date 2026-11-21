@@ -7,6 +7,7 @@
 // paused reaches the file; there is one recording, and a new one replaces it
 // only once it has data; the file names no hardware; and a playback shows
 // each device where its samples put it, on a timeline of the recorded time.
+#include "../Overlay/TrackingTraceWriter.h"
 #include "../Overlay/Localization.h"
 #include "../Overlay/MotionRecorderText.h"
 #include "../Overlay/PoseRecorder.h"
@@ -2863,6 +2864,55 @@ bool Near(const Playback::DevicePose *pose, double x, double y, double z)
 		std::abs(pose->position[2] - z) < 1e-9;
 }
 
+void PlaybackTiming(Check check)
+{
+	using namespace reference;
+	std::string bytes;
+	AppendHeader(bytes, FileHeader());
+	const auto sample = [&](int captureMs, int offsetMs, double x, uint32_t result, bool connected = true) {
+		Sample s = PlaybackPose(3, StartCount + captureMs * (ClockRate / 1000), x);
+		s.poseTimeOffset = offsetMs / 1000.0;
+		s.velocity[0] = 1.75;
+		s.trackingResult = result;
+		s.connected = connected;
+		AppendSample(bytes, s);
+	};
+	AppendSample(bytes, PlaybackPose(0, StartCount, 0.0));
+	sample(10, -4, 0.0, 200);
+	sample(44, -10, 0.049, 200);      // 49 mm in 28 ms, as on the right controller
+	sample(45, -11, 0.089, 200);      // a revision of the same pose, received later
+	sample(56, -2, 0.124, 101);       // valid and connected, but out of range
+	sample(78, -2, 0.2, 200);
+	sample(80, 0, 0.3, 200, false);
+	sample(100, 0, 0.5, 200);
+	sample(128, 0, 0.7, 200);         // the velocities cannot account for this jump
+	sample(222, 0, 0.8645, 200);      // 94 ms without a report
+	AppendGap(bytes, { StartCount + 223 * (ClockRate / 1000), 1, 1 });
+	sample(242, 0, 0.8995, 200);
+	AppendEnd(bytes, { 4, StartCount + ClockRate, StartTime, 11 });
+	Playback playback;
+	playback.Open(SourceOf(bytes), bytes.size(), true);
+	std::vector<Playback::DevicePose> poses;
+	const auto at = [&](double t, double x, bool tracked = true, bool limited = false) {
+		if (!playback.Frame(t, poses))
+			return false;
+		const auto *pose = PoseOf(poses, 3);
+		return pose && std::abs(pose->position[0] - x) < 1e-9 && pose->tracked == tracked && pose->limited == limited;
+	};
+	check("playback: delayed reports bracket a fast hand by pose time and a same-time revision has no lead-in",
+		at(0.020, 0.0245) && at(0.033, 0.04725) && at(0.03401, 0.089) && at(0.020, 0.0245), "");
+	const bool states = at(0.050, 0.089) && at(0.060, 0.124, true, true) && at(0.077, 0.2) && at(0.082, 0.2, false);
+	check("playback: a device with limited tracking keeps its reported position and differs from normal and disconnected states",
+		states, "");
+	// The reports at 6, 34, 54 and 76 ms: before, in and after the limited
+	// stretch. The step tracking makes when it comes back is on the trail.
+	const auto *shown = PoseOf(poses, 3);
+	check("playback: a trail goes on through limited tracking and its return",
+		states && shown && shown->trail.size() == 4, "one trail of four points, not one cut at each change");
+	check("playback: a conflicting step, a long report interval and a recorded loss are never bridged",
+		at(0.114, 0.5) && at(0.175, 0.7) && at(0.233, 0.8645) && at(0.242, 0.8995), "");
+}
+
 void PlaybackScenarios(Check check)
 {
 	const std::string bytes = PlaybackRecording();
@@ -3050,6 +3100,96 @@ void TextIsTranslated(Check check)
 		detail.c_str());
 }
 
+void CombinedTraceLayout(Check check)
+{
+	using namespace questcal::stagetrace;
+	TempFolder folder;
+	FILE *file = nullptr;
+	const auto path = folder.path / "test.novatrace";
+	_wfopen_s(&file, path.c_str(), L"w+b");
+	std::vector<uint8_t> plain;
+	if (file)
+	{
+		Writer out(file, 1000, 100, 0);
+		protocol::DevicePoseSample p;
+		p.worldFromDriverRotation = p.rotation = {};
+		p.sampleTimeQpc = 101;
+		p.deviceId = Tag(10, Stage::Input, 7);
+		out.Driver(p);
+		p.sampleTimeQpc = 103;
+		p.deviceId = Tag(10, Stage::Submitted, 7);
+		out.Driver(p);
+		vr::TrackedDevicePose_t poses[64]{};
+		poses[10].bDeviceIsConnected = true;
+		out.Runtime(102, 104, 1u << 10, poses);
+		out.End(105, 0);
+		std::rewind(file);
+		std::fseek(file, 32, SEEK_SET);
+		uint16_t lengths[2]{};
+		if (std::fread(lengths, sizeof(lengths), 1, file) == 1 && lengths[0] <= 64 && lengths[1] <= 64)
+		{
+			std::vector<uint8_t> stored(lengths[1]);
+			if (std::fread(stored.data(), 1, stored.size(), file) == stored.size())
+			{
+				if (lengths[0] == lengths[1]) plain = stored;
+				else
+				{
+					DECOMPRESSOR_HANDLE codec = nullptr;
+					if (CreateDecompressor(COMPRESS_ALGORITHM_MSZIP | COMPRESS_RAW, nullptr, &codec))
+					{
+						plain.resize(lengths[0]);
+						SIZE_T n = 0;
+						if (!Decompress(codec, stored.data(), stored.size(), plain.data(), plain.size(), &n) ||
+							n != plain.size()) plain.clear();
+						CloseDecompressor(codec);
+					}
+				}
+			}
+		}
+		fclose(file);
+	}
+	// Signed clock delta -1 to the independent runtime observation, high device
+	// bit 10, field 18 = connected, zero mask for the unchanged submitted pose.
+	const std::vector<uint8_t> expected = { 1,10,7,2,0, 130,10,7,4,0, 7,1,2,128,8,128,128,16,2, 11,6,0 };
+	check("tracking trace: one stream reconstructs an unchanged submission and an overlapping runtime query",
+		plain == expected, "separate query bounds, bit-exact field mask, shared input");
+}
+
+void TraceCapturesKept(Check check)
+{
+	using namespace questcal::stagetrace;
+	TempFolder folder;
+	const auto make = [&](const std::wstring &name, int secondsNewer) {
+		const HANDLE file = CreateFileW((folder.path / name).c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+			FILE_ATTRIBUTE_NORMAL, nullptr);
+		if (file == INVALID_HANDLE_VALUE)
+			return;
+		ULARGE_INTEGER stamp;
+		stamp.QuadPart = 133000000000000000ull + static_cast<uint64_t>(secondsNewer) * 10000000ull;
+		const FILETIME written{ stamp.LowPart, stamp.HighPart };
+		SetFileTime(file, nullptr, nullptr, &written);
+		CloseHandle(file);
+	};
+	// Seven captures, named against their age so that an order by name keeps
+	// the wrong ones, and two files that are no capture: the recording, and a
+	// capture's name with another ending.
+	const auto capture = [](int i) { return std::wstring(FilePrefix) + std::to_wstring(9 - i) + FileSuffix; };
+	for (int i = 0; i < 7; ++i)
+		make(capture(i), i);
+	const std::wstring recording = std::filesystem::path(folder.File()).filename().wstring();
+	const std::wstring other = std::wstring(FilePrefix) + L"0.txt";
+	make(recording, 0);
+	make(other, 0);
+	RemoveOldCaptures(folder.Dir(), 4);
+	bool newest = true;
+	for (int i = 0; i < 7; ++i)
+		newest = newest && std::filesystem::exists(folder.path / capture(i)) == (i >= 3);
+	check("tracking trace: a capture that starts keeps the newest captures of the folder and removes no other file",
+		newest && folder.Files() == 6 && std::filesystem::exists(folder.path / recording) &&
+			std::filesystem::exists(folder.path / other),
+		"of seven captures the four last written stay, with the recording and a file of another kind");
+}
+
 } // namespace
 
 void RunPoseRecordingScenarios(Check check)
@@ -3085,7 +3225,10 @@ void RunPoseRecordingScenarios(Check check)
 	RecorderCompactKeepsNewest(check);
 	TriggerWatchScenarios(check);
 	PlaybackScenarios(check);
+	PlaybackTiming(check);
 	PlaybackMarks(check);
 	PlaybackCompact(check);
 	TextIsTranslated(check);
+	CombinedTraceLayout(check);
+	TraceCapturesKept(check);
 }

@@ -30,7 +30,7 @@ $Exe = (Resolve-Path -LiteralPath $Exe).Path
 $Screens = @('-uipreview', '-uipreview-many', '-uipreview-empty', '-uipreview-frozen', '-uipreview-trackeroff',
     '-uipreview-notices', '-uipreview-pair', '-uipreview-guide', '-uipreview-guide-wait', '-uipreview-move',
     '-uipreview-result', '-uipreview-failed', '-uipreview-chaperone', '-uipreview-chapwarn', '-uipreview-anchors',
-    '-uipreview-activity', '-uipreview-clear', '-uipreview-lighthouse', '-uipreview-settings', '-uipreview-settings-more',
+    '-uipreview-activity', '-uipreview-clear', '-uipreview-lighthouse', '-uipreview-settings', '-uipreview-settings-more', '-uipreview-quality',
     '-uipreview-editor', '-uipreview-credits', '-uipreview-recorder', '-uipreview-recorder-live', '-uipreview-recorder-live-full',
     '-uipreview-recorder-empty', '-uipreview-recorder-warning', '-uipreview-recorder-delete',
     '-uipreview-setup-welcome', '-uipreview-setup-headset',

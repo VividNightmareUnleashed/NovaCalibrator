@@ -17,8 +17,9 @@
 // Three filters:
 //  - "One Euro": a low-pass filter whose cutoff rises with the speed the
 //    device's driver reports. Three strengths.
-//  - "Soften jumps": a correction the device's driver makes is let out over a
-//    tenth of a second.
+//  - "Soften jumps": a correction the device's driver makes, and a jump
+//    that the velocities it reports do not account for, is let out over a
+//    tenth of a second or less.
 //  - "Classic": a part of a device's reported velocities is taken off, as the
 //    add-on OpenVR-SmoothTracking does, so the runtime predicts less.
 // The first two act on the devices the player picked, never the headset or

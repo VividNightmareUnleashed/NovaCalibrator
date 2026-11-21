@@ -15,17 +15,23 @@
 //    of them again, up to twelve times within a few milliseconds, with the
 //    same pose time (capture time plus poseTimeOffset) and a small change.
 //    That change is the driver's own correction from its base-station
-//    measurements. A change between two pose times is movement. So a
-//    correction and a movement can be told apart with no guess.
+//    measurements. A new pose time can carry a correction too: one recorded
+//    hand moved 31 mm in 4 ms while its reported speed was under 1 m/s.
 //  - The capture time jitters by milliseconds; the pose time does not. Every
 //    interval a filter uses is a pose-time interval.
 //  - The velocities a driver reports follow the movement with no measurable
 //    delay. They can open a low-pass filter the moment the device moves, where
 //    a speed worked out from the positions is late and noisy.
+//  - Those velocities also account for the movement. Between two poses 4 ms
+//    apart they leave a thousandth of the travel as a rule, and more than
+//    half of it in one moving pair of 200. A Quest Pro on the same session
+//    (90 poses a second) leaves 6% as a rule and more than half in one pair
+//    of 110.
 //
 // A driver that does none of this (a pose time that never moves, no
-// velocities) must still get poses that follow the device: see
-// MaxSamePoseSeconds and the worked-out speed below.
+// velocities, velocities that do not fit the movement) must still get poses
+// that follow the device: see MaxSamePoseSeconds, the worked-out speed and
+// TrustedVelocities below.
 namespace questcal
 {
 namespace posefilter
@@ -47,8 +53,9 @@ struct Settings
 	double turnGain = 100.0;             // Hz for each rad/s: at most 1 / (2 pi turnGain) rad behind
 
 	// Corrections let out slowly: a correction the driver makes is held back
-	// and let out over this time, so the pose glides to its new place. Movement
-	// is not held back.
+	// and let out over this time. A jump on a new pose time, which the
+	// reported velocities do not account for, is held back too and let out
+	// sooner (MotionReleaseSeconds).
 	bool releaseCorrections = false;
 	double releaseSeconds = 0.1;
 
@@ -110,7 +117,42 @@ constexpr double MaxSamePoseSeconds = 0.05;
 // The most that is held back. More than this passes at once, so a stream that
 // is misread as all corrections still follows the device this closely.
 constexpr double MaxHeldMeters = 0.02;
+// The correction a device makes when its tracking comes back can be larger:
+// one recorded foot moved 104 mm at one pose time after half a second out
+// of range. The filter cannot tell that from the room moving, so only its
+// caller, which sees the other devices, asks for this limit (`recovered`).
+// The part over MaxHeldMeters goes out over RecoveryDecaySeconds, and a
+// correction over MaxRecoveryStepMeters is never held this far.
+constexpr double MaxRecoveryHeldMeters = 0.08;
+constexpr double MaxRecoveryStepMeters = 0.15;
+constexpr double RecoveryDecaySeconds = 0.045;
 constexpr double MaxHeldRadians = 0.05;
+// A jump on a new pose time: the part of a step that the velocities reported
+// at its two ends do not account for. It counts over MotionNoiseMeters plus
+// what an acceleration of MotionAccelerationAllowance (m/s^2) hides in the
+// interval (0.8 mm in 4 ms, 24 mm in 22 ms), and only when it is more than
+// three times what the reported speeds cover. More than
+// MaxMotionResidualMeters is the device in another place and passes at
+// once. Two poses further apart than MaxMotionInterval, or received further
+// apart than MaxMotionArrivalGap, are not compared.
+constexpr double MaxMotionInterval = 0.027;
+constexpr double MaxMotionArrivalGap = 0.035;
+constexpr double MotionNoiseMeters = 0.008;
+constexpr double MotionAccelerationAllowance = 100.0;
+constexpr double MaxMotionResidualMeters = 0.08;
+constexpr double MaxMotionHeldMeters = 0.04;
+constexpr double MotionReleaseSeconds = 0.025;
+// That rule stands on velocities that account for the movement, and a stream
+// has to show that its velocities do: a driver can report none, or ones that
+// are late or too small, and its every fast movement would count as a jump.
+// A pair of poses faster than MovingSpeed is evidence, for the stream when
+// the velocities leave at most ExplainedShare of its travel and against it
+// otherwise. The evidence is averaged over VelocityTrustSeconds of movement,
+// and the rule acts while TrustedVelocities of it is for the stream.
+constexpr double MovingSpeed = 0.25;             // m/s
+constexpr double ExplainedShare = 0.5;
+constexpr double VelocityTrustSeconds = 0.5;
+constexpr double TrustedVelocities = 0.9;
 // The speed worked out from the positions counts only above these, and is
 // averaged over this time: at rest it is noise.
 constexpr double WorkedOutSpeedFloor = 0.02;     // m/s
@@ -120,16 +162,28 @@ constexpr double WorkedOutSeconds = 0.05;
 struct State
 {
 	bool primed = false;
+	// What is known of the stream, which outlives a break in it.
 	bool captureIsPoseTime = false;      // the stream's pose time does not move: see MaxSamePoseSeconds
+	double velocityTrust = 0.0;          // how far its velocities account for its movement: see TrustedVelocities
 	double captureTime = 0.0;            // of the previous sample
 	double poseTime = 0.0;
 	double poseTimeSince = 0.0;          // the capture time at which that pose time first came
 	double rawPosition[3] = { 0.0, 0.0, 0.0 };       // the previous sample as it came
+	double rawVelocity[3] = { 0.0, 0.0, 0.0 };
 	double rawRotation[4] = { 1.0, 0.0, 0.0, 0.0 };
+	// A step can be measured from the previous sample: it had normal tracking
+	// and a pose time that was not behind the one before it.
+	bool motionReference = false;
 	// The corrections not let out yet: a displacement, and a turn as a
 	// rotation vector in the device's own frame.
 	double heldPosition[3] = { 0.0, 0.0, 0.0 };
 	double heldTurn[3] = { 0.0, 0.0, 0.0 };
+	// How far over MaxHeldMeters the held displacement may be, after a
+	// correction the caller called a recovery at the capture time recoveryTime.
+	double recoveryAllowance = 0.0;
+	double recoveryTime = 0.0;
+	// The jumps on new pose times not let out yet.
+	double heldMotion[3] = { 0.0, 0.0, 0.0 };
 	// The smoothed pose.
 	double smoothPosition[3] = { 0.0, 0.0, 0.0 };
 	double smoothRotation[4] = { 1.0, 0.0, 0.0, 0.0 };
@@ -224,6 +278,59 @@ inline void LimitLength(double v[3], double most)
 			v[i] *= most / length;
 }
 
+// A change that goes against what is held takes it back first: that part
+// leaves both. A jump the driver makes and then undoes is held in one account
+// and undone in the other, and the two limits would otherwise cut a part of
+// one and leave the pose on the far side of where it is.
+inline void TakeBack(double held[3], double change[3])
+{
+	const double length = Length3(held);
+	if (!(length > 0.0))
+		return;
+	const double along = (change[0] * held[0] + change[1] * held[1] + change[2] * held[2]) / length;
+	if (!(along < 0.0))
+		return;
+	const double taken = -along < length ? -along : length;
+	for (int i = 0; i < 3; ++i)
+	{
+		const double part = taken * held[i] / length;
+		held[i] -= part;
+		change[i] += part;
+	}
+}
+
+// The step from the previous pose to this one, `seconds` of pose time later:
+// what it says of the stream's velocities, and the jump in it, if any.
+inline void HoldUnexplainedStep(State &state, const Pose &pose, double seconds)
+{
+	double step[3], unexplained[3];
+	for (int i = 0; i < 3; ++i)
+	{
+		step[i] = pose.position[i] - state.rawPosition[i];
+		unexplained[i] = step[i] - 0.5 * (state.rawVelocity[i] + pose.velocity[i]) * seconds;
+	}
+	const double travel = Length3(step), error = Length3(unexplained);
+	// The step is judged by what the stream showed before it.
+	const bool trusted = state.velocityTrust >= TrustedVelocities;
+	if (travel >= MovingSpeed * seconds)
+	{
+		const double share = -std::expm1(-seconds / VelocityTrustSeconds);
+		state.velocityTrust += share * ((error <= ExplainedShare * travel ? 1.0 : 0.0) - state.velocityTrust);
+	}
+	if (!trusted || !(error > MotionNoiseMeters + 0.5 * MotionAccelerationAllowance * seconds * seconds) ||
+		error > MaxMotionResidualMeters)
+		return;
+	// Fast movement leaves more: a velocity that is a little off is off by
+	// more meters. At rest the speeds cover nothing and the limit above decides.
+	const double meanSpeed = 0.5 * (Length3(state.rawVelocity) + Length3(pose.velocity));
+	if (error <= 3.0 * meanSpeed * seconds)
+		return;
+	TakeBack(state.heldPosition, unexplained);
+	for (int i = 0; i < 3; ++i)
+		state.heldMotion[i] += unexplained[i];
+	LimitLength(state.heldMotion, MaxMotionHeldMeters);
+}
+
 // 1 - exp(-2 pi cutoff dt): how far a low-pass step moves to its input.
 inline double Blend(double cutoffHz, double seconds)
 {
@@ -235,6 +342,18 @@ inline double Blend(double cutoffHz, double seconds)
 inline void Reset(State &state)
 {
 	state = State();
+}
+
+// Starts the filter again after a break in the stream. What is known of the
+// stream outlives the break: a device that goes in and out of tracking must
+// not learn it again each time.
+inline void Restart(State &state)
+{
+	const bool captureIsPoseTime = state.captureIsPoseTime;
+	const double velocityTrust = state.velocityTrust;
+	Reset(state);
+	state.captureIsPoseTime = captureIsPoseTime;
+	state.velocityTrust = velocityTrust;
 }
 
 // Scales what the runtime predicts with. The add-on "OpenVR-SmoothTracking"
@@ -252,8 +371,13 @@ inline void ScalePrediction(Pose &pose, double scale)
 // Filters one sample of one device in place. `captureSeconds` is a clock that
 // only goes forward (the driver's performance counter, in seconds) read when
 // the sample arrived; `usable` is false for a device with no valid pose.
-// `settings` must have passed Usable().
-inline void Apply(State &state, const Settings &settings, double captureSeconds, bool usable, Pose &pose)
+// `settings` must have passed Usable(). `normalTracking` is false for a pose
+// the driver made without normal tracking: it is filtered as any other, but
+// no jump is measured to it or from it. `recovered` says that this pose is
+// the device's correction as its tracking comes back, and that nothing else
+// moved with it: see MaxRecoveryHeldMeters.
+inline void Apply(State &state, const Settings &settings, double captureSeconds, bool usable, Pose &pose,
+	bool recovered = false, bool normalTracking = true)
 {
 	using namespace detail;
 	double rotation[4] = { pose.rotation[0], pose.rotation[1], pose.rotation[2], pose.rotation[3] };
@@ -261,11 +385,7 @@ inline void Apply(State &state, const Settings &settings, double captureSeconds,
 		!Finite(pose.rotation, 4) || !Finite(pose.velocity, 3) || !Finite(pose.angularVelocity, 3) ||
 		!Finite(pose.angularAcceleration, 3) || !Normalize(rotation))
 	{
-		// What is known of the stream's clock outlives the break: a device that
-		// goes in and out of tracking must not learn it again each time.
-		const bool captureIsPoseTime = state.captureIsPoseTime;
-		Reset(state);
-		state.captureIsPoseTime = captureIsPoseTime;
+		Restart(state);
 		return;
 	}
 
@@ -288,13 +408,15 @@ inline void Apply(State &state, const Settings &settings, double captureSeconds,
 
 	if (restart)
 	{
-		const bool captureIsPoseTime = state.captureIsPoseTime;
-		Reset(state);
+		Restart(state);
 		state.primed = true;
-		state.captureIsPoseTime = captureIsPoseTime;
-		poseTime = captureIsPoseTime ? captureSeconds : captureSeconds + pose.timeOffset;
+		poseTime = state.captureIsPoseTime ? captureSeconds : captureSeconds + pose.timeOffset;
 		for (int i = 0; i < 3; ++i)
+		{
 			state.rawPosition[i] = state.smoothPosition[i] = state.newPosition[i] = pose.position[i];
+			state.rawVelocity[i] = pose.velocity[i];
+		}
+		state.motionReference = normalTracking;
 		for (int i = 0; i < 4; ++i)
 			state.rawRotation[i] = state.smoothRotation[i] = state.newRotation[i] = rotation[i];
 		state.captureTime = state.poseTimeSince = captureSeconds;
@@ -330,40 +452,64 @@ inline void Apply(State &state, const Settings &settings, double captureSeconds,
 	}
 
 	// Corrections: what the driver changed with no new pose time is held back,
-	// and what is held back goes out with time.
+	// with the jumps on new pose times, and what is held back goes out with
+	// time. It goes out whatever the stream does next: a hold that ended when
+	// tracking got worse would give the jump back as a step.
 	double releasedPosition[3] = { pose.position[0], pose.position[1], pose.position[2] };
 	double releasedRotation[4] = { rotation[0], rotation[1], rotation[2], rotation[3] };
 	if (settings.releaseCorrections)
 	{
 		const double keep = std::exp(-sinceCapture / settings.releaseSeconds);
+		const double keepJump = std::exp(-sinceCapture / MotionReleaseSeconds);
 		for (int i = 0; i < 3; ++i)
 		{
 			state.heldPosition[i] *= keep;
 			state.heldTurn[i] *= keep;
+			state.heldMotion[i] *= keepJump;
 		}
+		state.recoveryAllowance *= std::exp(-sinceCapture / RecoveryDecaySeconds);
+		const double sincePose = poseTime - state.poseTime;
 		if (again)
 		{
+			double correction[3] = { pose.position[0] - state.rawPosition[0], pose.position[1] - state.rawPosition[1],
+				pose.position[2] - state.rawPosition[2] };
+			TakeBack(state.heldMotion, correction);
 			for (int i = 0; i < 3; ++i)
-				state.heldPosition[i] += pose.position[i] - state.rawPosition[i];
-			double held[4], correction[4], both[4];
+				state.heldPosition[i] += correction[i];
+			double held[4], turn[4], both[4];
 			Exp(state.heldTurn, held);
-			TurnBetween(state.rawRotation, rotation, correction);
-			Multiply(held, correction, both);
+			TurnBetween(state.rawRotation, rotation, turn);
+			Multiply(held, turn, both);
 			Log(both, state.heldTurn);
+			if (recovered)
+			{
+				state.recoveryAllowance = MaxRecoveryHeldMeters - MaxHeldMeters;
+				state.recoveryTime = captureSeconds;
+			}
 		}
-		LimitLength(state.heldPosition, MaxHeldMeters);
+		else if (state.motionReference && normalTracking && !state.captureIsPoseTime && sincePose > 0.0 &&
+			sincePose <= MaxMotionInterval && sinceCapture <= MaxMotionArrivalGap)
+			HoldUnexplainedStep(state, pose, sincePose);
+		const double mostHeld = MaxHeldMeters + state.recoveryAllowance;
+		LimitLength(state.heldPosition, mostHeld);
 		LimitLength(state.heldTurn, MaxHeldRadians);
 		const double back[3] = { -state.heldTurn[0], -state.heldTurn[1], -state.heldTurn[2] };
 		double unturn[4];
 		Exp(back, unturn);
 		Multiply(rotation, unturn, releasedRotation);
+		// A correction and a jump side by side can be one event: together they
+		// hold no more than the larger of their two limits.
+		double offset[3] = { state.heldPosition[0] + state.heldMotion[0], state.heldPosition[1] + state.heldMotion[1],
+			state.heldPosition[2] + state.heldMotion[2] };
+		LimitLength(offset, mostHeld > MaxMotionHeldMeters ? mostHeld : MaxMotionHeldMeters);
 		for (int i = 0; i < 3; ++i)
-			releasedPosition[i] -= state.heldPosition[i];
+			releasedPosition[i] -= offset[i];
 	}
 	else
 	{
+		state.recoveryAllowance = 0.0;
 		for (int i = 0; i < 3; ++i)
-			state.heldPosition[i] = state.heldTurn[i] = 0.0;
+			state.heldPosition[i] = state.heldTurn[i] = state.heldMotion[i] = 0.0;
 	}
 
 	if (settings.smooth)
@@ -404,7 +550,11 @@ inline void Apply(State &state, const Settings &settings, double captureSeconds,
 	}
 
 	for (int i = 0; i < 3; ++i)
+	{
 		state.rawPosition[i] = pose.position[i];
+		state.rawVelocity[i] = pose.velocity[i];
+	}
+	state.motionReference = normalTracking && (again || poseTime > state.poseTime);
 	for (int i = 0; i < 4; ++i)
 		state.rawRotation[i] = rotation[i];
 	state.captureTime = captureSeconds;

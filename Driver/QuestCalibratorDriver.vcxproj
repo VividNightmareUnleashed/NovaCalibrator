@@ -104,6 +104,7 @@
   <ItemGroup>
     <ClInclude Include="..\common\NumericValidation.h" />
     <ClInclude Include="..\common\PoseRing.h" />
+    <ClInclude Include="..\common\PoseStageTrace.h" />
     <ClInclude Include="..\common\PoseRingWriter.h" />
     <ClInclude Include="..\common\Protocol.h" />
     <ClInclude Include="..\common\TransformLimits.h" />

@@ -5,6 +5,7 @@
 #include "stdafx.h"
 #include "UiInternal.h"
 #include "MotionRecorder.h"
+#include "BodyRole.h"
 #include "MotionRecorderText.h"
 #include "SceneView.h"
 
@@ -112,32 +113,11 @@ int Panel(float width, ui::Icon icon, ImU32 ink, ImU32 fill, const char *titleEn
 // ---------------------------------------------------------------------------
 // The view of the devices
 
-// Which part of the body a device is on, as an index into text::DeviceNames.
-enum Part
-{
-	Head, LeftHand, RightHand, Waist, Chest, LeftFoot, RightFoot, LeftKnee, RightKnee, LeftElbow, RightElbow,
-	LeftShoulder, RightShoulder, OtherTracker, OtherController, NotABody
-};
+using namespace questcal::bodyrole;
 
 Part PartOf(const recording::DeviceInfo &info)
 {
-	if (info.deviceClass == static_cast<uint32_t>(vr::TrackedDeviceClass_HMD))
-		return Head;
-	if (info.deviceClass == static_cast<uint32_t>(vr::TrackedDeviceClass_Controller))
-		return info.controllerRole == vr::TrackedControllerRole_LeftHand ? LeftHand
-			: info.controllerRole == vr::TrackedControllerRole_RightHand ? RightHand : OtherController;
-	if (info.deviceClass != static_cast<uint32_t>(vr::TrackedDeviceClass_GenericTracker))
-		return NotABody;
-	// SteamVR's role for a tracker, such as "vive_tracker_left_foot".
-	static const std::pair<const char *, Part> roles[] = {
-		{ "waist", Waist }, { "chest", Chest }, { "left_foot", LeftFoot }, { "right_foot", RightFoot },
-		{ "left_knee", LeftKnee }, { "right_knee", RightKnee }, { "left_elbow", LeftElbow },
-		{ "right_elbow", RightElbow }, { "left_shoulder", LeftShoulder }, { "right_shoulder", RightShoulder },
-	};
-	for (const auto &role : roles)
-		if (info.controllerType.find(role.first) != std::string::npos)
-			return role.second;
-	return OtherTracker;
+	return bodyrole::PartOf(info.deviceClass, info.controllerRole, info.controllerType);
 }
 
 ImU32 InkOf(Part part)
@@ -295,10 +275,16 @@ void DrawDevices(ImDrawList *dl, const FlexRect &box, const std::vector<Playback
 	ImVec2 middle(box.Center());
 	project(s_camera.target[0], s_camera.target[1], s_camera.target[2], middle);
 	const ui::TextStyle labelStyle{ ui::Weight::Medium, 13.0f, 18.0f };
+	bool limited = false;
 	for (const Shown &entry : shown)
 	{
 		ImVec2 c;
-		if (shown.size() > 8 || !at(*entry.pose, c))
+		limited = limited || entry.pose->limited;
+		if (!at(*entry.pose, c))
+			continue;
+		if (entry.pose->limited)
+			dl->AddCircle(c, 15.0f, ui::col::Caution, 24, 2.0f);
+		if (shown.size() > 8)
 			continue;
 		// A name is on the outer side of its device, away from the body.
 		const char *name = Tr(text::DeviceNames[entry.part]);
@@ -308,6 +294,12 @@ void DrawDevices(ImDrawList *dl, const FlexRect &box, const std::vector<Playback
 	// A quiet line on how the picture is turned.
 	const char *hint = Tr(text::ViewHint);
 	const ui::TextStyle hintStyle{ ui::Weight::Regular, 13.0f, 18.0f };
+	if (limited)
+	{
+		dl->AddCircle(ImVec2(box.min.x + 23.0f, box.max.y - 19.0f), 5.0f, ui::col::Caution, 16, 2.0f);
+		ui::DrawLine(dl, hintStyle, ImVec2(box.min.x + 36.0f, box.max.y - 28.0f), ui::col::Caution,
+			Tr("Tracking is limited."));
+	}
 	ui::DrawLine(dl, hintStyle, ImVec2(box.max.x - 16.0f - ui::MeasureLine(hintStyle, hint).x, box.max.y - 28.0f), ui::col::Faint,
 		hint);
 	dl->PopClipRect();
@@ -490,9 +482,13 @@ double Timeline(ImDrawList *dl, const FlexRect &r, const Playback::Summary &summ
 }
 
 // A link in a card's last row. Returns whether it was pressed.
+// A link of the controls card: its type, with the line box as tall as the
+// link is to press.
+constexpr ui::TextStyle kCardLink{ ui::Weight::Medium, 17.0f, 44.0f };
+
 bool CardLink(ImDrawList *dl, const char *id, ImVec2 topLeft, const char *english, ImU32 ink, float &advance)
 {
-	const ui::TextStyle style{ ui::Weight::Medium, 17.0f, 44.0f };
+	const ui::TextStyle &style = kCardLink;
 	const char *label = Tr(english);
 	const float w = ui::MeasureLine(style, label).x;
 	advance = w;
@@ -1047,6 +1043,15 @@ float BuildMotionRecorderPage(const VRState &, ImVec2 origin, float width)
 		if (status.fileExists &&
 			CardLink(dl, "##recordingdelete", ImVec2(x, r.min.y + 3.0f), text::DeleteRecording, ui::col::DangerInk, advance))
 			OpenDeleteConfirm();
+		// At the row's far end, apart from the recording's two links: the
+		// tracking comparison, a file of its own.
+		const char *capture = StageCaptureActive() ? text::TraceStop : text::TraceStart;
+		const float captureW = ui::MeasureLine(kCardLink, Tr(capture)).x;
+		if (CardLink(dl, "##stagecapture", ImVec2(r.max.x - 20.0f - captureW, r.min.y + 3.0f), capture, ui::col::Link,
+				advance))
+			ToggleStageCapture();
+		if (ImGui::IsItemHovered())
+			ShowTip(text::TraceLine, true);
 	}
 	return YGNodeLayoutGetHeight(root);
 }

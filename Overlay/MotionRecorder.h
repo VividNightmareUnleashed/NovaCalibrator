@@ -69,6 +69,11 @@ int CapChoice();
 Mode ModeChoice();
 // "Automatic": keeps what just happened as a clip, as a tracking problem would.
 void SaveLast();
+// The tracking comparison (TrackingTrace.h): one short capture of the poses
+// as they reach the driver, leave it and come back from SteamVR. A press
+// starts one, or stops the one that runs; messages say how it went.
+bool StageCaptureActive();
+void ToggleStageCapture();
 
 // The overlay's two calls: once a tick while SteamVR runs, and when SteamVR
 // or Nova Calibrator ends, before the diagnostics are written.
