@@ -1786,6 +1786,18 @@ void KnockedStationCalibration(Check check)
 	visibility.BumpCarried(knocked);
 	const bool carriedOnce = !visibility.BumpCalibrated(knocked) && visibility.ReplacingBumped(knocked, 947.5);
 
+	// A calibration replaces the one before it, and its record with it: one
+	// measured later in another station's frame holds no knock, and the
+	// station's correction is then left alone, not carried.
+	LighthouseVisibility again;
+	again.Apply(bump, 11.0);
+	const bool recorded = again.NoteCalibrationWhileBumped(knocked, 57.0) && again.BumpCalibrated(knocked);
+	again.ForgetBumpCalibrations();
+	const bool forgotten = !again.BumpCalibrated(knocked) && again.ReplacingBumped(knocked, 60.0);
+	const bool recordedAnew = again.NoteCalibrationWhileBumped(knocked, 80.0) && again.BumpCalibrated(knocked);
+	check("frame watch: a calibration replaces the record of one measured on a knocked station's poses",
+		recorded && forgotten && recordedAnew, "");
+
 	// C: the calibration before the knock, with a scale. N: the frame's
 	// correction. F: SteamVR's correction of the station.
 	const Q cR = Q(Eigen::AngleAxisd(2.9, V(0.05, 0.99, 0.03).normalized()));

@@ -219,6 +219,10 @@ public:
 	// The re-placement was carried into the calibration: the devices that
 	// show the same re-placement later are left alone only.
 	void BumpCarried(uint32_t stationId);
+	// A calibration replaces the one before it whole, and what that one held
+	// of a knock goes with it. No station's re-placement is carried into the
+	// new calibration unless it is recorded for it (NoteCalibrationWhileBumped).
+	void ForgetBumpCalibrations();
 	uint64_t UniverseId() const { return universeId; }   // 0 until a line names it
 
 	// SteamVR is quitting at ringTime: its quit line came within

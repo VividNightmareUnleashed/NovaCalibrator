@@ -482,6 +482,12 @@ void LighthouseVisibility::BumpCarried(uint32_t stationId)
 		it->second.calibrated = false;
 }
 
+void LighthouseVisibility::ForgetBumpCalibrations()
+{
+	for (auto &bump : bumps)
+		bump.second.calibrated = false;
+}
+
 bool LighthouseVisibility::Disturbed(const std::string &serial, double ringTime) const
 {
 	const Device *d = Find(serial);

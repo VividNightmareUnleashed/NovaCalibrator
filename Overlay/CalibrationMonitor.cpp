@@ -383,6 +383,13 @@ void calibration_internal::NoteCalibrationForBumpedStations(CalibrationContext &
 	Eigen::Vector3d targetTrans;
 	if (!FrameWatch.LastFrame(targetId, targetRot, targetTrans))
 		return;
+	// This calibration replaces the one before it. A record that the earlier
+	// one was measured on a knocked station's poses says nothing of this one:
+	// left standing through a calibration whose target is in another
+	// station's frame, it had that station's correction carried into a
+	// calibration that never held the knock, and every tracker ended off by
+	// it. So the records go, and this calibration is recorded where it holds.
+	ctx.lighthouse.ForgetBumpCalibrations();
 	const double ringNow = QpcNowSeconds();
 	for (uint32_t id = 0; id < vr::k_unMaxTrackedDeviceCount; ++id)
 	{
