@@ -843,6 +843,16 @@ EngineResult CalibrationEngine::SolveAligned(const std::vector<AlignedSample> &s
 	double richSpread = config.minAxisSpread * 4.0;
 	if (result.axisSpread > richSpread)
 		priorScale = richSpread / result.axisSpread;
+	// The prior says where up goes, and the data leave that open only about
+	// the axis the motion turned on most. Turning about a horizontal axis,
+	// the tilt about it is the weak direction and the prior steadies it.
+	// Turning about the vertical (looking left and right), the pairs already
+	// fix where up goes, and the weak direction is the heading, which the
+	// prior does not touch: there it only pulled a real tilt toward none
+	// (2 deg solved as 1.3 at the axis-spread gate). So it counts by how far
+	// that axis is from the vertical, the squared sine of the angle.
+	const double alongUp = axisEig.eigenvectors().col(2).dot(kUp);
+	priorScale *= std::max(0.0, 1.0 - alongUp * alongUp);
 	double gravityRatio = config.gravityPriorRatio * priorScale;
 
 	double dataWeight = static_cast<double>(pairs.size());

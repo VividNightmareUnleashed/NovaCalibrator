@@ -2601,6 +2601,33 @@ void RunSolverPropertyScenarios(int trials, uint32_t propertySeed)
 		snprintf(detail, sizeof detail, "worst %.3f deg", worst);
 		Check("solver: gravity-prior tilt sweep", pass, detail);
 	}
+
+	// Looking left and right, with little nodding: the rotation axes stand
+	// near the vertical, so the pairs fix where up goes and the heading is the
+	// weak direction. The prior holds up to up and has nothing to say about
+	// the heading; at full weight it solved a 6 deg tilt some 2 deg short.
+	// It counts by how far the main axis is from the vertical, and the tilt
+	// comes out as measured.
+	{
+		GroundTruth truth;
+		const double tilt = 6.0 * questcal::Pi / 180.0;
+		truth.rotation =
+			Eigen::Quaterniond(Eigen::AngleAxisd(0.8, Eigen::Vector3d::UnitY())) *
+			Eigen::Quaterniond(Eigen::AngleAxisd(tilt, Eigen::Vector3d(1.0, 0.0, 0.3).normalized()));
+		truth.translation = Eigen::Vector3d(1.2, 0.1, -0.7);
+		SceneConfig scene;
+		scene.offAxisScale = 0.2;
+		scene.posNoise = 0.0005;
+		scene.rotNoiseDeg = 0.05;
+		std::vector<PoseSample> ref, target;
+		GenerateStreams(scene, truth, 5201, ref, target);
+		const EngineResult r = CalibrationEngine::Solve(ref, target, EngineConfig());
+		const Eigen::Vector3d up = Eigen::Vector3d::UnitY();
+		const double upErr = std::acos(std::min(1.0, (r.rotation * up).dot(truth.rotation * up))) * 180.0 / questcal::Pi;
+		snprintf(detail, sizeof detail, "valid %d, axis spread %.3f, up off by %.3f deg of a 6 deg tilt",
+			r.valid, r.axisSpread, upErr);
+		Check("solver: a look-around run keeps a real tilt", r.valid && r.axisSpread < 0.2 && upErr < 0.5, detail);
+	}
 }
 
 // RefTrajectory's pose for device `id` at t, reported under the given worldFromDriver.
