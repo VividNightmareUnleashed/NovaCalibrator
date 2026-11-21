@@ -847,6 +847,10 @@ en: A headset re-center occurred when Nova Calibrator could not follow it. The c
 ja: Nova Calibrator が追跡できない間にヘッドセットが再センタリングされました。再キャリブレーションするまで、キャリブレーションはオフです。
 en: SteamVR moved the base stations more often than Nova Calibrator could follow. The calibration is off until you calibrate again.
 ja: Nova Calibrator が追従できない頻度で SteamVR がベースステーションの位置を変えました。再キャリブレーションするまで、キャリブレーションはオフです。
+en: SteamVR moved the base stations more often than Nova Calibrator could follow.
+ja: Nova Calibrator が追従できない頻度で SteamVR がベースステーションの位置を変えました。
+en: Wait until SteamVR tracks steadily. Then calibrate again.
+ja: SteamVR のトラッキングが安定するまで待ってから、再キャリブレーションしてください。
 en: Nova Calibrator could not start chaperone protection because a headset re-center occurred after the last calibration. Calibrate again first.
 ja: シャペロンを保護できませんでした。前回のキャリブレーション以降にヘッドセットが再センタリングされています。先に再キャリブレーションしてください。
 en: Nova Calibrator could not start chaperone protection because the SteamVR chaperone is not available. Start SteamVR again. Then try again.

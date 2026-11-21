@@ -238,6 +238,9 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 		bool tooFast = false;  // the failure was motion, so the modal shows the slow-down picture
 		std::string note;
 		std::string action;
+		// What a measured mount commits once the run is past its last refusal.
+		questcal::MountExtrinsic extrinsic;
+		std::string serial;
 	} mount;
 	if (result.valid && !asAnchor && run.referenceId == vr::k_unTrackedDeviceIndex_Hmd)
 	{
@@ -251,13 +254,12 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 				vr::Prop_SerialNumber_String, serial))
 			{
 				// The learned transform and physical-device identity are one
-				// credential. Commit neither if the checked serial read failed.
-				ctx.mountExtrinsic = extrinsic;
-				ctx.continuousTrackerSerial = serial;
-				snprintf(buf, sizeof buf,
-					"Mount offset learned for continuous calibration (%.2f deg / %.1f mm spread, %zu pairs)\n",
-					extrinsic.rotRmsDeg, extrinsic.posRmsM * 1000.0, extrinsic.pairs);
-				ctx.Log(buf);
+				// credential. Commit neither if the checked serial read failed,
+				// and both only with the calibration below: a run that is still
+				// refused (a frame move it did not follow, a result out of
+				// bounds) must leave the loop the mount it had.
+				mount.extrinsic = extrinsic;
+				mount.serial = serial;
 				mount.measured = true;
 				mount.note = ctx.continuousEnabled
 					? "The headset tracker setup is completed. Continuous calibration can now keep your trackers aligned."
@@ -465,6 +467,15 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 	ctx.SetCalibration(result.rotation, result.translation, result.scale);
 	ctx.transform.timeOffset = result.timeOffset;
 	ctx.validProfile = true;
+	if (mount.measured)
+	{
+		ctx.mountExtrinsic = mount.extrinsic;
+		ctx.continuousTrackerSerial = mount.serial;
+		snprintf(buf, sizeof buf,
+			"Mount offset learned for continuous calibration (%.2f deg / %.1f mm spread, %zu pairs)\n",
+			mount.extrinsic.rotRmsDeg, mount.extrinsic.posRmsM * 1000.0, mount.extrinsic.pairs);
+		ctx.Log(buf);
+	}
 	NoteCalibrationForBumpedStations(ctx, run.targetId);
 
 	// A base recalibration re-measures the whole alignment; anchors solved
@@ -496,6 +507,11 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 	ctx.persistence.AdvanceRevision();
 	ctx.persistence.MarkProfileAndSettings(ctx.timeLastTick);
 	bool saved = SavePendingChanges(ctx);
+	// The feed names the pair the calibration was made with. Read here:
+	// EndCalibrationRun resets the run, the devices' names with it.
+	const std::string feed = run.referenceModel.empty() || run.targetModel.empty() ? "Nova Calibrator completed the calibration."
+		: "The calibration used " + DeviceName(ctx, run.referenceModel, run.referenceSerial, true) + " and " +
+			DeviceName(ctx, run.targetModel, run.targetSerial, false) + ".";
 	EndCalibrationRun(ctx);
 	SynchronizeCalibrationDriver(ctx);
 
@@ -519,10 +535,6 @@ void calibration_internal::FinishCalibration(CalibrationContext &ctx)
 		: "Examine the tracker positions in VR. If they are not correct, calibrate again.";
 	const CalibrationContext::Tone tone = rough ? CalibrationContext::Tone::Warn
 		: CalibrationContext::Tone::Good;
-	// The feed names the pair it was made with.
-	const std::string feed = run.referenceModel.empty() || run.targetModel.empty() ? "Nova Calibrator completed the calibration."
-		: "The calibration used " + DeviceName(ctx, run.referenceModel, run.referenceSerial, true) + " and " +
-			DeviceName(ctx, run.targetModel, run.targetSerial, false) + ".";
 	const auto calibrated = CalibrationContext::Event::Calibrated;
 	if (mount.attempted)
 	{

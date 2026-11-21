@@ -853,6 +853,10 @@ en: A headset re-center occurred when Nova Calibrator could not follow it. The c
 it: Il visore si è ricentrato mentre Nova Calibrator non poteva seguirlo. La calibrazione resta disattivata finché non ricalibri.
 en: SteamVR moved the base stations more often than Nova Calibrator could follow. The calibration is off until you calibrate again.
 it: SteamVR ha spostato le stazioni base più spesso di quanto Nova Calibrator potesse seguire. La calibrazione resta disattivata finché non ricalibri.
+en: SteamVR moved the base stations more often than Nova Calibrator could follow.
+it: SteamVR ha spostato le stazioni base più spesso di quanto Nova Calibrator potesse seguire.
+en: Wait until SteamVR tracks steadily. Then calibrate again.
+it: Attendi che il tracciamento di SteamVR sia stabile, poi ricalibra.
 en: Nova Calibrator could not start chaperone protection because a headset re-center occurred after the last calibration. Calibrate again first.
 it: Impossibile proteggere il chaperone. Il visore si è ricentrato dopo l'ultima calibrazione. Ricalibra prima.
 en: Nova Calibrator could not start chaperone protection because the SteamVR chaperone is not available. Start SteamVR again. Then try again.

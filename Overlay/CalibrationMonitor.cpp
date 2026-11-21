@@ -521,6 +521,18 @@ static void UpdateTrackerFrames(CalibrationContext &ctx)
 	auto switches = FrameWatch.TakeSwitches();
 	if (moveOverflow || switchOverflow)
 	{
+		// A run in progress ends here, and says so as every other stop does:
+		// without an outcome the measurement sheet has nothing to show for it.
+		if (ctx.state == CalibrationState::Begin || ctx.state == CalibrationState::Neutralizing ||
+			ctx.state == CalibrationState::Collecting)
+		{
+			ctx.lastRunPassed = false;
+			ctx.Outcome("Calibration stopped",
+				"SteamVR moved the base stations more often than Nova Calibrator could follow.",
+				"Wait until SteamVR tracks steadily. Then calibrate again.",
+				"The lighthouse frame queue overflowed during the measurement",
+				CalibrationContext::Tone::Warn);
+		}
 		EndCalibrationRun(ctx);
 		ctx.enabled = false;
 		ctx.profileUniverseUnsafe = true;
