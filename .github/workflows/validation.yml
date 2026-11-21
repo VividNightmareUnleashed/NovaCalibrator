@@ -156,7 +156,7 @@ jobs:
         shell: pwsh
         run: |
           $jar = Join-Path $env:RUNNER_TEMP 'tla2tools.jar'
-          Invoke-WebRequest -Uri $env:TLA2TOOLS_URL -OutFile $jar
+          Invoke-WebRequest -Uri $env:TLA2TOOLS_URL -OutFile $jar -MaximumRetryCount 5 -RetryIntervalSec 10
           $hash = (Get-FileHash $jar -Algorithm SHA256).Hash.ToLowerInvariant()
           if ($hash -ne $env:TLA2TOOLS_SHA256) { throw "tla2tools.jar has SHA-256 $hash, not the pinned one." }
           $env:TLA2TOOLS_JAR = $jar

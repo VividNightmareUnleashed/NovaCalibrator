@@ -16,6 +16,14 @@ the workflows or the tools that run the checks change. A base
 that cannot be compared (a new branch, a force push, a manual run) runs all of
 them.
 
+The private core reads no public file: TLC, Lean, GenMC and the kernel proofs
+check VirtualQuest's own models and headers, so its answer is a function of
+the VirtualQuest commit and the tools alone. What ties its models to the
+public functions they describe is the model pin check, which the validate job
+runs on every push in seconds and which fails when one of those functions
+changes. Bringing the model in line, or finding it needs nothing, renews the
+pin in VirtualQuest, and the moved pin runs the core.
+
 In CI each job is compared with the last commit where it ran and passed
 (--last-green), found in this repository's validation and release runs, not
 with the previous push: a run cancelled by a newer push never proved its
@@ -61,11 +69,12 @@ JOBS = {
     'input_validation': {'folders': [FORMAL / 'input-validation'], 'exclude': [],
                          'scripts': [FORMAL / 'check.ps1']},
     # formal-assurance.yml on a push: check.ps1 -Core, TLC, Lean, GenMC and
-    # ESBMC over VirtualQuest's own models and kernels. It compiles no public
-    # source, but its models describe public functions, which model-pins.json
-    # names: it runs when one of their files changes, or VirtualQuest or the
-    # tools below.
-    'core': {'folders': [], 'exclude': [], 'scripts': [], 'pins': FORMAL / 'model-pins.json'},
+    # ESBMC over VirtualQuest's own models and kernels. It reads no public
+    # source, so it has no public input: it runs when VirtualQuest or the
+    # tools below change. A change to a function a model describes fails the
+    # model pin check instead (validation.yml), until the pin is renewed in
+    # VirtualQuest, which is such a change.
+    'core': {'folders': [], 'exclude': [], 'scripts': []},
 }
 
 # The workflow jobs that prove each formal job on a commit, by name prefix:
@@ -172,15 +181,6 @@ def included(path):
     return found
 
 
-def pinned(manifest):
-    """The public files whose functions a manifest of model pins names."""
-    try:
-        entries = json.loads(manifest.read_text(encoding='utf-8'))['pins']
-    except (OSError, ValueError, KeyError):
-        return []
-    return [(ROOT / entry['file']).resolve() for entry in entries]
-
-
 def inputs(job):
     """The public files (outside VirtualQuest) a job reads."""
     spec = JOBS[job]
@@ -204,10 +204,6 @@ def inputs(job):
             queue.extend((p, depth) for p in included(path))
         elif path.suffix in SCRIPTS and depth <= 1:
             queue.extend((p, depth + 1) for p in referenced(path))
-    # The pinned files themselves: what they include is not what a model
-    # describes, and no check of the job reads it.
-    if spec.get('pins'):
-        seen.update(p for p in pinned(spec['pins']) if p.is_file())
     return sorted(p.relative_to(ROOT).as_posix() for p in seen
                   if not inside(p, VIRTUAL) and p.relative_to(ROOT).as_posix() in TRACKED)
 

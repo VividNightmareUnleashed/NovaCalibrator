@@ -116,9 +116,8 @@ jobs:
           key: questcal-esbmc-${{ hashFiles('VirtualQuest/formal/input-validation/Dockerfile') }}
 
   # check.ps1 -Shard balances the shares by the time each check last took. On
-  # six runners each share took six to nine minutes, setup included; four
-  # should take about twelve, still well inside the input-validation proofs a
-  # push waits for, with two runners fewer.
+  # validation run 127 the four shares took 28, 27, 39 and 56 minutes, so the
+  # share's limit leaves a slow runner room inside the job's.
   private-core:
     if: inputs.core
     name: private-core (${{ matrix.shard }}/4)
@@ -164,7 +163,7 @@ jobs:
       - name: tla2tools.jar v1.7.4
         run: |
           jar="$RUNNER_TEMP/tla2tools.jar"
-          curl -fsSL "$TLA2TOOLS_URL" -o "$jar"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 "$TLA2TOOLS_URL" -o "$jar"
           echo "$TLA2TOOLS_SHA256  $jar" | sha256sum -c - > /dev/null
           echo "TLA2TOOLS_JAR=$jar" >> "$GITHUB_ENV"
 
@@ -221,7 +220,7 @@ jobs:
         run: docker load -i "$RUNNER_TEMP/questcal-esbmc.tar" > /dev/null
 
       - name: Check share ${{ matrix.shard }} of 4
-        timeout-minutes: 60
+        timeout-minutes: 80
         env:
           # TLC's default heap is a quarter of the runner's memory.
           JAVA_TOOL_OPTIONS: -Xmx5g
@@ -266,7 +265,7 @@ jobs:
       - name: tla2tools.jar v1.7.4
         run: |
           jar="$RUNNER_TEMP/tla2tools.jar"
-          curl -fsSL "$TLA2TOOLS_URL" -o "$jar"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 "$TLA2TOOLS_URL" -o "$jar"
           echo "$TLA2TOOLS_SHA256  $jar" | sha256sum -c - > /dev/null
           echo "TLA2TOOLS_JAR=$jar" >> "$GITHUB_ENV"
 
