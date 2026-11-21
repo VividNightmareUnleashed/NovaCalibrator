@@ -588,6 +588,27 @@ void VisibilityScenarios(Check check)
 			unknownSettled, replayedSettled, bootCounted, windowOnly, singleHolds);
 		check("lighthouse state: settling and restart counts for the continuous loop",
 			unknownSettled && replayedSettled && bootCounted && windowOnly && singleHolds, detail);
+
+		// A room with one base station: a tracker on its only station is
+		// settled once its restart is past, or the continuous loop would hold
+		// for good. A second station any device names makes one in view a
+		// single baseline again.
+		LighthouseVisibility oneStation;
+		oneStation.Apply(Made(K::Bootstrapped, "LHR-7", 9, {}), 1000.0);
+		oneStation.Apply(Made(K::StationAdded, "LHR-7", 9, { 9 }), 1000.1);
+		const bool onlyStationSettles = oneStation.StationCount() == 1 &&
+			oneStation.Find("LHR-7")->InView() == 1 &&
+			oneStation.Settling("LHR-7", 1005.0) && !oneStation.Settling("LHR-7", 1060.0);
+		oneStation.Apply(Made(K::StationAdded, "LHR-8", 4, { 4 }), 1070.0);
+		const bool secondStationHolds = oneStation.StationCount() == 2 && oneStation.Settling("LHR-7", 1100.0);
+		// With no station named at all, a tracker that sees none is not settled.
+		LighthouseVisibility noStation;
+		noStation.Apply(Made(K::NoneSeen, "LHR-7", -1, {}), 1000.0);
+		const bool noneInViewHolds = noStation.StationCount() == 0 && noStation.Settling("LHR-7", 1060.0);
+		snprintf(detail, sizeof detail, "settled on the only station %d, held once a second is named %d, held with none named or in view %d",
+			onlyStationSettles, secondStationHolds, noneInViewHolds);
+		check("lighthouse state: one station in view is settled in a one-station room",
+			onlyStationSettles && secondStationHolds && noneInViewHolds, detail);
 	}
 
 	// A device that reports the stations joining a new solution only in

@@ -168,7 +168,8 @@ public:
 	bool Disturbed(const std::string &serial, double ringTime) const;
 
 	// Whether the device's pose is fit to measure against right now: false
-	// while it is known to see fewer than cleanStations, and for
+	// while it is known to see fewer than cleanStations (or fewer than every
+	// station the log has named, in a room with fewer than that), and for
 	// config.disturbedSeconds after (or up to a second before) any live
 	// disturbance. Unlike Disturbed, a visible set not yet known from the log
 	// is not held against it, so a device the log never mentioned is settled.

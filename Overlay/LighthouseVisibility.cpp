@@ -349,7 +349,12 @@ bool LighthouseVisibility::Settling(const std::string &serial, double ringTime) 
 	const Device *d = Find(serial);
 	if (!d)
 		return false;
-	if (d->visibleKnown && d->InView() < config.cleanStations)
+	// A room where the log has named one base station has no second one to
+	// wait for: one in view is every station the solution will ever hold.
+	// Held to two there, the continuous loop never left its hold and a manual
+	// calibration always waited out its limit.
+	const int clean = (std::min)(config.cleanStations, (std::max)(1, StationCount()));
+	if (d->visibleKnown && d->InView() < clean)
 		return true;
 	return Within(d->lastDisturbance, ringTime, config.disturbedSeconds);
 }
