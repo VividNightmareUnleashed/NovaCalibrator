@@ -446,6 +446,60 @@ void RunPoseRingStalledProducerScenario()
 		detail);
 }
 
+void RunPoseRingAbandonedReaderScenario()
+{
+	// The overlay is killed inside a drain, after it claimed the head slot and
+	// before it released it. One lap later the publisher reaches that slot,
+	// which reads as full and which no discard frees: every publish failed
+	// from there until vrserver restarted, and a restarted overlay opened the
+	// ring and received nothing. A reader that opens now releases the slot.
+	PoseRingFixture ring("AbandonedReader");
+	if (!ring.Open())
+	{
+		Check("pose ring: a reader that died holding a slot does not wedge the ring", false,
+			"could not create/open mapping");
+		return;
+	}
+	const uint64_t capacity = protocol::PoseRing::Capacity;
+	int published = 0;
+	for (int i = 0; i < 64; ++i)
+		published += ring.writer.Publish(TokenSample(4000000 + i)) ? 1 : 0;
+	const bool abandoned = ring.reader.AbandonClaimedSlotForTest();
+	ring.reader.Close();
+
+	// A lap and more with no reader: the queue discards its oldest as it
+	// fills, until the publisher comes round to the slot that was held.
+	int lapSucceeded = 0, lapFailed = 0;
+	for (uint64_t i = 0; i < capacity + 256; ++i)
+		(ring.writer.Publish(TokenSample(static_cast<int64_t>(5000000 + i))) ? lapSucceeded : lapFailed)++;
+	int wedged = 0;
+	for (int i = 0; i < 100; ++i)
+		wedged += ring.writer.Publish(TokenSample(6000000 + i)) ? 0 : 1;
+
+	// The overlay starts again.
+	protocol::PoseRingReader second;
+	const bool reopened = second.Open(ring.mappingName.c_str());
+	int afterSucceeded = 0;
+	for (int i = 0; i < 100; ++i)
+		afterSucceeded += ring.writer.Publish(TokenSample(7000000 + i)) ? 1 : 0;
+	int received = 0, receivedNew = 0;
+	if (reopened)
+		second.Drain([&](const protocol::DevicePoseSample &sample)
+		{
+			++received;
+			receivedNew += sample.sampleTimeQpc >= 7000000 ? 1 : 0;
+		}, [](uint64_t) { });
+
+	char detail[256];
+	snprintf(detail, sizeof detail,
+		"published %d, slot abandoned %d; the lap: %d published, %d failed; with no reader %d of 100 failed; "
+		"reopened %d, then %d of 100 published and %d of them received (%d in all)",
+		published, abandoned, lapSucceeded, lapFailed, wedged, reopened, afterSucceeded, receivedNew, received);
+	Check("pose ring: a reader that died holding a slot does not wedge the ring",
+		published == 64 && abandoned && wedged == 100 && reopened && afterSucceeded == 100 && receivedNew == 100,
+		detail);
+}
+
 void RunPoseRingOverwrittenMarkerScenario()
 {
 	// A failed-publish marker can be attached to a later sample and then have
@@ -1346,6 +1400,7 @@ void RunPoseRingScenarios(void (*check)(const char *, bool, const char *))
 	RunPoseRingDrainStatusScenario();
 	RunPoseRingOverflowScenario();
 	RunPoseRingStalledProducerScenario();
+	RunPoseRingAbandonedReaderScenario();
 	RunPoseRingOverwrittenMarkerScenario();
 	RunPoseRingAbandonedWriterScenario();
 	RunPoseRingAbandonedResetOwnerScenario();

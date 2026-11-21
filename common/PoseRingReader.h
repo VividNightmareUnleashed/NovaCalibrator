@@ -43,6 +43,18 @@ namespace protocol
 				ring->resetting.store(inProgress ? 1u : 0u, std::memory_order_seq_cst);
 		}
 
+		// The overlay killed inside a drain: the head slot is claimed as Drain
+		// claims it, and never released.
+		bool AbandonClaimedSlotForTest()
+		{
+			uint64_t pos = ring->dequeuePos.load(std::memory_order_relaxed);
+			auto &slot = ring->slots[pos & (PoseRing::Capacity - 1)];
+			if (questcal_pose_sequence_relation(slot.seq.load(std::memory_order_acquire), pos + 1) != 0)
+				return false;
+			return ring->dequeuePos.compare_exchange_strong(pos, pos + 1,
+				std::memory_order_relaxed, std::memory_order_relaxed);
+		}
+
 		// Runs `beforeCas` inside the terminal-gap check, after both empty-queue
 		// observations and immediately before the marker compare-exchange.
 		template<typename F, typename G, typename H>
@@ -212,6 +224,7 @@ namespace protocol
 				Close();
 				return false;
 			}
+			ReleaseAbandonedSlots();
 			uint64_t dequeuePosition = 0;
 			uint64_t discardedLosses = 0;
 			bool snapshotRead = TrySnapshotDiscardState(dequeuePosition, discardedLosses);
@@ -276,6 +289,36 @@ namespace protocol
 				std::memory_order_acq_rel, std::memory_order_relaxed))
 				return;   // a producer harvested them, or more arrived; retry next drain
 			gapFn(drops);
+		}
+
+		// A reader that died between claiming a slot and releasing it (the
+		// overlay was killed inside Drain's copy) left the slot published with
+		// the dequeue position past it. No publisher can take such a slot: it
+		// reads as full, discarding the others never frees it, and from one
+		// lap later every publish failed until vrserver restarted, with the
+		// ring still open. The overlay is the one reader, so a reader that
+		// opens releases what the last one held, inside its read gate. A
+		// publisher's own discard passes through the same state for a moment
+		// (its position advanced, the slot not yet released) and stores the
+		// same value, so the exchange here is harmless beside it, and a slot
+		// that has moved on since it was read is left as it is.
+		void ReleaseAbandonedSlots()
+		{
+			const uint64_t dequeued = ring->dequeuePos.load(std::memory_order_acquire);
+			for (uint64_t index = 0; index < PoseRing::Capacity; ++index)
+			{
+				auto &slot = ring->slots[index];
+				uint64_t seq = slot.seq.load(std::memory_order_acquire);
+				// A published slot holds its position plus one; a released or
+				// unused one holds a position of the next lap.
+				const uint64_t position = seq - 1;
+				if ((position & (PoseRing::Capacity - 1)) != index)
+					continue;
+				if (questcal_pose_sequence_relation(position, dequeued) >= 0)
+					continue;   // published and still to be read
+				slot.seq.compare_exchange_strong(seq, position + PoseRing::Capacity,
+					std::memory_order_release, std::memory_order_relaxed);
+			}
 		}
 
 		bool BeginRead()
