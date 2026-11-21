@@ -381,9 +381,15 @@ void SynchronizeCalibrationDriver(CalibrationContext &ctx)
 	auto &desired = job.request.desired;
 	desired.referenceTrackingSystem = ctx.referenceTrackingSystem;
 	desired.targetTrackingSystem = ctx.targetTrackingSystem;
-	desired.rotation = ctx.transform.rotation;
-	desired.translationMeters = ctx.transform.translationMeters;
-	desired.scale = ctx.transform.scale;
+	// The driver validates the transform of every state it is sent, one that
+	// turns the calibration off included. Numbers it would refuse are left out
+	// of the state that turns them off, or the driver would refuse that state
+	// too and go on applying the last calibration it accepted.
+	const bool sendable = IsValidCalibrationTransform(ctx.transform.rotation,
+		ctx.transform.translationMeters, ctx.transform.scale);
+	desired.rotation = sendable ? ctx.transform.rotation : Eigen::Quaterniond::Identity();
+	desired.translationMeters = sendable ? ctx.transform.translationMeters : Eigen::Vector3d::Zero();
+	desired.scale = sendable ? ctx.transform.scale : 1.0;
 	desired.timeShift = timeShift;
 	desired.baseGeneration = ctx.baseGeneration;
 	desired.continuousArmed = ctx.ContinuousArmed();
