@@ -7032,6 +7032,74 @@ void RunPersistenceLegacyScenario()
 	Check("persistence E: legacy keys", why.empty(), detail);
 }
 
+// --- E2. The records are ASCII on the way to the registry --------------------
+// The registry's ANSI calls pass a record through the system code page. On a
+// Japanese one the name 左手 ends in the byte 0x8B, a lead byte, with the
+// string's closing quote after it: the pair converts to one character and the
+// record cannot be parsed again. Written as \u escapes the name survives any
+// code page.
+void RunPersistenceAsciiScenario()
+{
+	std::string why;
+	const auto ascii = [](const std::string &text)
+	{
+		for (unsigned char c : text)
+			if (c >= 0x80)
+				return false;
+		return true;
+	};
+
+	const std::string leftHand = "\xe5\xb7\xa6\xe6\x89\x8b";      // 左手
+	const std::string waist = "\xe8\x85\xb0";                     // 腰
+	const std::string mixed = "L\xc3\xa9" "a \xf0\x9f\x91\xa3";   // Léa and U+1F463, four bytes
+	questcal::SettingsRecord record;
+	record.deviceNames["LHR-LEFT"] = leftHand;
+	record.deviceNames["LHR-WAIST"] = waist;
+	record.deviceNames["LHR-MIXED"] = mixed;
+	std::ostringstream written;
+	questcal::WriteSettings(record, 3, written);
+	if (!ascii(written.str()))
+		why += " settings(a byte above ASCII is written)";
+	if (written.str().find("\\u5de6\\u624b") == std::string::npos)
+		why += " settings(the name is not its escapes)";
+	questcal::SettingsRecord back;
+	std::istringstream reread(written.str());
+	questcal::ParseSettings(back, reread);
+	if (back.deviceNames != record.deviceNames)
+		why += " settings(the names do not read back the same)";
+
+	ProfileRecord profile = PersistGoodRecord();
+	profile.universeHmdModel = "\xe3\x82\xaf\xe3\x82\xa8\xe3\x82\xb9\xe3\x83\x88 3";   // クエスト 3
+	const std::string profileText = PersistWrite(profile, 3);
+	if (!ascii(profileText))
+		why += " profile(a byte above ASCII is written)";
+	ProfileRecord readBack;
+	LegacyProfileSettings legacy;
+	ProfileParseResult result;
+	const std::string refused = PersistReadBack(profileText, readBack, legacy, result);
+	if (!refused.empty() || readBack.universeHmdModel != profile.universeHmdModel)
+		why += " profile(the model does not read back the same)";
+
+	// The escape itself: ASCII is untouched, a pair of surrogates for a code
+	// point past U+FFFF, and U+FFFD for each byte that is not UTF-8 (a lone
+	// continuation byte, an overlong form, a surrogate, a cut-off sequence).
+	if (questcal::EscapeNonAsciiJson("{\"a\": [1, \"b\\n\"]}") != "{\"a\": [1, \"b\\n\"]}")
+		why += " escape(ASCII changed)";
+	if (questcal::EscapeNonAsciiJson("\xf0\x9f\x91\xa3") != "\\ud83d\\udc63")
+		why += " escape(no surrogate pair)";
+	if (questcal::EscapeNonAsciiJson("\x80") != "\\ufffd" ||
+		questcal::EscapeNonAsciiJson("\xc0\xaf") != "\\ufffd\\ufffd" ||
+		questcal::EscapeNonAsciiJson("\xed\xa0\x80") != "\\ufffd\\ufffd\\ufffd" ||
+		questcal::EscapeNonAsciiJson("\xe5\xb7") != "\\ufffd\\ufffd" ||
+		questcal::EscapeNonAsciiJson("\xf4\x90\x80\x80") != "\\ufffd\\ufffd\\ufffd\\ufffd")
+		why += " escape(a byte that is not UTF-8 is not U+FFFD)";
+
+	char detail[256];
+	snprintf(detail, sizeof detail, "Settings and Config are written with no byte above ASCII and read back the same%s%s",
+		why.empty() ? "" : "  <-", why.c_str());
+	Check("persistence: a name outside ASCII survives any code page", why.empty(), detail);
+}
+
 // --- F. ValidateProfileRecord, the parser/writer contract -------------------
 void RunPersistenceContractScenario()
 {
@@ -7439,6 +7507,7 @@ void RunPersistenceScenarios()
 	RunPersistenceNestingScenario();
 	RunPersistenceRejectionScenario();
 	RunPersistenceLegacyScenario();
+	RunPersistenceAsciiScenario();
 	RunPersistenceContractScenario();
 	RunPersistenceWriteGateScenario();
 	RunPersistenceLoadPlanScenario();

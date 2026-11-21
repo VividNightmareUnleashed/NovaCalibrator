@@ -166,6 +166,8 @@ inline std::string ParseRecordJson(picojson::value &v, std::istream &stream)
             text.append(chunk, static_cast<size_t>(stream.gcount()));
             if (!IsValidRecordByteCount(text.size())) return "record is too large";
         }
+        // The strings a record is read with are UTF-8 (ReplaceInvalidUtf8).
+        text = ReplaceInvalidUtf8(text);
         RejectExcessiveJsonNesting(text);
         return picojson::parse(v, text);
 	}
@@ -574,7 +576,8 @@ inline void WriteProfile(const ProfileRecord &record,
 	picojson::value profilesV;
 	profilesV.set<picojson::array>(std::move(profiles));
 
-	out << profilesV.serialize(true);
+	// ASCII only, as the Settings record is (EscapeNonAsciiJson says why).
+	out << EscapeNonAsciiJson(profilesV.serialize(true));
 }
 
 } // namespace questcal

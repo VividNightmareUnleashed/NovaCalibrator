@@ -335,7 +335,8 @@ inline void WriteSettings(const SettingsRecord &record,
 
 	picojson::value value;
 	value.set<picojson::object>(std::move(settings));
-	out << value.serialize(true);
+	// ASCII only: the registry's ANSI calls must not see a code page's lead bytes.
+	out << EscapeNonAsciiJson(value.serialize(true));
 }
 
 // `writtenSchema`, when given, takes the schema the record was written at.
