@@ -313,7 +313,7 @@ ServerTrackedDeviceProvider::Peers ServerTrackedDeviceProvider::PeersNear(uint32
 			return Peers::Disturbed;
 		if (peer.before < 0.0 || now - peer.before > PeerWindowSeconds)
 			continue;
-		if (!(Distance(at, peer.previous) < PeerSteadyMeters && Distance(at, peer.position) < PeerSteadyMeters))
+		if (!(Distance(at, peer.previous) < PeerSteadyMeters) || !(Distance(at, peer.position) < PeerSteadyMeters))
 			return Peers::Disturbed;
 		++steady;
 	}

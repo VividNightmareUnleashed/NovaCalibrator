@@ -330,7 +330,7 @@ bool OptionCard(const char *id, const FlexRect &r, const Option &option, bool ch
 
 // A filter's choices, two to a row. pick takes the index of a pressed one.
 void AddOptions(Build &b, YGNodeRef pane, float paneInnerW, const std::vector<Option> &options, int chosen,
-	std::function<void(int)> pick)
+	const std::function<void(int)> &pick)
 {
 	YGNodeRef grid = b.fl.Row(pane);
 	YGNodeStyleSetMargin(grid, YGEdgeTop, 18.0f);
@@ -338,6 +338,7 @@ void AddOptions(Build &b, YGNodeRef pane, float paneInnerW, const std::vector<Op
 	YGNodeStyleSetGap(grid, YGGutterAll, kOptionGap);
 	const float cardW = std::floor((paneInnerW - kOptionGap) * 0.5f);
 	std::vector<YGNodeRef> cards;
+	cards.reserve(options.size());
 	for (size_t i = 0; i < options.size(); ++i)
 		cards.push_back(b.fl.Box(grid, cardW, 100.0f));
 	b.draw.push_back([&b, cards, options, chosen, pick] {
