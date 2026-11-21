@@ -264,6 +264,27 @@ if (-not $vrRuntimePath) {
 }
 Write-Host "SteamVR folder: $vrRuntimePath"
 
+# --- Preconditions, before anything is removed --------------------------------
+# The package and the two folders the installer writes are checked here, ahead
+# of the removal of any other calibrator. A package the installer cannot use
+# (its folder is a link, or has one in it) must not cost the player the
+# calibrator they have. The same checks run again where each folder is used.
+$installDir = (Get-ItemProperty 'HKLM:\Software\NovaCalibrator\Main' -ErrorAction SilentlyContinue).'(default)'
+if (-not $installDir) { $installDir = Join-Path ${env:ProgramFiles} 'NovaCalibrator' }
+$driverDest = Join-Path $vrRuntimePath 'drivers\01novacalibrator'
+try {
+    Assert-QuestcalTree $appSrc
+    Assert-QuestcalTree $driverSrc
+} catch {
+    Fail "The installer cannot use the extracted package. $($_.Exception.Message) The installer made no changes. Extract the zip file to a different folder. Then start the installer again."
+}
+try {
+    Assert-QuestcalTree $installDir 'NovaCalibrator'
+    Assert-QuestcalTree $driverDest '01novacalibrator'
+} catch {
+    Fail "The installer cannot use this folder. $($_.Exception.Message) The installer made no changes."
+}
+
 # --- Conflicting software: OpenVR-SpaceCalibrator ----------------------------
 # Its driver hooks the same vrserver internals; both installed at once
 # double-apply offsets, so it has to go before we install.
