@@ -858,11 +858,14 @@ void ContinuousAlignment::EnterState(State s)
 		resumeBelowSince = -1.0;
 		resumeInBandSince = -1.0;
 	}
-	// Without an estimate there is no stuck episode to follow; a freeze keeps
-	// its own through a gap by not passing through here.
+	// Without an estimate no steady run can go on. The stuck episode itself
+	// stays: a freeze keeps its own through a gap by not passing through here,
+	// and a tilt hold keeps its own here, so that a restart of the target is
+	// attributed against the hold it interrupted and its next solution can
+	// read the same (ReadByLaterSolution). Only a reading ends an episode, or
+	// a reset that is no gap (Reset).
 	if (s == State::Inactive || s == State::Coasting)
 	{
-		episodeSince = -1.0;
 		reanchorSince = -1.0;
 		undoSince = -1.0;
 	}
@@ -896,6 +899,7 @@ void ContinuousAlignment::Update(RingTime at, const Eigen::Quaterniond &calRotat
 	const double now = at.seconds;
 	if (!extrinsic.valid)
 	{
+		episodeSince = -1.0;
 		EnterState(State::Inactive);
 		return;
 	}
@@ -1054,6 +1058,7 @@ void ContinuousAlignment::Reset(ResetReason reason)
 	{
 		replaced.reset();
 		blamed.reset();
+		episodeSince = -1.0;
 	}
 	events.clear();
 	EnterState(keepFrozen ? State::Frozen : keepCoasting ? State::Coasting : State::Inactive);

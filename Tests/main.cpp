@@ -5720,6 +5720,79 @@ void RunContinuousScenarios()
 			heldAt25 && trackingAfter &&
 			sim.reanchors == 1 && sim.freezes == 0 && tiltAfter < 0.3 && yawErr < 0.3 && posErr < 0.01 &&
 			yawed.freezes == 1 && yawed.ca.GetState() == ContinuousAlignment::State::Frozen, detail);
+
+		// The same hold put down to a restart of the headset tracker, the
+		// session's first solution at 10.3 s. Its next solution at 100.3 s
+		// reads the same tilt, which no restart explains: the blame is lifted
+		// and the tilt re-anchors, as a freeze does (scenario 26). The hold is
+		// one episode through that restart: taken for a new one, the restart
+		// came before it and the reading it was blamed on belonged to the old
+		// one, so no later solution could ever lift it. A station coming or
+		// going is no new solution and lifts nothing.
+		struct TiltOutcome
+		{
+			int freezes = 0, reanchors = 0, across = 0;
+			double reanchorTime = -1.0, tiltLeft = 0.0;
+			ContinuousAlignment::State state = ContinuousAlignment::State::Inactive;
+		};
+		auto restartedTilt = [&](unsigned seed, bool secondIsSolution, double resetAt = -1.0, double until = 200.0)
+		{
+			std::mt19937 tiltRng(seed);
+			ContinuousSim blamedSim;
+			blamedSim.ca.SetExtrinsic(trueExtrinsic);
+			blamedSim.solvedOffset = baseTruth.latency;
+			tiltedAbout(Eigen::Quaterniond::Identity(), blamedSim.calRot, blamedSim.calTrans);
+			bool first = false, again = false, cleared = false;
+			RunContinuousSegment(blamedSim, scene, 0.0, until, tiltRng, constTruth, constMount, alwaysVisible,
+				nullptr, false,
+				[&](double t)
+				{
+					if (!first && t >= 10.3)
+					{
+						first = true;
+						blamedSim.ca.NoteTargetResolved(RingTime(t), true);
+					}
+					if (!again && t >= 100.3)
+					{
+						again = true;
+						blamedSim.ca.NoteTargetResolved(RingTime(t), secondIsSolution);
+					}
+					if (resetAt > 0.0 && !cleared && t >= resetAt)
+					{
+						cleared = true;
+						blamedSim.ca.Reset(ContinuousAlignment::ResetReason::Requested);
+					}
+					blamedSim.ca.SetTargetSettling((t >= 10.3 && t < 20.3) || (t >= 100.3 && t < 110.3));
+				});
+			TiltOutcome o;
+			o.freezes = blamedSim.freezes;
+			o.reanchors = blamedSim.reanchors;
+			o.across = blamedSim.acrossReanchors;
+			o.reanchorTime = blamedSim.lastReanchorTime;
+			o.tiltLeft = CalTiltDeg(blamedSim, baseTruth);
+			o.state = blamedSim.ca.GetState();
+			return o;
+		};
+		const TiltOutcome sameAgain = restartedTilt(2405, true);
+		const TiltOutcome stationOnly = restartedTilt(2406, false);
+		// A reset that is no gap ends the episode. The hold that follows is a
+		// new one, and the restart of two minutes before no longer explains
+		// it: it re-anchors on its own confirm.
+		const TiltOutcome afterReset = restartedTilt(2407, false, 225.0, 300.0);
+		snprintf(detail, sizeof detail,
+			"next solution reads the same: re-anchors %d (across %d) at %.1f s, tilt left %.3f deg, freezes %d, "
+			"state %d; a station change only: re-anchors %d, tilt left %.2f deg, state %d; and a reset at 225 s: "
+			"re-anchors %d at %.1f s, tilt left %.3f deg",
+			sameAgain.reanchors, sameAgain.across, sameAgain.reanchorTime, sameAgain.tiltLeft, sameAgain.freezes,
+			static_cast<int>(sameAgain.state), stationOnly.reanchors, stationOnly.tiltLeft,
+			static_cast<int>(stationOnly.state), afterReset.reanchors, afterReset.reanchorTime, afterReset.tiltLeft);
+		Check("continuous: a restart's tilt hold its next solution reads the same re-anchors",
+			sameAgain.reanchors == 1 && sameAgain.across == 1 && sameAgain.freezes == 0 &&
+			sameAgain.reanchorTime > 130.0 && sameAgain.reanchorTime < 160.0 && sameAgain.tiltLeft < 0.3 &&
+			sameAgain.state == ContinuousAlignment::State::Tracking &&
+			stationOnly.reanchors == 0 && stationOnly.tiltLeft > 1.5 &&
+			stationOnly.state == ContinuousAlignment::State::Holding &&
+			afterReset.reanchors == 1 && afterReset.reanchorTime > 250.0 && afterReset.tiltLeft < 0.3, detail);
 	}
 
 	// 25. Re-anchor (live 2026-09-24: the lighthouse side moved 62 deg of

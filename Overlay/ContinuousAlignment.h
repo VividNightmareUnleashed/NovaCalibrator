@@ -464,9 +464,10 @@ private:
 	bool followMode = false;
 
 	// The stuck episode: when the freeze confirmed, or when the tilt hold
-	// began. It survives what Frozen survives (a gap, a target restart) and is
-	// what a restart is attributed against. reanchorSince starts the steady
-	// run a re-anchor needs, measured against reanchorRef.
+	// began. Either survives a gap and a target restart, a tilt hold through
+	// the Inactive or Coasting state it passes on the way, and is what a
+	// restart is attributed against. reanchorSince starts the steady run a
+	// re-anchor needs, measured against reanchorRef.
 	double episodeSince = -1.0;
 	double reanchorSince = -1.0;
 	WindowEstimate reanchorRef;
