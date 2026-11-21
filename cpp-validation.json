@@ -6,7 +6,7 @@
   "testExecutable": "x64/Release/SolverTests.exe",
   "testProject": "Tests/SolverTests.vcxproj",
   "minScenarios": 728,
-  "minScenariosWithVirtualQuest": 934,
+  "minScenariosWithVirtualQuest": 936,
   "sweepSessions": 120,
   "debugSweepSessions": 12,
   "duplicateMinLines": 20,
