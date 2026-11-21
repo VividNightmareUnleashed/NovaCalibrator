@@ -3842,6 +3842,133 @@ void AnchoredCaptureOfAnEntryNotTakenAnchors(Check check)
 }
 } // namespace
 
+// A base station re-solved by a fraction of a degree shifts a tracker near it
+// by less than the continuity tolerance and one further off by more: 3 mm at
+// 1.3 m and 14 mm at 4.2 m for a 0.2 deg turn. At the near tracker the change
+// then passes for a move and for a re-expression alike. Read as a
+// re-expression, as it was, it copied the old frame's correction onto the new
+// one, and when that tracker's sample came first the far one's move was refused
+// against it: both stayed where the re-solve put them. The pose says which the
+// change is, so both are corrected in either order.
+void SmallMoveInEitherOrder(Check check)
+{
+	const auto residuals = [](bool nearFirst, double &nearMm, double &farMm, size_t &disagreements)
+	{
+		LighthouseFrameWatch watch;
+		questcal::TrackerFrameCorrections frames;
+		frames.Bind(1, "LHB-00000001");
+		frames.Bind(9, "LHR-NEAR");
+		frames.Bind(10, "LHR-FAR");
+		const auto drain = [&]()
+		{
+			auto moves = watch.TakeMoves();
+			LighthouseFrameWatch::SortByTime(moves);
+			const auto switches = watch.TakeSwitches();
+			frames.Update(watch, moves, switches, vr::k_unTrackedDeviceIndexInvalid,
+				[](uint32_t id) { return id == 9 || id == 10; }, [](double) { return false; });
+		};
+		const Q before = Q::Identity(), after(Eigen::AngleAxisd(0.2 * questcal::Pi / 180.0, V::UnitY()));
+		const V origin(0.0, 2.5, 0.0), nearLocal(0.5, -1.0, 0.7), farLocal(2.5, -1.5, 3.0);
+		double t = 100.0;
+		watch.Note(ReplaySample(1, t, V::Zero(), before, origin), TickScale, true);
+		for (int i = 0; i < 55; ++i)
+		{
+			t += 0.004;
+			watch.Note(ReplaySample(9, t, nearLocal, before, origin), TickScale, false);
+			watch.Note(ReplaySample(10, t, farLocal, before, origin), TickScale, false);
+		}
+		drain();
+		// One tracker's samples carry the new frame 32 ms before the other's.
+		for (int i = 0; i < 8; ++i)
+		{
+			t += 0.004;
+			watch.Note(ReplaySample(9, t, nearLocal, nearFirst ? after : before, origin), TickScale, false);
+			watch.Note(ReplaySample(10, t, farLocal, nearFirst ? before : after, origin), TickScale, false);
+		}
+		drain();
+		for (int i = 0; i < 8; ++i)
+		{
+			t += 0.004;
+			watch.Note(ReplaySample(9, t, nearLocal, after, origin), TickScale, false);
+			watch.Note(ReplaySample(10, t, farLocal, after, origin), TickScale, false);
+		}
+		drain();
+		t += 0.5;
+		watch.Note(ReplaySample(1, t, V::Zero(), after, origin), TickScale, true);
+		for (int i = 0; i < 8; ++i)
+		{
+			t += 0.004;
+			watch.Note(ReplaySample(9, t, nearLocal, after, origin), TickScale, false);
+			watch.Note(ReplaySample(10, t, farLocal, after, origin), TickScale, false);
+		}
+		drain();
+		const auto &snapshot = frames.Snapshot();
+		nearMm = (questcal::TrackerFrameCorrections::Apply(snapshot[9], after * nearLocal + origin) -
+			(before * nearLocal + origin)).norm() * 1000.0;
+		farMm = (questcal::TrackerFrameCorrections::Apply(snapshot[10], after * farLocal + origin) -
+			(before * farLocal + origin)).norm() * 1000.0;
+		disagreements = frames.Disagreements();
+	};
+	double nearA = 0.0, farA = 0.0, nearB = 0.0, farB = 0.0;
+	size_t disagreeA = 0, disagreeB = 0;
+	residuals(false, nearA, farA, disagreeA);
+	residuals(true, nearB, farB, disagreeB);
+	char detail[224];
+	std::snprintf(detail, sizeof detail,
+		"left after the correction: far tracker first %.2f / %.2f mm (%zu disagreement(s)), near tracker first "
+		"%.2f / %.2f mm (%zu)", nearA, farA, disagreeA, nearB, farB, disagreeB);
+	check("frame watch: a re-solve under the tolerance at one tracker is followed in either order",
+		nearA < 0.1 && farA < 0.1 && nearB < 0.1 && farB < 0.1 && disagreeA == 0 && disagreeB == 0, detail);
+}
+
+// The same reading at one tracker, change by change. A 3 mm change that keeps
+// the local pose is a move, one that keeps the world pose is a re-expression,
+// and one that keeps neither is neither, until a device shows it plainly.
+// Under 1 mm the pose cannot say, and the change reads as a re-expression, as
+// every change under the tolerance did.
+void SmallChangeReadByThePose(Check check)
+{
+	const auto read = [](int kept, double shiftM, size_t &moves, size_t &reExpressed)
+	{
+		LighthouseFrameWatch watch;
+		const Q rotation = Q::Identity();
+		const V origin(0.0, 2.5, 0.0), slid = origin + V(shiftM, 0.0, 0.0);
+		V local(0.5, -1.0, 0.7);
+		double t = 100.0;
+		for (int i = 0; i < 50; ++i)
+		{
+			t += 0.004;
+			watch.Note(ReplaySample(9, t, local, rotation, origin), TickScale, false);
+		}
+		if (kept == 1)
+			local -= slid - origin;            // the same world pose in the new frame
+		else if (kept == 2)
+			local -= 0.5 * (slid - origin);    // halfway between the two readings
+		for (int i = 0; i < 50; ++i)
+		{
+			t += 0.004;
+			watch.Note(ReplaySample(9, t, local, rotation, slid), TickScale, false);
+		}
+		moves = watch.TakeMoves().size();
+		reExpressed = 0;
+		for (const auto &change : watch.TakeSwitches())
+			reExpressed += change.cause == LighthouseFrameWatch::Switch::Cause::ReExpressed ? 1 : 0;
+	};
+	size_t moves[4] = {}, reExpressed[4] = {};
+	read(0, 0.003, moves[0], reExpressed[0]);
+	read(1, 0.003, moves[1], reExpressed[1]);
+	read(2, 0.003, moves[2], reExpressed[2]);
+	read(0, 0.0005, moves[3], reExpressed[3]);
+	char detail[200];
+	snprintf(detail, sizeof detail,
+		"3 mm, local pose kept: %zu move(s), %zu re-expression(s); world pose kept: %zu, %zu; neither: %zu, %zu; "
+		"0.5 mm, local pose kept: %zu, %zu",
+		moves[0], reExpressed[0], moves[1], reExpressed[1], moves[2], reExpressed[2], moves[3], reExpressed[3]);
+	check("frame watch: a change under the tolerance is a move, a re-expression or neither by the pose",
+		moves[0] == 1 && reExpressed[0] == 0 && moves[1] == 0 && reExpressed[1] == 1 &&
+			moves[2] == 0 && reExpressed[2] == 0 && moves[3] == 0 && reExpressed[3] == 1, detail);
+}
+
 void RunTrackerFrameCorrectionScenarios(Check check)
 {
 	SplitFrames(check);
@@ -3858,6 +3985,8 @@ void RunTrackerFrameCorrectionScenarios(Check check)
 	SupersededInference(check);
 	HeldFrameChanges(check);
 	SwitchOverflow(check);
+	SmallMoveInEitherOrder(check);
+	SmallChangeReadByThePose(check);
 	DeferredFrameLog(check);
 	CollectionFallback(check);
 	SetupPlacementOnReturn(check);

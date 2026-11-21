@@ -95,6 +95,9 @@ public:
 		// device on its own, so a move reaches them one at a time (live
 		// 2026-10-15: a tracker one sample behind the rest lost a 17.8 cm move).
 		double lagSeconds = 1.0;
+		// The least a change has to shift a device for its pose to say which
+		// kind the change is, when it passes for both (Classify).
+		double decidableShiftM = 0.001;
 	};
 
 	enum class Kind { Moved, ReExpressed, Unclear };
@@ -634,6 +637,33 @@ private:
 		// The current local pose in both frames: how far the change alone
 		// moved the device.
 		c.shiftM = ((is.wfdRot * is.drvPos + is.wfdTrans) - (was.wfdRot * is.drvPos + was.wfdTrans)).norm();
+		// A change that shifts the device by less than the continuity
+		// tolerance passes both tests, and the order they are asked in then
+		// decided: a station re-solved by a fraction of a degree read as a
+		// re-expression at a tracker near it and as a move at one further off,
+		// and whichever showed it first set the frame's correction for both
+		// (replayed: a 0.2 deg turn, 3 mm at 1.3 m and 14 mm at 4.2 m, left
+		// both uncorrected when the near one came first). The two readings
+		// put the device one shift apart, so where the shift can be measured
+		// the pose itself says which holds: the one it stays on to a quarter
+		// of the shift. On neither, the change is unclear, and the devices
+		// that show it plainly lead (Infer).
+		if (worldKept && localKept && c.shiftM >= config.decidableShiftM)
+		{
+			const double dt = is.time - was.time;
+			const bool timed = dt > 0.0 && dt <= ringpose::MaxAdjacentFrameSeconds;
+			const auto off = [&](const ringpose::DriverLocalPoseSample &before,
+				const ringpose::DriverLocalPoseSample &after)
+			{
+				const Eigen::Vector3d expected = timed
+					? questcal::PredictPosition(before.position, before.velocity, after.velocity, dt)
+					: before.position;
+				return (after.position - expected).norm();
+			};
+			const double localOff = off(localWas, localIs), worldOff = off(worldWas, worldIs);
+			c.kind = localOff <= 0.25 * c.shiftM ? Kind::Moved
+				: worldOff <= 0.25 * c.shiftM ? Kind::ReExpressed : Kind::Unclear;
+		}
 		return c;
 	}
 
