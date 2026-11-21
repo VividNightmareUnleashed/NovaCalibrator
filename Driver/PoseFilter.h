@@ -301,7 +301,13 @@ inline void TakeBack(double held[3], double change[3])
 
 // The step from the previous pose to this one, `seconds` of pose time later:
 // what it says of the stream's velocities, and the jump in it, if any.
-inline void HoldUnexplainedStep(State &state, const Pose &pose, double seconds)
+// `judged` is false for a pair the rule does not hold a jump of (tracking is
+// limited at one end, the poses arrived too far apart, the pose time is the
+// capture time). Such a pair is no evidence about the velocities and adds
+// nothing to what is held, but a jump in it still undoes what is held against
+// it: a driver that makes a jump and undoes it on a pose with limited tracking
+// would otherwise leave the pose on the far side by the whole hold.
+inline void HoldUnexplainedStep(State &state, const Pose &pose, double seconds, bool judged)
 {
 	double step[3], unexplained[3];
 	for (int i = 0; i < 3; ++i)
@@ -312,20 +318,25 @@ inline void HoldUnexplainedStep(State &state, const Pose &pose, double seconds)
 	const double travel = Length3(step), error = Length3(unexplained);
 	// The step is judged by what the stream showed before it.
 	const bool trusted = state.velocityTrust >= TrustedVelocities;
-	if (travel >= MovingSpeed * seconds)
+	if (judged && travel >= MovingSpeed * seconds)
 	{
 		const double share = -std::expm1(-seconds / VelocityTrustSeconds);
 		state.velocityTrust += share * ((error <= ExplainedShare * travel ? 1.0 : 0.0) - state.velocityTrust);
 	}
-	if (!trusted || !(error > MotionNoiseMeters + 0.5 * MotionAccelerationAllowance * seconds * seconds) ||
-		error > MaxMotionResidualMeters)
+	if (!trusted || !(error > MotionNoiseMeters + 0.5 * MotionAccelerationAllowance * seconds * seconds))
 		return;
 	// Fast movement leaves more: a velocity that is a little off is off by
 	// more meters. At rest the speeds cover nothing and the limit above decides.
 	const double meanSpeed = 0.5 * (Length3(state.rawVelocity) + Length3(pose.velocity));
 	if (error <= 3.0 * meanSpeed * seconds)
 		return;
+	// A jump, of any size: the part that goes against what is held undoes it.
 	TakeBack(state.heldPosition, unexplained);
+	TakeBack(state.heldMotion, unexplained);
+	// What is left of it is held when the pair is judged and the device is
+	// not simply in another place.
+	if (!judged || error > MaxMotionResidualMeters)
+		return;
 	for (int i = 0; i < 3; ++i)
 		state.heldMotion[i] += unexplained[i];
 	LimitLength(state.heldMotion, MaxMotionHeldMeters);
@@ -487,9 +498,9 @@ inline void Apply(State &state, const Settings &settings, double captureSeconds,
 				state.recoveryTime = captureSeconds;
 			}
 		}
-		else if (state.motionReference && normalTracking && !state.captureIsPoseTime && sincePose > 0.0 &&
-			sincePose <= MaxMotionInterval && sinceCapture <= MaxMotionArrivalGap)
-			HoldUnexplainedStep(state, pose, sincePose);
+		else if (sincePose > 0.0 && sincePose <= MaxMotionInterval)
+			HoldUnexplainedStep(state, pose, sincePose, state.motionReference && normalTracking &&
+				!state.captureIsPoseTime && sinceCapture <= MaxMotionArrivalGap);
 		const double mostHeld = MaxHeldMeters + state.recoveryAllowance;
 		LimitLength(state.heldPosition, mostHeld);
 		LimitLength(state.heldTurn, MaxHeldRadians);

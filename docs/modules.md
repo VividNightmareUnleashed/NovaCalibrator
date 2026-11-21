@@ -106,6 +106,11 @@ recordings and the calibration get the pose as it came.
   only on a stream whose velocities have accounted for its movement
   (`posefilter::TrustedVelocities`), on poses at most 27 ms apart, and not
   across limited tracking.
+  A jump on such a stream that goes against what is held takes it back even
+  where nothing new would be held (limited tracking at one end, poses that
+  arrived far apart, a step of more than 8 cm): a driver that makes a jump
+  and undoes it while tracking is limited would otherwise leave the pose on
+  the far side of the device by the whole hold.
 
 What is held goes out with time whatever the stream does next.
 

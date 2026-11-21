@@ -475,6 +475,47 @@ void JumpScenarios(Check check)
 		std::abs(jumped) < 1e-10 && back >= 0.0 && back < 0.002 && std::abs(corrected - 0.010) < 1e-10 &&
 			returned > 0.010 && returned < 0.012 && settled >= 0.0 && settled < returned, detail);
 
+	// The same on poses the rule does not judge. The driver undoes a held
+	// jump while tracking is limited, undoes a correction held at the larger
+	// limit of a recovery the same way, and undoes a held jump by a step too
+	// large to hold: each time what is held is taken back with it.
+	State unjudged = trusted();
+	sample(unjudged, 6.0, 0.0, 0.0);
+	const double heldJump = sample(unjudged, 6.004, 0.030, 0.0);
+	const double trustBefore = unjudged.velocityTrust;
+	const double undoneLimited = sample(unjudged, 6.008, 0.0, 0.0, false);
+	// 30 mm in 4 ms with no velocity reported counts against the stream's
+	// velocities on a judged pair. This one is no evidence either way.
+	const bool noEvidence = unjudged.velocityTrust == trustBefore;
+	const double stillLimited = sample(unjudged, 6.012, 0.0, 0.0, false);
+	const auto recovering = [](State &state, double time, double position, bool normal, double offset, bool recovered) {
+		vr::DriverPose_t pose{};
+		pose.poseIsValid = true;
+		pose.result = normal ? vr::TrackingResult_Running_OK : vr::TrackingResult_Calibrating_OutOfRange;
+		pose.qRotation.w = 1.0;
+		pose.poseTimeOffset = offset;
+		pose.vecPosition[0] = position;
+		questcal::driverfilter::Apply(Release(), state, time, pose, recovered);
+		return pose.vecPosition[0];
+	};
+	State foot = trusted();
+	recovering(foot, 7.0, 0.0, false, 0.0, false);
+	const double recoveredAt = recovering(foot, 7.0002, 0.1036, true, -0.0002, true);
+	const double lostAgain = recovering(foot, 7.004, 0.0, false, 0.0, false);
+	State gone = trusted();
+	sample(gone, 8.0, 0.0, 0.0);
+	sample(gone, 8.004, 0.030, 0.0);
+	const double elsewhere = sample(gone, 8.008, -0.070, 0.0);
+	snprintf(detail, sizeof detail,
+		"jump held at %.2f mm, undone under limited tracking: %.2f then %.2f mm; recovery held at %.2f mm, lost again: %.2f mm; "
+		"a 100 mm step back over a 30 mm hold: %.2f mm of -70",
+		heldJump * 1000.0, undoneLimited * 1000.0, stillLimited * 1000.0, recoveredAt * 1000.0, lostAgain * 1000.0,
+		elsewhere * 1000.0);
+	check("pose filter: a jump or a recovery undone on a pose the rule does not judge is taken back, not left on the far side",
+		std::abs(heldJump) < 1e-10 && std::abs(undoneLimited) < 1e-10 && noEvidence && std::abs(stillLimited) < 1e-10 &&
+			std::abs(recoveredAt - (0.1036 - MaxRecoveryHeldMeters)) < 1e-10 && std::abs(lostAgain) < 1e-10 &&
+			std::abs(elsewhere + 0.070) < 1e-10, detail);
+
 	// What a stream has to show. A jump before it has shown anything passes;
 	// after a second and a half of movement its velocities account for, a jump
 	// is held, and an invalid pose does not make the stream show it again.
